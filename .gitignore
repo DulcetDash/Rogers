@@ -1,0 +1,19 @@
+# Specify filepatterns you want git to ignore.
+
+**/node_modules
+locations/node_modules
+combined.log
+newrelic_agent.log
+locations/combined.log
+locations/newrelic_agent.log
+.git
+node_modules
+package-lock.json
+test.js
+.DS_store
+rds-combined-ca-bundle.pem
+accountService_access.log
+error.log
+yarn.lock
+.github/workflows/main.yml
+Drivers_profile_pictures/
