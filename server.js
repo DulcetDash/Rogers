@@ -181,12 +181,14 @@ function execGetStores(redisKey, resolve) {
         logger.info(store);
         let tmpStore = {
           name: store.name,
+          fd_name: store.friendly_name,
           type: store.shop_type,
           description: store.description,
           background: store.shop_background_color,
           border: store.border_color,
           logo: `${process.env.AWS_S3_SHOPS_LOGO_PATH}/${store.shop_logo}`,
           fp: store.shop_fp,
+          structured: store.structured_shopping,
           times: {
             target_state: null, //two values: opening or closing
             string: null, //something like: opening in ...min or closing in ...h
@@ -250,13 +252,22 @@ function execGetStores(redisKey, resolve) {
  * @param resolve
  */
 function getCatalogueFor(req, resolve) {
-  let redisKey = `${req.store}-catalogue`;
+  let redisKey = `${JSON.stringify(req)}-catalogue`;
 
   redisGet(redisKey)
     .then((resp) => {
       if (resp !== null) {
         //Has products
         try {
+          //Rehydrate
+          new Promise((resCompute) => {
+            execGetCatalogueFor(req, redisKey, resCompute);
+          })
+            .then((result) => {})
+            .catch((error) => {
+              logger.error(error);
+            });
+
           resp = JSON.parse(resp);
           resolve(resp);
         } catch (error) {
@@ -269,7 +280,7 @@ function getCatalogueFor(req, resolve) {
             })
             .catch((error) => {
               logger.error(error);
-              resolve({ response: "no_products", store: req.store });
+              resolve({ response: {}, store: req.store });
             });
         }
       } //No data
@@ -282,7 +293,7 @@ function getCatalogueFor(req, resolve) {
           })
           .catch((error) => {
             logger.error(error);
-            resolve({ response: "no_products", store: req.store });
+            resolve({ response: {}, store: req.store });
           });
       }
     })
@@ -297,50 +308,162 @@ function getCatalogueFor(req, resolve) {
         })
         .catch((error) => {
           logger.error(error);
-          resolve({ response: "no_products", store: req.store });
+          resolve({ response: {}, store: req.store });
         });
     });
 }
 
+//? ARRAY SHUFFLER
+function shuffle(array) {
+  let currentIndex = array.length,
+    randomIndex;
+
+  // While there remain elements to shuffle.
+  while (currentIndex != 0) {
+    // Pick a remaining element.
+    randomIndex = Math.floor(Math.random() * currentIndex);
+    currentIndex--;
+
+    // And swap it with the current element.
+    [array[currentIndex], array[randomIndex]] = [
+      array[randomIndex],
+      array[currentIndex],
+    ];
+  }
+
+  return array;
+}
+
 function execGetCatalogueFor(req, redisKey, resolve) {
-  collection_catalogue_central
-    .find({
-      "meta.shop_name": req.store,
-    })
-    .toArray(function (err, productsData) {
+  //Get the store name first
+  collection_shops_central
+    .find({ shop_fp: req.store })
+    .toArray(function (err, storeData) {
       if (err) {
         logger.error(err);
-        resolve({ response: "no_products", store: req.store });
+        resolve({ response: {}, store: req.store });
       }
       //...
-      if (productsData !== undefined && productsData.length > 0) {
-        //Has data
-        //Reformat the data
-        let reformatted_data = [];
-        productsData.map((product, index) => {
-          let tmpData = {
-            index: index,
-            name: product.product_name,
-            price: product.product_price.replace("R", "N$"),
-            pictures: [product.product_picture],
-            sku: product.sku,
-            meta: {
-              category: product.meta.category,
-              subcategory: product.meta.subcategory,
-              store: product.meta.shop_name,
-            },
-          };
-          //...
-          reformatted_data.push(tmpData);
-        });
-        //...
-        //! Cache
-        let final = { response: reformatted_data };
-        redisCluster.set(redisKey, JSON.stringify(final));
-        resolve(final);
-      } //No products
+      if (storeData !== undefined && storeData.length > 0) {
+        //Found
+        storeData = storeData[0];
+
+        let reformulateQuery =
+          req.category !== undefined
+            ? {
+                "meta.shop_name": storeData.name.toUpperCase().trim(),
+                "meta.category": req.category.toUpperCase().trim(),
+              }
+            : {
+                "meta.shop_name": storeData.name.toUpperCase().trim(),
+              };
+        //! Add subcategory
+        reformulateQuery =
+          req.subcategory !== undefined
+            ? {
+                ...reformulateQuery,
+                ...{ "meta.subcategory": req.subcategory.toUpperCase().trim() },
+              }
+            : reformulateQuery;
+        //! Cancel all the filtering - if a structured argument is set
+        reformulateQuery =
+          req.structured !== undefined && req.structured === "true"
+            ? {
+                "meta.shop_name": storeData.name.toUpperCase().trim(),
+              }
+            : reformulateQuery;
+
+        logger.warn(reformulateQuery);
+
+        collection_catalogue_central
+          .find(reformulateQuery)
+          .toArray(function (err, productsData) {
+            if (err) {
+              logger.error(err);
+              resolve({ response: {}, store: req.store });
+            }
+            //...
+            if (productsData !== undefined && productsData.length > 0) {
+              //Has data
+              //Reformat the data
+              let reformatted_data = [];
+              productsData.map((product, index) => {
+                let tmpData = {
+                  index: index,
+                  name: product.product_name,
+                  price: product.product_price.replace("R", "N$"),
+                  pictures: [product.product_picture],
+                  sku: product.sku,
+                  meta: {
+                    category: product.meta.category,
+                    subcategory: product.meta.subcategory,
+                    store: product.meta.shop_name,
+                    store_fp: req.store,
+                    structured:
+                      storeData.structured_shopping !== undefined &&
+                      storeData.structured_shopping !== null
+                        ? storeData.structured_shopping
+                          ? "true"
+                          : "false"
+                        : "false",
+                  },
+                };
+                //...
+                reformatted_data.push(tmpData);
+              });
+              //...
+              //! Reorganize based on if the data is structured
+              new Promise((resOrganize) => {
+                if (req.structured !== undefined && req.structured === "true") {
+                  logger.info("Structured data");
+                  let structured = {};
+                  reformatted_data.map((p) => {
+                    if (
+                      structured[p.meta.category] !== undefined &&
+                      structured[p.meta.category] !== null
+                    ) {
+                      //Already set
+                      structured[p.meta.category].push(p);
+                      //! Shuffle
+                      structured[p.meta.category] = shuffle(
+                        structured[p.meta.category]
+                      );
+                      //! Always limit to 3
+                      structured[p.meta.category] = structured[
+                        p.meta.category
+                      ].slice(0, 3);
+                    } //Not yet set
+                    else {
+                      structured[p.meta.category] = [];
+                      structured[p.meta.category].push(p);
+                    }
+                  });
+                  //....
+                  resOrganize(structured);
+                } //Unstructured data
+                else {
+                  logger.info("Unstructured data");
+                  resOrganize(reformatted_data);
+                }
+              })
+                .then((result) => {
+                  //! Cache
+                  let final = { response: result };
+                  redisCluster.set(redisKey, JSON.stringify(final));
+                  resolve(final);
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resolve({ response: {}, store: req.store });
+                });
+            } //No products
+            else {
+              resolve({ response: {}, store: req.store });
+            }
+          });
+      } //Invalid store
       else {
-        resolve({ response: "no_products", store: req.store });
+        resolve({ response: {}, store: req.store });
       }
     });
 }
@@ -492,7 +615,7 @@ redisCluster.on("connect", function () {
     app.post("/getCatalogueFor", function (req, res) {
       req = req.body;
       if (req.store !== undefined && req.store !== null) {
-        req.store = req.store.toUpperCase();
+        req.store = req.store;
         //Ok
         new Promise((resolve) => {
           getCatalogueFor(req, resolve);
