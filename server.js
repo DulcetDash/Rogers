@@ -7,6 +7,7 @@ var multer = require("multer");
 const MongoClient = require("mongodb").MongoClient;
 var fastFilter = require("fast-filter");
 const FuzzySet = require("fuzzyset");
+const crypto = require("crypto");
 
 const { logger } = require("./LogService");
 
@@ -77,6 +78,41 @@ function resolveDate() {
   chaineDateUTC = new Date(date).toISOString();
 }
 resolveDate();
+
+/**
+ * @func generateUniqueFingerprint()
+ * Generate unique fingerprint for any string size.
+ */
+function generateUniqueFingerprint(str, encryption = false, resolve) {
+  str = str.trim();
+  let fingerprint = null;
+  if (encryption === false) {
+    fingerprint = crypto
+      .createHmac(
+        "sha512WithRSAEncryption",
+        "NEJBASICKEYFINGERPRINTS-RIDES-DELIVERY"
+      )
+      .update(str)
+      .digest("hex");
+    resolve(fingerprint);
+  } else if (/md5/i.test(encryption)) {
+    fingerprint = crypto
+      .createHmac(
+        "md5WithRSAEncryption",
+        "NEJBASICKEYFINGERPRINTS-RIDES-DELIVERY"
+      )
+      .update(str)
+      .digest("hex");
+    resolve(fingerprint);
+  } //Other - default
+  else {
+    fingerprint = crypto
+      .createHmac("sha256", "NEJBASICKEYFINGERPRINTS-RIDES-DELIVERY")
+      .update(str)
+      .digest("hex");
+    resolve(fingerprint);
+  }
+}
 
 //EVENT GATEWAY PORT
 
@@ -594,8 +630,83 @@ function execSearchProductsFor(req, redisKey, resolve) {
     });
 }
 
+/**
+ * @func getShoppingDataClient
+ * responsible for getting the realtime shopping requests for clients.
+ * @param requestData: user_identifier mainly
+ * @param resolve
+ */
+function getShoppingDataClient(requestData, resolve) {
+  collection_shoppings_central
+    .find({
+      client_id: requestData.user_identifier,
+      "shopping_state_vars.completedRatingClient": false,
+    })
+    .toArray(function (err, shoppingData) {
+      if (err) {
+        logger.error(err);
+        resolve(false);
+      }
+      //...
+      if (shoppingData !== undefined && shoppingData.length > 0) {
+        shoppingData = shoppingData[0];
+        //Has a pending shopping
+        let RETURN_DATA_TEMPLATE = {
+          request_fp: shoppingData.request_fp,
+          client_id: requestData.user_identifier, //the user identifier - requester
+          shopper_data: {
+            shopper_id: shoppingData.shopper_id,
+            details: null, //The name and profile picture
+          },
+          payment_method: shoppingData.totals.payment_method, //mobile_money or cash
+          locations: shoppingData.locations, //Has the pickup and delivery locations
+          totals_cart: shoppingData.totals, //Has the cart details in terms of fees
+          request_type: shoppingData.request_type, //scheduled or immediate
+          shopping_state_vars: shoppingData.shopping_state_vars,
+          date_requested: shoppingData.date_requested, //The time of the request
+        };
+        //..Get the shopper's infos
+        collection_shoppers_central
+          .find({ user_identifier: shoppingData.shopper_id })
+          .toArray(function (err, shopperData) {
+            if (err) {
+              logger.error(false);
+              resolve(false);
+            }
+            //...
+            if (shopperData !== undefined && shopperData.length > 0) {
+              //Has a shopper
+              shopperData = shopperData[0];
+              RETURN_DATA_TEMPLATE.shopper_data.details = {
+                name: shopperData["name"],
+                phone: shopperData["phone_number"],
+                picture: shopperData["media"]["profile_picture"],
+              };
+              //...
+              resolve([RETURN_DATA_TEMPLATE]);
+            } //No shoppers yet
+            else {
+              RETURN_DATA_TEMPLATE.shopper_data.details = {
+                name: null,
+                phone: null,
+                picture: null,
+              };
+              //...
+              resolve([RETURN_DATA_TEMPLATE]);
+            }
+          });
+      } //No pending shoppings
+      else {
+        resolve(false);
+      }
+    });
+}
+
 var collection_catalogue_central = null;
 var collection_shops_central = null;
+var collection_shoppings_central = null;
+var collection_users_central = null;
+var collection_shoppers_central = null;
 
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
@@ -605,6 +716,9 @@ redisCluster.on("connect", function () {
     const dbMongo = clientMongo.db(process.env.DB_NAME_MONGODDB);
     collection_catalogue_central = dbMongo.collection("catalogue_central"); //Hold all the product from the catalogue
     collection_shops_central = dbMongo.collection("shops_central"); //Hold all the shops subscribed
+    collection_shoppings_central = dbMongo.collection("shoppings_central"); //Hold all the shopping requests
+    collection_users_central = dbMongo.collection("users_central"); //Hold all the users data
+    collection_shoppers_central = dbMongo.collection("shoppers_central"); //Hold all the shoppers data
 
     //?1. Get all the available stores in the app.
     //Get the main ones (4) and the new ones (X)
@@ -811,6 +925,252 @@ redisCluster.on("connect", function () {
           res.send(body);
         }
       );
+    });
+
+    //?6. Request for shopping
+    app.post("/requestForShopping", function (req, res) {
+      new Promise((resolve) => {
+        req = req.body;
+        //! Check for the user identifier, shopping_list and totals
+        if (
+          req.user_identifier !== undefined &&
+          req.user_identifier !== null &&
+          req.shopping_list !== undefined &&
+          req.shopping_list !== null &&
+          req.totals !== undefined &&
+          req.totals !== null &&
+          req.locations !== undefined &&
+          req.locations !== null
+        ) {
+          logger.info(req);
+          try {
+            //! Check if the user has no unconfirmed shoppings
+            let checkUnconfirmed = {
+              client_id: req.user_identifier,
+              "shopping_state_vars.completedRatingClient": false,
+            };
+
+            collection_shoppings_central
+              .find(checkUnconfirmed)
+              .toArray(function (err, prevShopping) {
+                if (err) {
+                  logger.error(err);
+                  resolve({ response: "unable_to_request" });
+                }
+                //...
+                if (prevShopping !== undefined && prevShopping.length <= 0) {
+                  //No unconfirmed shopping - okay
+                  req.shopping_list = JSON.parse(req.shopping_list);
+                  req.totals = JSON.parse(req.totals);
+                  req.locations = JSON.parse(req.locations);
+                  //...
+                  let REQUEST_TEMPLATE = {
+                    request_fp: null,
+                    client_id: req.user_identifier, //the user identifier - requester
+                    shopper_id: false, //The id of the shopper
+                    payment_method: req.totals.payment_method, //mobile_money or cash
+                    locations: req.locations, //Has the pickup and delivery locations
+                    totals_cart: req.totals, //Has the cart details in terms of fees
+                    request_type: "immediate", //scheduled or immediate
+                    shopping_state_vars: {
+                      isAccepted: false, //If the shopping request is accepted
+                      inRouteToPickupCash: false, //If the shopper is in route to pickup the cash
+                      didPickupCash: false, //If the shopper picked up the cash
+                      inRouteToShop: false, //If the shopper is in route to the shop(s)
+                      inRouteToDelivery: false, //If the shopper is on his(her) way to delivery the shopped items
+                      completedShopping: false, //If the shopper is done shopping
+                      completedRatingClient: false, //If the client has completed the rating of the shopped items
+                      rating_data: {
+                        rating: false, //Out of 5
+                        comments: false, //The clients comments
+                        compliments: [], //The service badges
+                      }, //The rating infos
+                    },
+                    date_requested: new Date(chaineDateUTC), //The time of the request
+                    date_pickedupCash: null, //The time when the shopper picked up the cash from the client
+                    date_routeToShop: null, //The time when the shopper started going to the shops
+                    date_completedShopping: null, //The time when the shopper was done shopping
+                    date_routeToDelivery: null, //The time when the shopper started going to delivery the shopped items
+                    date_clientRatedShopping: null, //The time when the client rated the shopper
+                  };
+                  //...
+                  //?1. Get the request_fp
+                  new Promise((resCompute) => {
+                    generateUniqueFingerprint(
+                      `${JSON.stringify(req)}`,
+                      "basic",
+                      resCompute
+                    );
+                  })
+                    .then((result) => {
+                      REQUEST_TEMPLATE.request_fp = result;
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      REQUEST_TEMPLATE.request_fp = `${req.user_identifier.subtr(
+                        0,
+                        10
+                      )}${Math.round(new Date(chaineDateUTC).getTime())}`;
+                    })
+                    .finally(() => {
+                      //?Continue here
+                      collection_shoppings_central.insertOne(
+                        REQUEST_TEMPLATE,
+                        function (err, reslt) {
+                          if (err) {
+                            logger.error(err);
+                            resolve({ response: "unable_to_request" });
+                          }
+                          //....DONE
+                          resolve({ response: "successful" });
+                        }
+                      );
+                    });
+                } //Has an unconfirmed shopping - block
+                else {
+                  resolve({ response: "has_a_pending_shopping" });
+                }
+              });
+          } catch (error) {
+            logger.error(error);
+            resolve({ response: "unable_to_request" });
+          }
+        } else {
+          resolve({ response: "unable_to_request" });
+        }
+      })
+        .then((result) => {
+          res.send(result);
+        })
+        .catch((error) => {
+          logger.error(error);
+          res.send({ response: "unable_to_request" });
+        });
+    });
+
+    //?7. Get the current shopping data - client
+    app.post("/getShoppingData", function (req, res) {
+      new Promise((resolve) => {
+        req = req.body;
+
+        if (req.user_identifier !== undefined && req.user_identifier !== null) {
+          //! Check if the user id exists
+          collection_users_central
+            .find({ user_identifier: req.user_identifier })
+            .toArray(function (err, userData) {
+              if (err) {
+                logger.error(err);
+                resolve(false);
+              }
+              //...
+              if (userData !== undefined && userData.length > 0) {
+                //Known user
+                let redisKey = `${req.user_identifier}-shoppings`;
+
+                redisGet(redisKey)
+                  .then((resp) => {
+                    if (resp !== null) {
+                      //Has some data
+                      try {
+                        //Rehydrate
+                        new Promise((resCompute) => {
+                          getShoppingDataClient(req, resCompute);
+                        })
+                          .then((result) => {
+                            //!Cache
+                            redisCluster(
+                              redisKey,
+                              parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
+                              JSON.stringify(result)
+                            );
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            resolve(false);
+                          });
+                        //....
+                        resp = JSON.parse(resp);
+                        resolve(resp);
+                      } catch (error) {
+                        logger.error(error);
+                        //Make a new request
+                        new Promise((resCompute) => {
+                          getShoppingDataClient(req, resCompute);
+                        })
+                          .then((result) => {
+                            //!Cache
+                            redisCluster(
+                              redisKey,
+                              parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
+                              JSON.stringify(result)
+                            );
+                            //...
+                            resolve(result);
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            resolve(false);
+                          });
+                      }
+                    } //Make a new request
+                    else {
+                      new Promise((resCompute) => {
+                        getShoppingDataClient(req, resCompute);
+                      })
+                        .then((result) => {
+                          //!Cache
+                          redisCluster(
+                            redisKey,
+                            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
+                            JSON.stringify(result)
+                          );
+                          //...
+                          resolve(result);
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          resolve(false);
+                        });
+                    }
+                  })
+                  .catch((error) => {
+                    logger.error(error);
+                    //Make a new request
+                    new Promise((resCompute) => {
+                      getShoppingDataClient(req, resCompute);
+                    })
+                      .then((result) => {
+                        //!Cache
+                        redisCluster(
+                          redisKey,
+                          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
+                          JSON.stringify(result)
+                        );
+                        //...
+                        resolve(result);
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        resolve(false);
+                      });
+                  });
+              } //! Unknown user
+              else {
+                resolve(false);
+              }
+            });
+        } //Missing data
+        else {
+          resolve(false);
+        }
+      })
+        .then((result) => {
+          res.send(result);
+        })
+        .catch((error) => {
+          logger.error(error);
+          res.send(false);
+        });
     });
   });
 });
