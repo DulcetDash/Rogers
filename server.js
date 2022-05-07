@@ -178,61 +178,71 @@ function execGetStores(redisKey, resolve) {
     if (storesData !== undefined && storesData.length > 0) {
       let STORES_MODEL = [];
       storesData.map((store) => {
-        logger.info(store);
-        let tmpStore = {
-          name: store.name,
-          fd_name: store.friendly_name,
-          type: store.shop_type,
-          description: store.description,
-          background: store.shop_background_color,
-          border: store.border_color,
-          logo: `${process.env.AWS_S3_SHOPS_LOGO_PATH}/${store.shop_logo}`,
-          fp: store.shop_fp,
-          structured: store.structured_shopping,
-          times: {
-            target_state: null, //two values: opening or closing
-            string: null, //something like: opening in ...min or closing in ...h
-          },
-          date_added: new Date(store.date_added).getTime(),
-        };
-        //...
-        //? Determine the times
-        let store_opening_ref =
-          parseInt(store.opening_time.split(":")[0].replace(/^0/, "").trim()) *
-            60 +
-          parseInt(store.opening_time.split(":")[1].replace(/^0/, "").trim()); //All in minutes
-        let store_closing_ref =
-          parseInt(store.closing_time.split(":")[0].replace(/^0/, "").trim()) *
-            60 +
-          parseInt(store.closing_time.split(":")[1].replace(/^0/, "").trim()); //All in minutes
-        //...
-        let ref_time =
-          new Date(chaineDateUTC).getHours() * 60 +
-          new Date(chaineDateUTC).getMinutes();
+        if (
+          store.publish === undefined ||
+          store.publish === null ||
+          store.publish
+        ) {
+          logger.info(store);
+          let tmpStore = {
+            name: store.name,
+            fd_name: store.friendly_name,
+            type: store.shop_type,
+            description: store.description,
+            background: store.shop_background_color,
+            border: store.border_color,
+            logo: `${process.env.AWS_S3_SHOPS_LOGO_PATH}/${store.shop_logo}`,
+            fp: store.shop_fp,
+            structured: store.structured_shopping,
+            times: {
+              target_state: null, //two values: opening or closing
+              string: null, //something like: opening in ...min or closing in ...h
+            },
+            date_added: new Date(store.date_added).getTime(),
+          };
+          //...
+          //? Determine the times
+          let store_opening_ref =
+            parseInt(
+              store.opening_time.split(":")[0].replace(/^0/, "").trim()
+            ) *
+              60 +
+            parseInt(store.opening_time.split(":")[1].replace(/^0/, "").trim()); //All in minutes
+          let store_closing_ref =
+            parseInt(
+              store.closing_time.split(":")[0].replace(/^0/, "").trim()
+            ) *
+              60 +
+            parseInt(store.closing_time.split(":")[1].replace(/^0/, "").trim()); //All in minutes
+          //...
+          let ref_time =
+            new Date(chaineDateUTC).getHours() * 60 +
+            new Date(chaineDateUTC).getMinutes();
 
-        if (ref_time >= store_opening_ref && ref_time <= store_closing_ref) {
-          //Target: closing
-          let time_left = Math.abs(store_closing_ref - ref_time);
-          time_left =
-            time_left >= 60
-              ? `Closing in ${Math.round(time_left / 60)}hours`
-              : `Closing in ${time_left}min`;
-          //...
-          tmpStore.times.target_state = "Closing";
-          tmpStore.times.string = time_left;
-        } //Target: opening
-        else {
-          let time_left = Math.abs(store_opening_ref - ref_time);
-          time_left =
-            time_left >= 60
-              ? `Opening in ${Math.round(time_left / 60)}hours`
-              : `Opening in ${time_left}min`;
-          //...
-          tmpStore.times.target_state = "Opening";
-          tmpStore.times.string = time_left;
+          if (ref_time >= store_opening_ref && ref_time <= store_closing_ref) {
+            //Target: closing
+            let time_left = Math.abs(store_closing_ref - ref_time);
+            time_left =
+              time_left >= 60
+                ? `Closing in ${Math.round(time_left / 60)}hours`
+                : `Closing in ${time_left}min`;
+            //...
+            tmpStore.times.target_state = "Closing";
+            tmpStore.times.string = time_left;
+          } //Target: opening
+          else {
+            let time_left = Math.abs(store_opening_ref - ref_time);
+            time_left =
+              time_left >= 60
+                ? `Opening in ${Math.round(time_left / 60)}hours`
+                : `Opening in ${time_left}min`;
+            //...
+            tmpStore.times.target_state = "Opening";
+            tmpStore.times.string = time_left;
+          }
+          //? DONE - SAVE
+          STORES_MODEL.push(tmpStore);
         }
-        //? DONE - SAVE
-        STORES_MODEL.push(tmpStore);
       });
       //...
       //! Cache
@@ -658,6 +668,149 @@ redisCluster.on("connect", function () {
       else {
         res.send({ response: [] });
       }
+    });
+
+    //?4. Move all the pictures from external remote servers to our local server
+    app.post("/getImageRessourcesFromExternal", function (req, res) {
+      //Get all the images that where not moved yet into the internal ressources
+      //? In an image ressource was moved, it will be in the meta.moved_ressources_manifest, else proceed with the getting
+      collection_catalogue_central
+        .find({})
+        .toArray(function (err, productsData) {
+          if (err) {
+            logger.error(err);
+            res.send({ response: "error", flag: err });
+          }
+          //...
+          if (productsData !== undefined && productsData.length > 0) {
+            //Has some products
+            let parentPromises = productsData.map((product, index) => {
+              return new Promise((resolve) => {
+                //Get the array of images
+                let arrayImages = product.product_picture;
+                //Get the transition manifest
+                //? Looks like {'old_image_name_external_url': new_image_name_url}
+                console.log(arrayImages);
+                let transition_manifest =
+                  product.meta.moved_ressources_manifest !== undefined &&
+                  product.meta.moved_ressources_manifest !== null
+                    ? product.meta.moved_ressources_manifest
+                    : {};
+
+                let parentPromises2 = arrayImages.map((picture) => {
+                  return new Promise((resCompute) => {
+                    if (
+                      transition_manifest[picture] !== undefined &&
+                      transition_manifest[picture] !== null
+                    ) {
+                      //!Was moved
+                      //Already processed
+                      resCompute({
+                        message: "Already processed",
+                        index: index,
+                      });
+                    } //!Not moved yet - move
+                    else {
+                      let options = {
+                        uri: picture,
+                        encoding: null,
+                      };
+                      requestAPI(options, function (error, response, body) {
+                        if (error || response.statusCode !== 200) {
+                          console.log("failed to get image");
+                          console.log(error);
+                          resCompute({
+                            message: "Processed - failed",
+                            index: index,
+                          });
+                        } else {
+                          logger.info("Got the image");
+                          s3.putObject(
+                            {
+                              Body: body,
+                              Key: path,
+                              Bucket: "bucket_name",
+                            },
+                            function (error, data) {
+                              if (error) {
+                                console.log("error downloading image to s3");
+                                resCompute({
+                                  message: "Processed - failed",
+                                  index: index,
+                                });
+                              } else {
+                                console.log("success uploading to s3");
+                                resCompute({
+                                  message: "Processed",
+                                  index: index,
+                                });
+                              }
+                            }
+                          );
+                        }
+                      });
+                    }
+                  });
+                });
+
+                //? Done with this
+                Promise.all(parentPromises2)
+                  .then((result) => {
+                    resolve(result);
+                  })
+                  .catch((error) => {
+                    logger.error(error);
+                    resolve({ response: "error_processing" });
+                  });
+              });
+            });
+
+            //! DONE
+            Promise.all(parentPromises)
+              .then((result) => {
+                res.send({ response: result });
+              })
+              .catch((error) => {
+                logger.error(error);
+                res.send({ response: "unable_to_work", flag: error });
+              });
+          } //No products
+          else {
+            res.send({ response: "no_products_found" });
+          }
+        });
+    });
+
+    //?5. Get the user location geocoded
+    app.post("/geocode_this_point", function (req, res) {
+      let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/geocode_this_point`;
+
+      requestAPI.post(
+        { url: urlRequest, form: req.body },
+        function (err, response, body) {
+          if (err) {
+            logger.error(err);
+          }
+          //...
+          res.send(body);
+        }
+      );
+    });
+
+    //?5. Get location search suggestions
+    app.post("/getSearchedLocations", function (req, res) {
+      let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getSearchedLocations`;
+
+      requestAPI.post(
+        { url: urlRequest, form: req.body },
+        function (err, response, body) {
+          if (err) {
+            logger.error(err);
+          }
+          //...
+          res.send(body);
+        }
+      );
     });
   });
 });
