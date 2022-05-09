@@ -658,7 +658,7 @@ function getShoppingDataClient(requestData, resolve) {
             shopper_id: shoppingData.shopper_id,
             details: null, //The name and profile picture
           },
-          payment_method: shoppingData.totals.payment_method, //mobile_money or cash
+          payment_method: shoppingData.payment_method, //mobile_money or cash
           locations: shoppingData.locations, //Has the pickup and delivery locations
           totals_cart: shoppingData.totals, //Has the cart details in terms of fees
           request_type: shoppingData.request_type, //scheduled or immediate
@@ -968,7 +968,7 @@ redisCluster.on("connect", function () {
                     request_fp: null,
                     client_id: req.user_identifier, //the user identifier - requester
                     shopper_id: false, //The id of the shopper
-                    payment_method: req.totals.payment_method, //mobile_money or cash
+                    payment_method: req.payment_method, //mobile_money or cash
                     locations: req.locations, //Has the pickup and delivery locations
                     totals_cart: req.totals, //Has the cart details in terms of fees
                     request_type: "immediate", //scheduled or immediate
@@ -1078,7 +1078,7 @@ redisCluster.on("connect", function () {
                         })
                           .then((result) => {
                             //!Cache
-                            redisCluster(
+                            redisCluster.setex(
                               redisKey,
                               parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
                               JSON.stringify(result)
@@ -1099,7 +1099,7 @@ redisCluster.on("connect", function () {
                         })
                           .then((result) => {
                             //!Cache
-                            redisCluster(
+                            redisCluster.setex(
                               redisKey,
                               parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
                               JSON.stringify(result)
@@ -1119,7 +1119,7 @@ redisCluster.on("connect", function () {
                       })
                         .then((result) => {
                           //!Cache
-                          redisCluster(
+                          redisCluster.setex(
                             redisKey,
                             parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
                             JSON.stringify(result)
@@ -1141,7 +1141,7 @@ redisCluster.on("connect", function () {
                     })
                       .then((result) => {
                         //!Cache
-                        redisCluster(
+                        redisCluster.setex(
                           redisKey,
                           parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
                           JSON.stringify(result)
