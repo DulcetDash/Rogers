@@ -631,16 +631,16 @@ function execSearchProductsFor(req, redisKey, resolve) {
 }
 
 /**
- * @func getShoppingDataClient
+ * @func getRequestDataClient
  * responsible for getting the realtime shopping requests for clients.
  * @param requestData: user_identifier mainly
  * @param resolve
  */
-function getShoppingDataClient(requestData, resolve) {
-  collection_shoppings_central
+function getRequestDataClient(requestData, resolve) {
+  collection_requests_central
     .find({
       client_id: requestData.user_identifier,
-      "shopping_state_vars.completedRatingClient": false,
+      "request_state_vars.completedRatingClient": false,
     })
     .toArray(function (err, shoppingData) {
       if (err) {
@@ -650,52 +650,409 @@ function getShoppingDataClient(requestData, resolve) {
       //...
       if (shoppingData !== undefined && shoppingData.length > 0) {
         shoppingData = shoppingData[0];
-        //Has a pending shopping
-        let RETURN_DATA_TEMPLATE = {
-          request_fp: shoppingData.request_fp,
-          client_id: requestData.user_identifier, //the user identifier - requester
-          shopper_data: {
-            shopper_id: shoppingData.shopper_id,
-            details: null, //The name and profile picture
-          },
-          payment_method: shoppingData.payment_method, //mobile_money or cash
-          locations: shoppingData.locations, //Has the pickup and delivery locations
-          totals_cart: shoppingData.totals, //Has the cart details in terms of fees
-          request_type: shoppingData.request_type, //scheduled or immediate
-          shopping_state_vars: shoppingData.shopping_state_vars,
-          date_requested: shoppingData.date_requested, //The time of the request
-        };
-        //..Get the shopper's infos
-        collection_shoppers_central
-          .find({ user_identifier: shoppingData.shopper_id })
-          .toArray(function (err, shopperData) {
-            if (err) {
-              logger.error(false);
-              resolve(false);
-            }
-            //...
-            if (shopperData !== undefined && shopperData.length > 0) {
-              //Has a shopper
-              shopperData = shopperData[0];
-              RETURN_DATA_TEMPLATE.shopper_data.details = {
-                name: shopperData["name"],
-                phone: shopperData["phone_number"],
-                picture: shopperData["media"]["profile_picture"],
-              };
+
+        //!1. SHOPPING DATA
+        if (shoppingData["ride_mode"].toUpperCase() === "SHOPPING") {
+          //Has a pending shopping
+          let RETURN_DATA_TEMPLATE = {
+            ride_mode: shoppingData["ride_mode"].toUpperCase(),
+            request_fp: shoppingData.request_fp,
+            client_id: requestData.user_identifier, //the user identifier - requester
+            shopper_data: {
+              shopper_id: shoppingData.shopper_id,
+              details: null, //The name and profile picture
+            },
+            payment_method: shoppingData.payment_method, //mobile_money or cash
+            locations: shoppingData.locations, //Has the pickup and delivery locations
+            totals_request: shoppingData.totals, //Has the cart details in terms of fees
+            request_type: shoppingData.request_type, //scheduled or immediate
+            request_state_vars: shoppingData.request_state_vars,
+            date_requested: shoppingData.date_requested, //The time of the request
+          };
+          //..Get the shopper's infos
+          collection_drivers_shoppers_central
+            .find({ driver_fingerprint: shoppingData.shopper_id })
+            .toArray(function (err, shopperData) {
+              if (err) {
+                logger.error(false);
+                resolve(false);
+              }
               //...
-              resolve([RETURN_DATA_TEMPLATE]);
-            } //No shoppers yet
-            else {
-              RETURN_DATA_TEMPLATE.shopper_data.details = {
-                name: null,
-                phone: null,
-                picture: null,
-              };
-              //...
-              resolve([RETURN_DATA_TEMPLATE]);
-            }
-          });
-      } //No pending shoppings
+              if (shopperData !== undefined && shopperData.length > 0) {
+                //Has a shopper
+                shopperData = shopperData[0];
+                RETURN_DATA_TEMPLATE.shopper_data.details = {
+                  name: shopperData["name"],
+                  phone: shopperData["phone_number"],
+                  picture:
+                    shopperData["identification_data"]["profile_picture"],
+                };
+                //...
+                resolve([RETURN_DATA_TEMPLATE]);
+              } //No shoppers yet
+              else {
+                RETURN_DATA_TEMPLATE.shopper_data.details = {
+                  name: null,
+                  phone: null,
+                  picture: null,
+                };
+                //...
+                resolve([RETURN_DATA_TEMPLATE]);
+              }
+            });
+        }
+        //!2. RIDE DATA
+        else if (shoppingData["ride_mode"].toUpperCase() === "RIDE") {
+          //Check the state of the ride request
+          //?1. NOT YET ACCEPTED
+          if (shoppingData.request_state_vars.isAccepted === false) {
+            let RETURN_DATA_TEMPLATE = {
+              step_name: "pending",
+              ride_mode: shoppingData["ride_mode"].toUpperCase(),
+              request_fp: shoppingData.request_fp,
+              payment_method: shoppingData.payment_method,
+              trip_locations: shoppingData.locations,
+              passengers: shoppingData.passengers_number,
+              ride_style: shoppingData.ride_style,
+              fare: shoppingData.totals_request.fare,
+              note: shoppingData.request_documentation.note,
+              state_vars: shoppingData.request_state_vars,
+              driver_details: false,
+              route_details: {
+                //Will have eta and so on.
+              },
+              date_requested: shoppingData.date_requested,
+            };
+            //Get the route details
+            let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
+
+            requestAPI.post(
+              {
+                url: urlRequest,
+                form: {
+                  user_fingerprint: shoppingData.client_id,
+                  org_latitude: parseFloat(
+                    shoppingData.locations.pickup.coordinates.latitude
+                  ),
+                  org_longitude: parseFloat(
+                    shoppingData.locations.pickup.coordinates.longitude
+                  ),
+                  dest_latitude: parseFloat(
+                    shoppingData.locations.dropoff[0].coordinates[0]
+                  ),
+                  dest_longitude: parseFloat(
+                    shoppingData.locations.dropoff[0].coordinates[1]
+                  ),
+                },
+              },
+              function (err, response, body) {
+                if (err) {
+                  logger.error(err);
+                  resolve(false);
+                }
+                //...
+                try {
+                  body = JSON.parse(body);
+                  //Complete the route details
+                  RETURN_DATA_TEMPLATE.route_details["eta"] = body["eta"];
+                  RETURN_DATA_TEMPLATE.route_details["distance"] =
+                    body["distance"];
+                  RETURN_DATA_TEMPLATE.route_details["origin"] = body["origin"];
+                  //DONE
+                  resolve([RETURN_DATA_TEMPLATE]);
+                } catch (error) {
+                  logger.error(error);
+                  resolve(false);
+                }
+              }
+            );
+          }
+          //?2. ACCEPTED - IN ROUTE TO PICKUP  AND IN ROUTE TO DROP OFF
+          else if (
+            shoppingData.request_state_vars.isAccepted &&
+            // shoppingData.request_state_vars.inRouteToDropoff &&
+            shoppingData.request_state_vars.completedDropoff === false
+          ) {
+            let RETURN_DATA_TEMPLATE = {
+              step_name: shoppingData.request_state_vars.inRouteToDropoff
+                ? "in_route_to_dropoff"
+                : "in_route_to_pickup",
+              ride_mode: shoppingData["ride_mode"].toUpperCase(),
+              request_fp: shoppingData.request_fp,
+              payment_method: shoppingData.payment_method,
+              trip_locations: shoppingData.locations,
+              passengers: shoppingData.passengers_number,
+              ride_style: shoppingData.ride_style,
+              fare: shoppingData.totals_request.fare,
+              note: shoppingData.request_documentation.note,
+              state_vars: shoppingData.request_state_vars,
+              driver_details: false,
+              route_details: {
+                //Will have eta and so on.
+              },
+              date_requested: shoppingData.date_requested,
+            };
+
+            //Get the drivers details
+            collection_drivers_shoppers_central
+              .find({ driver_fingerprint: shoppingData.shopper_id })
+              .toArray(function (err, driverData) {
+                if (err) {
+                  logger.error(false);
+                  resolve(false);
+                }
+                //...
+                if (driverData !== undefined && driverData.length > 0) {
+                  //Has a driver
+                  driverData = driverData[0];
+                  //Complete the drivers details
+                  RETURN_DATA_TEMPLATE.driver_details = {
+                    name: driverData.name,
+                    picture: driverData.identification_data.profile_picture,
+                    rating: driverData.identification_data.rating,
+                    vehicle: {
+                      picture: driverData.cars_data[0].taxi_picture,
+                      brand: driverData.cars_data[0].car_brand,
+                      plate_no: driverData.cars_data[0].plate_number,
+                      taxi_number: driverData.cars_data[0].taxi_number,
+                    },
+                  };
+
+                  //! Get the current driver location
+                  let driver_details_cached_key = `${driverData.driver_fingerprint}-cached_useful_data`;
+
+                  new Promise((resCompute) => {
+                    redisGet(driver_details_cached_key).then((resp) => {
+                      if (resp !== null) {
+                        //Has some cached data
+                        try {
+                          resp = JSON.parse(resp);
+                          resCompute(
+                            resp.operational_state.last_location !== null &&
+                              resp.operational_state.last_location !== undefined
+                              ? resp.operational_state.last_location.coordinates
+                              : false
+                          );
+                        } catch (error) {
+                          logger.error(error);
+                          redisCluster.setex(
+                            driver_details_cached_key,
+                            parseFloat(process.env.REDIS_EXPIRATION_5MIN) * 65,
+                            JSON.stringify(driverData)
+                          );
+                          //...
+                          resCompute(
+                            driverData.operational_state.last_location !==
+                              null &&
+                              driverData.operational_state.last_location !==
+                                undefined
+                              ? driverData.operational_state.last_location
+                                  .coordinates
+                              : false
+                          );
+                        }
+                      } //Get from mongo and cache
+                      else {
+                        redisCluster.setex(
+                          driver_details_cached_key,
+                          parseFloat(process.env.REDIS_EXPIRATION_5MIN) * 65,
+                          JSON.stringify(driverData)
+                        );
+                        //...
+                        resCompute(
+                          driverData.operational_state.last_location !== null &&
+                            driverData.operational_state.last_location !==
+                              undefined
+                            ? driverData.operational_state.last_location
+                                .coordinates
+                            : false
+                        );
+                      }
+                    });
+                  })
+                    .then((driverDataCached) => {
+                      //Get the route details
+                      let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
+
+                      requestAPI.post(
+                        {
+                          url: urlRequest,
+                          form: shoppingData.request_state_vars.inRouteToDropoff
+                            ? {
+                                user_fingerprint: shoppingData.client_id,
+                                org_latitude: parseFloat(
+                                  driverDataCached.latitude
+                                ),
+                                org_longitude: parseFloat(
+                                  driverDataCached.longitude
+                                ),
+                                dest_latitude: parseFloat(
+                                  shoppingData.locations.dropoff[0]
+                                    .coordinates[0]
+                                ),
+                                dest_longitude: parseFloat(
+                                  shoppingData.locations.dropoff[0]
+                                    .coordinates[1]
+                                ),
+                              }
+                            : {
+                                user_fingerprint: shoppingData.client_id,
+                                org_latitude: parseFloat(
+                                  shoppingData.locations.pickup.coordinates
+                                    .latitude
+                                ),
+                                org_longitude: parseFloat(
+                                  shoppingData.locations.pickup.coordinates
+                                    .longitude
+                                ),
+                                dest_latitude: parseFloat(
+                                  driverDataCached.latitude
+                                ),
+                                dest_longitude: parseFloat(
+                                  driverDataCached.longitude
+                                ),
+                              },
+                        },
+                        function (err, response, body) {
+                          if (err) {
+                            logger.error(err);
+                            resolve(false);
+                          }
+                          //...
+                          try {
+                            body = JSON.parse(body);
+                            //Complete the route details
+                            RETURN_DATA_TEMPLATE.route_details = body;
+                            //DONE
+                            resolve([RETURN_DATA_TEMPLATE]);
+                          } catch (error) {
+                            logger.error(error);
+                            resolve(false);
+                          }
+                        }
+                      );
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve(false);
+                    });
+                } //No drivers yet?
+                else {
+                  resolve(false);
+                }
+              });
+          }
+          //?4. RIDE COMPLETED
+          else if (
+            shoppingData.request_state_vars.completedDropoff &&
+            shoppingData.request_state_vars.completedRatingClient == false
+          ) {
+            let RETURN_DATA_TEMPLATE = {
+              step_name: "completed",
+              ride_mode: shoppingData["ride_mode"].toUpperCase(),
+              request_fp: shoppingData.request_fp,
+              payment_method: shoppingData.payment_method,
+              trip_locations: shoppingData.locations,
+              passengers: shoppingData.passengers_number,
+              ride_style: shoppingData.ride_style,
+              fare: shoppingData.totals_request.fare,
+              note: shoppingData.request_documentation.note,
+              state_vars: shoppingData.request_state_vars,
+              driver_details: false,
+              route_details: {
+                //Will have eta and so on.
+              },
+              date_requested: shoppingData.date_requested,
+            };
+
+            //Get the drivers details
+            collection_drivers_shoppers_central
+              .find({ driver_fingerprint: shoppingData.shopper_id })
+              .toArray(function (err, driverData) {
+                if (err) {
+                  logger.error(false);
+                  resolve(false);
+                }
+                //...
+                if (driverData !== undefined && driverData.length > 0) {
+                  //Has a driver
+                  driverData = driverData[0];
+                  //Complete the drivers details
+                  RETURN_DATA_TEMPLATE.driver_details = {
+                    name: driverData.name,
+                    picture: driverData.identification_data.profile_picture,
+                    rating: driverData.identification_data.rating,
+                    vehicle: {
+                      picture: driverData.cars_data[0].taxi_picture,
+                      brand: driverData.cars_data[0].car_brand,
+                      plate_no: driverData.cars_data[0].plate_number,
+                      taxi_number: driverData.cars_data[0].taxi_number,
+                    },
+                  };
+
+                  //Get the route details
+                  let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
+
+                  requestAPI.post(
+                    {
+                      url: urlRequest,
+                      form: {
+                        user_fingerprint: shoppingData.client_id,
+                        org_latitude: parseFloat(
+                          shoppingData.locations.pickup.coordinates.latitude
+                        ),
+                        org_longitude: parseFloat(
+                          shoppingData.locations.pickup.coordinates.longitude
+                        ),
+                        dest_latitude: parseFloat(
+                          shoppingData.locations.dropoff[0].coordinates[0]
+                        ),
+                        dest_longitude: parseFloat(
+                          shoppingData.locations.dropoff[0].coordinates[1]
+                        ),
+                      },
+                    },
+                    function (err, response, body) {
+                      if (err) {
+                        logger.error(err);
+                        resolve(false);
+                      }
+                      //...
+                      try {
+                        body = JSON.parse(body);
+                        //Complete the route details
+                        RETURN_DATA_TEMPLATE.route_details["eta"] = body["eta"];
+                        RETURN_DATA_TEMPLATE.route_details["distance"] =
+                          body["distance"];
+                        RETURN_DATA_TEMPLATE.route_details["origin"] =
+                          body["origin"];
+                        //DONE
+                        resolve([RETURN_DATA_TEMPLATE]);
+                      } catch (error) {
+                        logger.error(error);
+                        resolve(false);
+                      }
+                    }
+                  );
+                } //No drivers yet?
+                else {
+                  resolve(false);
+                }
+              });
+          } //No request
+          else {
+            resolve(false);
+          }
+        }
+        //!3. DELIVERY DATA
+        else if (shoppingData["ride_mode"].toUpperCase() === "DELIVERY") {
+        } //Invalid data
+        else {
+          resolve(false);
+        }
+      }
+
+      //No pending shoppings
       else {
         resolve(false);
       }
@@ -704,9 +1061,9 @@ function getShoppingDataClient(requestData, resolve) {
 
 var collection_catalogue_central = null;
 var collection_shops_central = null;
-var collection_shoppings_central = null;
+var collection_requests_central = null;
 var collection_users_central = null;
-var collection_shoppers_central = null;
+var collection_drivers_shoppers_central = null;
 
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
@@ -716,9 +1073,11 @@ redisCluster.on("connect", function () {
     const dbMongo = clientMongo.db(process.env.DB_NAME_MONGODDB);
     collection_catalogue_central = dbMongo.collection("catalogue_central"); //Hold all the product from the catalogue
     collection_shops_central = dbMongo.collection("shops_central"); //Hold all the shops subscribed
-    collection_shoppings_central = dbMongo.collection("shoppings_central"); //Hold all the shopping requests
+    collection_requests_central = dbMongo.collection("requests_central"); //Hold all the shopping requests
     collection_users_central = dbMongo.collection("users_central"); //Hold all the users data
-    collection_shoppers_central = dbMongo.collection("shoppers_central"); //Hold all the shoppers data
+    collection_drivers_shoppers_central = dbMongo.collection(
+      "drivers_shoppers_central"
+    ); //Hold all the shoppers and drivers data
 
     //?1. Get all the available stores in the app.
     //Get the main ones (4) and the new ones (X)
@@ -940,17 +1299,19 @@ redisCluster.on("connect", function () {
           req.totals !== undefined &&
           req.totals !== null &&
           req.locations !== undefined &&
-          req.locations !== null
+          req.locations !== null &&
+          req.ride_mode !== undefined &&
+          req.ride_mode !== null
         ) {
           logger.info(req);
           try {
             //! Check if the user has no unconfirmed shoppings
             let checkUnconfirmed = {
               client_id: req.user_identifier,
-              "shopping_state_vars.completedRatingClient": false,
+              "request_state_vars.completedRatingClient": false,
             };
 
-            collection_shoppings_central
+            collection_requests_central
               .find(checkUnconfirmed)
               .toArray(function (err, prevShopping) {
                 if (err) {
@@ -960,9 +1321,18 @@ redisCluster.on("connect", function () {
                 //...
                 if (prevShopping !== undefined && prevShopping.length <= 0) {
                   //No unconfirmed shopping - okay
-                  req.shopping_list = JSON.parse(req.shopping_list);
-                  req.totals = JSON.parse(req.totals);
-                  req.locations = JSON.parse(req.locations);
+                  //! Perform the conversions
+                  req.shopping_list =
+                    req.shopping_list !== undefined
+                      ? JSON.parse(req.shopping_list)
+                      : null;
+                  req.totals =
+                    req.totals !== undefined ? JSON.parse(req.totals) : null;
+                  req.locations =
+                    req.locations !== undefined
+                      ? JSON.parse(req.locations)
+                      : null;
+
                   //...
                   let REQUEST_TEMPLATE = {
                     request_fp: null,
@@ -970,9 +1340,13 @@ redisCluster.on("connect", function () {
                     shopper_id: false, //The id of the shopper
                     payment_method: req.payment_method, //mobile_money or cash
                     locations: req.locations, //Has the pickup and delivery locations
-                    totals_cart: req.totals, //Has the cart details in terms of fees
+                    totals_request: req.totals, //Has the cart details in terms of fees
                     request_type: "immediate", //scheduled or immediate
-                    shopping_state_vars: {
+                    request_documentation: {
+                      note: req.note,
+                    },
+                    ride_mode: req.ride_mode, //ride, delivery or shopping
+                    request_state_vars: {
                       isAccepted: false, //If the shopping request is accepted
                       inRouteToPickupCash: false, //If the shopper is in route to pickup the cash
                       didPickupCash: false, //If the shopper picked up the cash
@@ -1014,7 +1388,216 @@ redisCluster.on("connect", function () {
                     })
                     .finally(() => {
                       //?Continue here
-                      collection_shoppings_central.insertOne(
+                      collection_requests_central.insertOne(
+                        REQUEST_TEMPLATE,
+                        function (err, reslt) {
+                          if (err) {
+                            logger.error(err);
+                            resolve({ response: "unable_to_request" });
+                          }
+                          //....DONE
+                          resolve({ response: "successful" });
+                        }
+                      );
+                    });
+                } //Has an unconfirmed shopping - block
+                else {
+                  resolve({ response: "has_a_pending_shopping" });
+                }
+              });
+          } catch (error) {
+            logger.error(error);
+            resolve({ response: "unable_to_request" });
+          }
+        } else {
+          resolve({ response: "unable_to_request" });
+        }
+      })
+        .then((result) => {
+          res.send(result);
+        })
+        .catch((error) => {
+          logger.error(error);
+          res.send({ response: "unable_to_request" });
+        });
+    });
+
+    //?6. Request for delivery or ride
+    app.post("/requestForRideOrDelivery", function (req, res) {
+      new Promise((resolve) => {
+        req = req.body;
+        //! Check for the user identifier, shopping_list and totals
+        //Check basic ride or delivery conditions
+        let checkerCondition =
+          req.ride_mode !== undefined &&
+          req.ride_mode !== null &&
+          req.ride_mode == "delivery"
+            ? req.user_identifier !== undefined &&
+              req.user_identifier !== null &&
+              req.dropOff_data !== undefined &&
+              req.dropOff_data !== null &&
+              req.totals !== undefined &&
+              req.totals !== null &&
+              req.pickup_location !== undefined &&
+              req.pickup_location !== null
+            : req.user_identifier !== undefined &&
+              req.user_identifier !== null &&
+              req.dropOff_data !== undefined &&
+              req.dropOff_data !== null &&
+              req.passengers_number !== undefined &&
+              req.passengers_number !== null &&
+              req.pickup_location !== undefined &&
+              req.pickup_location !== null;
+
+        if (checkerCondition) {
+          logger.info(req);
+          try {
+            //! Check if the user has no unconfirmed shoppings
+            let checkUnconfirmed = {
+              client_id: req.user_identifier,
+              "request_state_vars.completedRatingClient": false,
+            };
+
+            collection_requests_central
+              .find(checkUnconfirmed)
+              .toArray(function (err, prevDelivery) {
+                if (err) {
+                  logger.error(err);
+                  resolve({ response: "unable_to_request" });
+                }
+                //...
+                if (prevDelivery !== undefined && prevDelivery.length <= 0) {
+                  //No unconfirmed shopping - okay
+                  //! Perform the conversions
+                  req.dropOff_data =
+                    req.dropOff_data !== undefined
+                      ? JSON.parse(req.dropOff_data)
+                      : null;
+                  req.totals =
+                    req.totals !== undefined ? JSON.parse(req.totals) : null;
+                  req.pickup_location =
+                    req.pickup_location !== undefined
+                      ? JSON.parse(req.pickup_location)
+                      : null;
+                  req.passengers_number =
+                    req.passengers_number !== undefined
+                      ? parseInt(req.passengers_number)
+                      : null;
+                  req.areGoingTheSameWay =
+                    req.areGoingTheSameWay !== undefined
+                      ? req.areGoingTheSameWay === "true"
+                      : null;
+                  req.ride_selected =
+                    req.ride_selected !== undefined
+                      ? JSON.parse(req.ride_selected)
+                      : null;
+                  req.custom_fare =
+                    req.custom_fare !== undefined && req.custom_fare !== "false"
+                      ? parseFloat(req.custom_fare)
+                      : false;
+                  //...
+                  let REQUEST_TEMPLATE =
+                    req.ride_mode === "delivery"
+                      ? {
+                          request_fp: null,
+                          client_id: req.user_identifier, //the user identifier - requester
+                          shopper_id: false, //The id of the shopper
+                          payment_method: req.payment_method, //mobile_money or cash
+                          locations: {
+                            pickup: req.pickup_location, //Has the pickup locations
+                            dropoff: req.dropOff_data, //The list of recipient/riders and their locations
+                          },
+                          totals_request: req.totals, //Has the cart details in terms of fees
+                          request_type: "immediate", //scheduled or immediate
+                          request_documentation: {
+                            note: req.note,
+                          },
+                          ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
+                          request_state_vars: {
+                            isAccepted: false, //If the shopping request is accepted
+                            inRouteToPickup: false, //If the driver is in route to pickup the package/client
+                            inRouteToDropoff: false, //If the driver is in route to drop the client/package
+                            completedDropoff: false, //If the driver is done trip
+                            completedRatingClient: false, //If the client has completed the rating of the shopped items
+                            rating_data: {
+                              rating: false, //Out of 5
+                              comments: false, //The clients comments
+                              compliments: [], //The service badges
+                            }, //The rating infos
+                          },
+                          date_requested: new Date(chaineDateUTC), //The time of the request
+                          date_pickedup: null, //The time when the driver picked up the  client/package
+                          date_routeToDropoff: null, //The time when the driver started going to drop off the client/package
+                          date_completedDropoff: null, //The time when the driver was done with the ride
+                          date_routeToDropoff: null, //The time when the driver started going to dropoff the client/package
+                          date_clientRatedRide: null, //The time when the client rated the driver
+                        }
+                      : {
+                          request_fp: null,
+                          client_id: req.user_identifier, //the user identifier - requester
+                          shopper_id: false, //The id of the shopper
+                          payment_method: req.payment_method, //mobile_money or cash
+                          locations: {
+                            pickup: req.pickup_location, //Has the pickup locations
+                            dropoff: req.dropOff_data, //The list of recipient/riders and their locations
+                          },
+                          totals_request: {
+                            fare:
+                              req.custom_fare !== undefined &&
+                              req.custom_fare !== false
+                                ? req.custom_fare
+                                : req.ride_selected.base_fare,
+                          }, //Has the cart details in terms of fees
+                          ride_selected: req.ride_selected, //The type of vehicle selected
+                          request_type: "immediate", //scheduled or immediate
+                          request_documentation: {
+                            note: req.note,
+                          },
+                          passengers_number: req.passengers_number, //the number of passengers
+                          areGoingTheSameWay: req.areGoingTheSameWay, //If all the passengers are going to the same destination or not
+                          ride_style: req.ride_style, //Private or Shared rides
+                          ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
+                          request_state_vars: {
+                            isAccepted: false, //If the shopping request is accepted
+                            inRouteToPickup: false, //If the driver is in route to pickup the package/client
+                            inRouteToDropoff: false, //If the driver is in route to drop the client/package
+                            completedDropoff: false, //If the driver is done trip
+                            completedRatingClient: false, //If the client has completed the rating of the shopped items
+                            rating_data: {
+                              rating: false, //Out of 5
+                              comments: false, //The clients comments
+                              compliments: [], //The service badges
+                            }, //The rating infos
+                          },
+                          date_requested: new Date(chaineDateUTC), //The time of the request
+                          date_pickedup: null, //The time when the driver picked up the  client/package
+                          date_routeToDropoff: null, //The time when the driver started going to drop off the client/package
+                          date_completedDropoff: null, //The time when the driver was done with the ride
+                          date_routeToDropoff: null, //The time when the driver started going to dropoff the client/package
+                          date_clientRatedRide: null, //The time when the client rated the driver
+                        };
+                  //...
+                  //?1. Get the request_fp
+                  new Promise((resCompute) => {
+                    generateUniqueFingerprint(
+                      `${JSON.stringify(req)}`,
+                      "basic",
+                      resCompute
+                    );
+                  })
+                    .then((result) => {
+                      REQUEST_TEMPLATE.request_fp = result;
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      REQUEST_TEMPLATE.request_fp = `${req.user_identifier.subtr(
+                        0,
+                        10
+                      )}${Math.round(new Date(chaineDateUTC).getTime())}`;
+                    })
+                    .finally(() => {
+                      //?Continue here
+                      collection_requests_central.insertOne(
                         REQUEST_TEMPLATE,
                         function (err, reslt) {
                           if (err) {
@@ -1074,7 +1657,7 @@ redisCluster.on("connect", function () {
                       try {
                         //Rehydrate
                         new Promise((resCompute) => {
-                          getShoppingDataClient(req, resCompute);
+                          getRequestDataClient(req, resCompute);
                         })
                           .then((result) => {
                             //!Cache
@@ -1095,7 +1678,7 @@ redisCluster.on("connect", function () {
                         logger.error(error);
                         //Make a new request
                         new Promise((resCompute) => {
-                          getShoppingDataClient(req, resCompute);
+                          getRequestDataClient(req, resCompute);
                         })
                           .then((result) => {
                             //!Cache
@@ -1115,7 +1698,7 @@ redisCluster.on("connect", function () {
                     } //Make a new request
                     else {
                       new Promise((resCompute) => {
-                        getShoppingDataClient(req, resCompute);
+                        getRequestDataClient(req, resCompute);
                       })
                         .then((result) => {
                           //!Cache
@@ -1137,7 +1720,7 @@ redisCluster.on("connect", function () {
                     logger.error(error);
                     //Make a new request
                     new Promise((resCompute) => {
-                      getShoppingDataClient(req, resCompute);
+                      getRequestDataClient(req, resCompute);
                     })
                       .then((result) => {
                         //!Cache
@@ -1171,6 +1754,38 @@ redisCluster.on("connect", function () {
           logger.error(error);
           res.send(false);
         });
+    });
+
+    //?6. Get the route snapshot for the ride
+    app.post("/getRouteToDestinationSnapshot", function (req, res) {
+      let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
+
+      requestAPI.post(
+        { url: urlRequest, form: req.body },
+        function (err, response, body) {
+          if (err) {
+            logger.error(err);
+          }
+          //...
+          res.send(body);
+        }
+      );
+    });
+
+    //?7. Get the fares
+    app.post("/computeFares", function (req, res) {
+      let urlRequest = `http://localhost:${process.env.PRICING_SERVICE_PORT}/computeFares`;
+
+      requestAPI.post(
+        { url: urlRequest, form: req.body },
+        function (err, response, body) {
+          if (err) {
+            logger.error(err);
+          }
+          //...
+          res.send(body);
+        }
+      );
     });
   });
 });

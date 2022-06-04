@@ -1667,6 +1667,653 @@ function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
   });
 }
 
+/**
+ * @func reverseGeocodeUserLocation
+ * @param resolve
+ * @param req: user coordinates, and fingerprint
+ * Responsible for finding out the current user (passenger, driver, etc) location details
+ * REDIS propertiy
+ * user_fingerprint+reverseGeocodeKey -> currentLocationInfos: {...}
+ */
+function reverseGeocodeUserLocation(resolve, req) {
+  //Form the redis key
+  let redisKey = req.user_fingerprint + "-reverseGeocodeKey";
+  //Check if redis has some informations already
+  redisGet(redisKey).then(
+    (resp) => {
+      if (resp !== null) {
+        //Do a fresh request to update the cache
+        //Make a new reseach
+        new Promise((res) => {
+          //logger.info("Fresh geocpding launched");
+          reverseGeocoderExec(res, req, JSON.parse(resp), redisKey);
+        }).then(
+          (result) => {},
+          (error) => {
+            logger.error(error);
+          }
+        );
+
+        //Has already a cache entry
+        //Check if an old current location is present
+        resp = JSON.parse(resp);
+        if (resp.currentLocationInfos !== undefined) {
+          //Make a rehydration request
+          new Promise((res) => {
+            reverseGeocoderExec(res, req, false, redisKey);
+          }).then(
+            (result) => {
+              //Updating cache and replying to the main thread
+              let currentLocationEntry = { currentLocationInfos: result };
+              redisCluster.setex(
+                redisKey,
+                process.env.REDIS_EXPIRATION_5MIN,
+                JSON.stringify(currentLocationEntry)
+              );
+            },
+            (error) => {
+              logger.error(error);
+            }
+          );
+          //Send
+          resolve(resp.currentLocationInfos);
+        } //No previously cached current location
+        else {
+          //Make a new reseach
+          new Promise((res) => {
+            reverseGeocoderExec(res, req, false, redisKey);
+          }).then(
+            (result) => {
+              //Updating cache and replying to the main thread
+              let currentLocationEntry = { currentLocationInfos: result };
+              redisCluster.setex(
+                redisKey,
+                process.env.REDIS_EXPIRATION_5MIN,
+                JSON.stringify(currentLocationEntry)
+              );
+              resolve(result);
+            },
+            (error) => {
+              logger.error(error);
+              resolve(false);
+            }
+          );
+        }
+      } //No cache entry, create a new one
+      else {
+        //Make a new reseach
+        new Promise((res) => {
+          reverseGeocoderExec(res, req, false, redisKey);
+        }).then(
+          (result) => {
+            //Updating cache and replying to the main thread
+            let currentLocationEntry = { currentLocationInfos: result };
+            redisCluster.setex(
+              redisKey,
+              process.env.REDIS_EXPIRATION_5MIN,
+              JSON.stringify(currentLocationEntry)
+            );
+            resolve(result);
+          },
+          (error) => {
+            logger.error(error);
+            resolve(false);
+          }
+        );
+      }
+    },
+    (error) => {
+      logger.error(error);
+      resolve(false);
+    }
+  );
+}
+/**
+ * @func reverseGeocoderExec
+ * @param updateCache: to known whether to update the cache or not if yes, will have the value of the hold cache.
+ * @param req: the user basic data (fingerprint, etc)
+ * @param redisKey: the redis key to cache the data to
+ * Responsible for executing the geocoding new fresh requests
+ */
+function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
+  //! APPLY BLUE OCEAN BUG FIX FOR THE PICKUP LOCATION COORDINATES
+  //? 1. Destination
+  //? Get temporary vars
+  let pickLatitude1 = parseFloat(req.latitude);
+  let pickLongitude1 = parseFloat(req.longitude);
+  //! Coordinates order fix - major bug fix for ocean bug
+  if (
+    pickLatitude1 !== undefined &&
+    pickLatitude1 !== null &&
+    pickLatitude1 !== 0 &&
+    pickLongitude1 !== undefined &&
+    pickLongitude1 !== null &&
+    pickLongitude1 !== 0
+  ) {
+    //? Switch latitude and longitude - check the negative sign
+    if (parseFloat(pickLongitude1) < 0) {
+      //Negative - switch
+      req.latitude = pickLongitude1;
+      req.longitude = pickLatitude1;
+    }
+  }
+  //! -------
+  let url =
+    process.env.URL_SEARCH_SERVICES +
+    "reverse?lon=" +
+    req.longitude +
+    "&lat=" +
+    req.latitude;
+
+  logger.info(url);
+
+  requestAPI(url, function (error, response, body) {
+    try {
+      body = JSON.parse(body);
+      if (body != undefined) {
+        if (body.features[0].properties != undefined) {
+          //Check if a city was already assigned
+          //? Deduct consistently the town
+          let urlNominatim = `${process.env.URL_NOMINATIM_SERVICES}/reverse?lat=${req.latitude}&lon=${req.longitude}&zoom=10&format=json`;
+
+          requestAPI(urlNominatim, function (error2, response2, body2) {
+            // logger.error(body2);
+            try {
+              body2 = JSON.parse(body2);
+              // logger.warn(body2.address.city);
+              if (body.features[0].properties.street != undefined) {
+                //? Update the city
+                body.features[0].properties["city"] =
+                  body2.address.city !== undefined
+                    ? body2.address.city
+                    : body.features[0].properties["city"];
+                //? -----
+                if (updateCache !== false) {
+                  //Update cache
+                  updateCache.currentLocationInfos =
+                    body.features[0].properties;
+                  redisCluster.setex(
+                    redisKey,
+                    process.env.REDIS_EXPIRATION_5MIN,
+                    JSON.stringify(updateCache)
+                  );
+                }
+                //...
+                resolve(body.features[0].properties);
+              } else if (body.features[0].properties.name != undefined) {
+                //? Update the city
+                body.features[0].properties["city"] =
+                  body2.address.city !== undefined
+                    ? body2.address.city
+                    : body.features[0].properties["city"];
+                //? -----
+                body.features[0].properties.street =
+                  body.features[0].properties.name;
+                if (updateCache !== false) {
+                  //Update cache
+                  updateCache.currentLocationInfos =
+                    body.features[0].properties;
+                  redisCluster.setex(
+                    redisKey,
+                    process.env.REDIS_EXPIRATION_5MIN,
+                    JSON.stringify(updateCache)
+                  );
+                }
+                //...
+                resolve(body.features[0].properties);
+              } else {
+                resolve(false);
+              }
+            } catch (error) {
+              logger.error(error);
+              if (body.features[0].properties.street != undefined) {
+                if (updateCache !== false) {
+                  //Update cache
+                  updateCache.currentLocationInfos =
+                    body.features[0].properties;
+                  redisCluster.setex(
+                    redisKey,
+                    process.env.REDIS_EXPIRATION_5MIN,
+                    JSON.stringify(updateCache)
+                  );
+                }
+                //...
+                resolve(body.features[0].properties);
+              } else if (body.features[0].properties.name != undefined) {
+                body.features[0].properties.street =
+                  body.features[0].properties.name;
+                if (updateCache !== false) {
+                  //Update cache
+                  updateCache.currentLocationInfos =
+                    body.features[0].properties;
+                  redisCluster.setex(
+                    redisKey,
+                    process.env.REDIS_EXPIRATION_5MIN,
+                    JSON.stringify(updateCache)
+                  );
+                }
+                //...
+                resolve(body.features[0].properties);
+              } else {
+                resolve(false);
+              }
+            }
+          });
+        } else {
+          resolve(false);
+        }
+      } else {
+        resolve(false);
+      }
+    } catch (error) {
+      logger.warn(error);
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * @func findDestinationPathPreview
+ * @param resolve
+ * @param pointData: origin and destination of the user selected from the app.
+ * Responsible for getting the polyline and eta to destination based on the selected destination location.
+ * REDIS
+ * key: pathToDestinationPreview+user_fingerprint
+ * value: [{...}, {...}]
+ */
+function findDestinationPathPreview(resolve, pointData) {
+  if (pointData.origin !== undefined && pointData.destination !== undefined) {
+    //Create the redis key
+    let redisKey = "pathToDestinationPreview-" + pointData.user_fingerprint;
+    //Add redis key to pointData
+    pointData.redisKey = null;
+    pointData.redisKey = redisKey;
+    logger.info(redisKey);
+    redisGet(redisKey).then(
+      (resp) => {
+        if (resp !== null) {
+          //Found something cached
+          try {
+            //Check for needed record
+            let neededRecord = false; //Will contain the needed record if exists or else false
+            resp = JSON.parse(resp);
+            resp.map((pathInfo) => {
+              if (
+                pathInfo.origin !== undefined &&
+                pathInfo.origin.latitude === pointData.origin.latitude &&
+                pathInfo.origin.longitude === pointData.origin.longitude &&
+                pathInfo.destination.latitude ===
+                  pointData.destination.latitude &&
+                pathInfo.destination.longitude ===
+                  pointData.destination.longitude
+              ) {
+                neededRecord = pathInfo;
+              }
+            });
+            //...
+            if (neededRecord !== false) {
+              //Make a light request to update the eta
+              new Promise((res) => {
+                findRouteSnapshotExec(res, pointData);
+              }).then(
+                () => {},
+                () => {}
+              );
+              //Found record - respond to the user
+              resolve(neededRecord);
+            } //Not record found - do fresh search
+            else {
+              new Promise((res) => {
+                findRouteSnapshotExec(res, pointData);
+              }).then(
+                (result) => {
+                  resolve(result);
+                },
+                (error) => {
+                  resolve(false);
+                }
+              );
+            }
+          } catch (error) {
+            //Error - do a fresh search
+            new Promise((res) => {
+              findRouteSnapshotExec(res, pointData);
+            }).then(
+              (result) => {
+                resolve(result);
+              },
+              (error) => {
+                resolve(false);
+              }
+            );
+          }
+        } //Nothing- do a fresh search
+        else {
+          new Promise((res) => {
+            findRouteSnapshotExec(res, pointData);
+          }).then(
+            (result) => {
+              resolve(result);
+            },
+            (error) => {
+              resolve(false);
+            }
+          );
+        }
+      },
+      (error) => {
+        //Error - do a fresh search
+        new Promise((res) => {
+          findRouteSnapshotExec(res, pointData);
+        }).then(
+          (result) => {
+            resolve(result);
+          },
+          (error) => {
+            resolve(false);
+          }
+        );
+      }
+    );
+  }
+  //Invalid data
+  else {
+    resolve(false);
+  }
+}
+/**
+ * @func findRouteSnapshotExec
+ * @param resolve
+ * @param pointData: containing
+ * Responsible to manage the requests of getting the polylines from the ROUTING engine
+ * of TaxiConnect.
+ */
+function findRouteSnapshotExec(resolve, pointData) {
+  let org_latitude = pointData.origin.latitude;
+  let org_longitude = pointData.origin.longitude;
+  let dest_latitude = pointData.destination.latitude;
+  let dest_longitude = pointData.destination.longitude;
+  //...
+  new Promise((res) => {
+    getRouteInfosDestination(
+      {
+        passenger: {
+          latitude: org_latitude,
+          longitude: org_longitude,
+        },
+        destination: {
+          latitude: dest_latitude,
+          longitude: dest_longitude,
+        },
+      },
+      res
+    );
+  }).then(
+    (result) => {
+      result.origin = {
+        latitude: org_latitude,
+        longitude: org_longitude,
+      };
+      result.destination = {
+        latitude: dest_latitude,
+        longitude: dest_longitude,
+      };
+      //Save in cache
+      new Promise((res) => {
+        //Check if there was a previous redis record
+        redisGet(pointData.redisKey).then(
+          (resp) => {
+            if (resp !== null) {
+              //Contains something
+              try {
+                //Add new record to the array
+                resp = JSON.parse(resp);
+                resp.push(result);
+                resp = [...new Set(resp.map(JSON.stringify))].map(JSON.parse);
+                redisCluster.setex(
+                  pointData.redisKey,
+                  process.env.REDIS_EXPIRATION_5MIN,
+                  JSON.stringify(resp)
+                );
+                res(true);
+              } catch (error) {
+                //Create a fresh one
+                redisCluster.setex(
+                  pointData.redisKey,
+                  process.env.REDIS_EXPIRATION_5MIN,
+                  JSON.stringify([result])
+                );
+                res(false);
+              }
+            } //No records -create a fresh one
+            else {
+              redisCluster.setex(
+                pointData.redisKey,
+                process.env.REDIS_EXPIRATION_5MIN,
+                JSON.stringify([result])
+              );
+              res(true);
+            }
+          },
+          (error) => {
+            //create fresh record
+            redisCluster.setex(
+              pointData.redisKey,
+              process.env.REDIS_EXPIRATION_5MIN,
+              JSON.stringify([result])
+            );
+            res(false);
+          }
+        );
+      }).then(
+        () => {},
+        () => {}
+      );
+      //Respond already
+      resolve(result);
+    },
+    (error) => {
+      //logger.info(error);
+      resolve(false);
+    }
+  );
+}
+
+/**
+ * Responsible for finding vital ETA and route informations from one point
+ * to another.
+ * @param simplifiedResults: to only return the ETA and distance infos
+ * @param cache: to cache the results to the provided REDIS key at the provided value index, DO NOT OVERWRITE
+ */
+function getRouteInfosDestination(
+  coordsInfos,
+  resolve,
+  simplifiedResults = false,
+  cache = false
+) {
+  let destinationPosition = coordsInfos.destination;
+  let passengerPosition = coordsInfos.passenger;
+  //! APPLY BLUE OCEAN BUG FIX FOR THE PICKUP LOCATION COORDINATES
+  //? 1. Destination
+  //? Get temporary vars
+  let pickLatitude1 = parseFloat(destinationPosition.latitude);
+  let pickLongitude1 = parseFloat(destinationPosition.longitude);
+  //! Coordinates order fix - major bug fix for ocean bug
+  if (
+    pickLatitude1 !== undefined &&
+    pickLatitude1 !== null &&
+    pickLatitude1 !== 0 &&
+    pickLongitude1 !== undefined &&
+    pickLongitude1 !== null &&
+    pickLongitude1 !== 0
+  ) {
+    //? Switch latitude and longitude - check the negative sign
+    if (parseFloat(pickLongitude1) < 0) {
+      //Negative - switch
+      destinationPosition.latitude = pickLongitude1;
+      destinationPosition.longitude = pickLatitude1;
+    }
+  }
+  //? 2. Passenger
+  //? Get temporary vars
+  let pickLatitude2 = parseFloat(passengerPosition.latitude);
+  let pickLongitude2 = parseFloat(passengerPosition.longitude);
+  //! Coordinates order fix - major bug fix for ocean bug
+  if (
+    pickLatitude2 !== undefined &&
+    pickLatitude2 !== null &&
+    pickLatitude2 !== 0 &&
+    pickLongitude2 !== undefined &&
+    pickLongitude2 !== null &&
+    pickLongitude2 !== 0
+  ) {
+    //? Switch latitude and longitude - check the negative sign
+    if (parseFloat(pickLongitude2) < 0) {
+      //Negative - switch
+      passengerPosition.latitude = pickLongitude2;
+      passengerPosition.longitude = pickLatitude2;
+    }
+  }
+  //!!! --------------------------
+  let url =
+    process.env.URL_ROUTE_SERVICES +
+    "point=" +
+    passengerPosition.latitude +
+    "," +
+    passengerPosition.longitude +
+    "&point=" +
+    destinationPosition.latitude +
+    "," +
+    destinationPosition.longitude +
+    "&heading_penalty=0&avoid=residential&avoid=ferry&ch.disable=true&locale=en&details=street_name&details=time&optimize=true&points_encoded=false&details=max_speed&snap_prevention=ferry&profile=car&pass_through=true";
+
+  //Add instructions if specified so
+  if (
+    coordsInfos.setIntructions !== undefined &&
+    coordsInfos.setIntructions !== null &&
+    coordsInfos.setIntructions
+  ) {
+    url += "&instructions=true";
+  } //Remove instructions details
+  else {
+    url += "&instructions=false";
+  }
+  requestAPI(url, function (error, response, body) {
+    if (body != undefined) {
+      if (body.length > 20) {
+        try {
+          body = JSON.parse(body);
+          if (body.paths[0].distance != undefined) {
+            let distance = body.paths[0].distance;
+            let eta =
+              body.paths[0].time / 1000 >= 60
+                ? Math.round(body.paths[0].time / 60000) + " min away"
+                : Math.round(body.paths[0].time / 1000) + " sec away"; //Sec
+            //...
+            if (cache !== false) {
+              //Update the cache
+              //Check for previous redis record
+              new Promise((res) => {
+                redisGet(cache.redisKey).then(
+                  (resp) => {
+                    if (resp !== null) {
+                      //Has a record, update the provided value inddex with the result
+                      try {
+                        resp = JSON.parse(resp);
+                        resp[cache.valueIndex] = {
+                          eta: eta,
+                          distance: distance,
+                        };
+                        redisCluster.setex(
+                          cache.redisKey,
+                          process.env.REDIS_EXPIRATION_5MIN,
+                          JSON.stringify(resp)
+                        );
+                        res(true);
+                      } catch (error) {
+                        //Write new record
+                        let tmp = {};
+                        tmp[cache.valueIndex] = {
+                          eta: eta,
+                          distance: distance,
+                        };
+                        redisCluster.setex(
+                          cache.redisKey,
+                          process.env.REDIS_EXPIRATION_5MIN,
+                          JSON.stringify(tmp)
+                        );
+                        res(true);
+                      }
+                    } //Write brand new record
+                    else {
+                      let tmp = {};
+                      tmp[cache.valueIndex] = {
+                        eta: eta,
+                        distance: distance,
+                      };
+                      redisCluster.setex(
+                        cache.redisKey,
+                        process.env.REDIS_EXPIRATION_5MIN,
+                        JSON.stringify(tmp)
+                      );
+                      res(true);
+                    }
+                  },
+                  (error) => {
+                    //Skip caching
+                    res(false);
+                  }
+                );
+              }).then(
+                () => {
+                  ////logger.info("Updated relative eta cache.");
+                },
+                () => {}
+              );
+            }
+            //...
+            if (simplifiedResults === false) {
+              var rawPoints = body.paths[0].points.coordinates;
+              var pointsTravel = rawPoints;
+              //=====================================================================
+              resolve({
+                routePoints: pointsTravel,
+                driverNextPoint: pointsTravel[0],
+                destinationPoint: [
+                  destinationPosition.longitude,
+                  destinationPosition.latitude,
+                ],
+                instructions:
+                  coordsInfos.setIntructions !== undefined &&
+                  coordsInfos.setIntructions !== null
+                    ? body.paths[0].instructions
+                    : null,
+                eta: eta,
+                distance: distance,
+              });
+            } //Simplify results
+            else {
+              //=====================================================================
+              resolve({
+                eta: eta,
+                distance: distance,
+              });
+            }
+          } else {
+            resolve(false);
+          }
+        } catch (error) {
+          resolve(false);
+        }
+      } else {
+        resolve(false);
+      }
+    } else {
+      resolve(false);
+    }
+  });
+}
+
 var collectionSearchedLocationPersist = null;
 var collectionAutoCompletedSuburbs = null;
 var collectionEnrichedLocationPersist = null;
@@ -1951,6 +2598,165 @@ redisCluster.on("connect", function () {
         })
         .catch((error) => {
           //logger.info(error);
+          res.send(false);
+        });
+    });
+
+    /**
+     * REVERSE GEOCODER
+     * To get the exact approx. location of the user or driver.
+     * REDIS propertiy
+     * user_fingerprint -> currentLocationInfos: {...}
+     */
+    app.post("/getUserLocationInfos", function (req, res) {
+      new Promise((resMAIN) => {
+        let request = req.body;
+        resolveDate();
+
+        if (
+          request.latitude != undefined &&
+          request.latitude != null &&
+          request.longitude != undefined &&
+          request.longitude != null &&
+          request.user_fingerprint !== null &&
+          request.user_fingerprint !== undefined
+        ) {
+          logger.error(JSON.stringify(request.user_fingerprint));
+          //Save the history of the geolocation
+          new Promise((resHistory) => {
+            if (request.geolocationData !== undefined) {
+              bundleData = {
+                user_fingerprint: request.user_fingerprint,
+                gps_data: request.geolocationData,
+                date: new Date(chaineDateUTC),
+              };
+              //..
+              collectionHistoricalGPS.insertOne(
+                bundleData,
+                function (err, reslt) {
+                  if (err) {
+                    logger.error(err);
+                    resHistory(false);
+                  }
+                  //...
+                  logger.info("Saved GPS data");
+                  resHistory(true);
+                }
+              );
+            } //No required data
+            else {
+              logger.info("No required GPS data for logs");
+              resHistory(false);
+            }
+          })
+            .then()
+            .catch();
+
+          //Hand responses
+          new Promise((resolve) => {
+            reverseGeocodeUserLocation(resolve, request);
+          }).then(
+            (result) => {
+              if (
+                result !== false &&
+                result !== "false" &&
+                result !== undefined &&
+                result !== null
+              ) {
+                //! SUPPORTED CITIES
+                let SUPPORTED_CITIES = ["WINDHOEK", "SWAKOPMUND", "WALVIS BAY"];
+                //? Attach the supported city state
+                result["isCity_supported"] = SUPPORTED_CITIES.includes(
+                  result.city !== undefined && result.city !== null
+                    ? result.city.trim().toUpperCase()
+                    : result.name !== undefined && result.name !== null
+                    ? result.name.trim().toUpperCase()
+                    : "Unknown city"
+                );
+                result["isCity_supported"] = true;
+                //! Replace Samora Machel Constituency by Wanaheda
+                if (
+                  result.suburb !== undefined &&
+                  result.suburb !== null &&
+                  /Samora Machel Constituency/i.test(result.suburb)
+                ) {
+                  result.suburb = "Wanaheda";
+                  resMAIN(result);
+                } else {
+                  resMAIN(result);
+                }
+              } //False returned
+              else {
+                resMAIN(false);
+              }
+            },
+            (error) => {
+              logger.error(error);
+              resMAIN(false);
+            }
+          );
+        }
+      })
+        .then((result) => {
+          res.send(result);
+        })
+        .catch((error) => {
+          //logger.info(error);
+          res.send(false);
+        });
+    });
+
+    /**
+     * ROUTE TO DESTINATION previewer
+     * Responsible for showing to the user the preview of the first destination after selecting on the app the destination.
+     */
+    app.post("/getRouteToDestinationSnapshot", function (req, res) {
+      new Promise((resMAIN) => {
+        req = req.body;
+        // logger.info(req);
+        //logger.info("here");
+        //...
+        if (
+          req.user_fingerprint !== undefined &&
+          req.org_latitude !== undefined &&
+          req.org_longitude !== undefined
+        ) {
+          new Promise((res) => {
+            let tmp = {
+              origin: {
+                latitude: req.org_latitude,
+                longitude: req.org_longitude,
+              },
+              destination: {
+                latitude: req.dest_latitude,
+                longitude: req.dest_longitude,
+              },
+              user_fingerprint: req.user_fingerprint,
+              request_fp:
+                req.request_fp !== undefined && req.request_fp !== null
+                  ? req.request_fp
+                  : false,
+            };
+            findDestinationPathPreview(res, tmp);
+          }).then(
+            (result) => {
+              resMAIN(result);
+            },
+            (error) => {
+              logger.error(error);
+              resMAIN(false);
+            }
+          );
+        } //error
+        else {
+          resMAIN(false);
+        }
+      })
+        .then((result) => {
+          res.send(result);
+        })
+        .catch((error) => {
+          logger.error(error);
           res.send(false);
         });
     });
