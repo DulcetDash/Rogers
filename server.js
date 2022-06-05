@@ -1787,6 +1787,96 @@ redisCluster.on("connect", function () {
         }
       );
     });
+
+    //?8. Submit the rider rating
+    app.post("/submitRiderOrClientRating", function (req, res) {
+      new Promise((resolve) => {
+        req = req.body;
+
+        logger.info(req);
+
+        if (
+          req.request_fp !== undefined &&
+          req.request_fp !== null &&
+          req.rating !== undefined &&
+          req.rating !== null &&
+          req.badges !== undefined &&
+          req.badges !== null &&
+          req.note !== undefined &&
+          req.note !== null &&
+          req.user_fingerprint !== undefined &&
+          req.user_fingerprint !== null
+        ) {
+          req.badges = JSON.parse(req.badges);
+
+          let RATING_DATA = {
+            rating: parseFloat(req.rating),
+            comments: req.note,
+            compliments: req.badges,
+            date_rated: new Date(chaineDateUTC),
+          };
+
+          //...Check the request
+          //! Can only rate once
+          let requestChecker = {
+            request_fp: req.request_fp,
+            "request_state_vars.completedRatingClient": false,
+          };
+
+          collection_requests_central
+            .find(requestChecker)
+            .toArray(function (error, requestData) {
+              if (error) {
+                logger.error(error);
+                resolve([{ response: "error" }]);
+              }
+
+              //...
+              if (requestData !== undefined && requestData.length > 0) {
+                //Valid
+                requestData = requestData[0];
+
+                let updatedRequestState = requestData.request_state_vars;
+                updatedRequestState["rating_data"] = RATING_DATA;
+                updatedRequestState["completedRatingClient"] = true;
+
+                collection_requests_central.updateOne(
+                  requestChecker,
+                  {
+                    $set: {
+                      request_state_vars: updatedRequestState,
+                      date_clientRatedRide: new Date(chaineDateUTC),
+                    },
+                  },
+                  function (err, result) {
+                    if (err) {
+                      logger.error(err);
+                      resolve([{ response: "error" }]);
+                    }
+
+                    //...
+                    resolve([{ response: "success" }]);
+                  }
+                );
+              } //No request?
+              else {
+                resolve([{ response: "error" }]);
+              }
+            });
+        } //Invalid data
+        else {
+          resolve([{ response: "error" }]);
+        }
+      })
+        .then((result) => {
+          logger.info(result);
+          res.send(result);
+        })
+        .catch((error) => {
+          logger.error(error);
+          res.send([{ response: "error" }]);
+        });
+    });
   });
 });
 
