@@ -658,15 +658,16 @@ function getRequestDataClient(requestData, resolve) {
             ride_mode: shoppingData["ride_mode"].toUpperCase(),
             request_fp: shoppingData.request_fp,
             client_id: requestData.user_identifier, //the user identifier - requester
-            shopper_data: {
-              shopper_id: shoppingData.shopper_id,
-              details: null, //The name and profile picture
-            },
+            driver_details: {}, //Will hold the details of the shopper
+            shopping_list: shoppingData.shopping_list, //The list of items to shop for
             payment_method: shoppingData.payment_method, //mobile_money or cash
-            locations: shoppingData.locations, //Has the pickup and delivery locations
-            totals_request: shoppingData.totals, //Has the cart details in terms of fees
+            trip_locations: shoppingData.locations, //Has the pickup and delivery locations
+            totals_request: shoppingData.totals_request, //Has the cart details in terms of fees
             request_type: shoppingData.request_type, //scheduled or immediate
-            request_state_vars: shoppingData.request_state_vars,
+            state_vars: shoppingData.request_state_vars,
+            ewallet_details: {
+              phone: "+264856997167",
+            },
             date_requested: shoppingData.date_requested, //The time of the request
           };
           //..Get the shopper's infos
@@ -680,18 +681,25 @@ function getRequestDataClient(requestData, resolve) {
               //...
               if (shopperData !== undefined && shopperData.length > 0) {
                 //Has a shopper
-                shopperData = shopperData[0];
-                RETURN_DATA_TEMPLATE.shopper_data.details = {
-                  name: shopperData["name"],
-                  phone: shopperData["phone_number"],
-                  picture:
-                    shopperData["identification_data"]["profile_picture"],
+                let driverData = shopperData[0];
+
+                RETURN_DATA_TEMPLATE.driver_details = {
+                  name: driverData.name,
+                  picture: driverData.identification_data.profile_picture,
+                  rating: driverData.identification_data.rating,
+                  phone: driverData["phone_number"],
+                  vehicle: {
+                    picture: driverData.cars_data[0].taxi_picture,
+                    brand: driverData.cars_data[0].car_brand,
+                    plate_no: driverData.cars_data[0].plate_number,
+                    taxi_number: driverData.cars_data[0].taxi_number,
+                  },
                 };
                 //...
                 resolve([RETURN_DATA_TEMPLATE]);
               } //No shoppers yet
               else {
-                RETURN_DATA_TEMPLATE.shopper_data.details = {
+                RETURN_DATA_TEMPLATE.driver_details = {
                   name: null,
                   phone: null,
                   picture: null,
@@ -810,6 +818,7 @@ function getRequestDataClient(requestData, resolve) {
                     name: driverData.name,
                     picture: driverData.identification_data.profile_picture,
                     rating: driverData.identification_data.rating,
+                    phone: driverData["phone_number"],
                     vehicle: {
                       picture: driverData.cars_data[0].taxi_picture,
                       brand: driverData.cars_data[0].car_brand,
@@ -1345,6 +1354,7 @@ redisCluster.on("connect", function () {
                     request_documentation: {
                       note: req.note,
                     },
+                    shopping_list: req.shopping_list, //! The list of items to shop for
                     ride_mode: req.ride_mode, //ride, delivery or shopping
                     request_state_vars: {
                       isAccepted: false, //If the shopping request is accepted
