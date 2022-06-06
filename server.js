@@ -648,6 +648,7 @@ function getRequestDataClient(requestData, resolve) {
         logger.error(err);
         resolve(false);
       }
+
       //...
       if (shoppingData !== undefined && shoppingData.length > 0) {
         shoppingData = shoppingData[0];
@@ -1131,6 +1132,7 @@ var collection_shops_central = null;
 var collection_requests_central = null;
 var collection_users_central = null;
 var collection_drivers_shoppers_central = null;
+var collection_cancelled_requests_central = null;
 
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
@@ -1140,7 +1142,10 @@ redisCluster.on("connect", function () {
     const dbMongo = clientMongo.db(process.env.DB_NAME_MONGODDB);
     collection_catalogue_central = dbMongo.collection("catalogue_central"); //Hold all the product from the catalogue
     collection_shops_central = dbMongo.collection("shops_central"); //Hold all the shops subscribed
-    collection_requests_central = dbMongo.collection("requests_central"); //Hold all the shopping requests
+    collection_requests_central = dbMongo.collection("requests_central"); //Hold all the shopping, ride and delivery requests
+    collection_cancelled_requests_central = dbMongo.collection(
+      "cancelled_requests_central"
+    ); //Hold all the shopping, ride and delivery requests
     collection_users_central = dbMongo.collection("users_central"); //Hold all the users data
     collection_drivers_shoppers_central = dbMongo.collection(
       "drivers_shoppers_central"
@@ -1377,7 +1382,10 @@ redisCluster.on("connect", function () {
             specialChars: false,
           });
           //! --------------
-          security_pin = String(otp).length < 6 ? parseInt(otp) * 10 : otp;
+          security_pin =
+            String(security_pin).length < 6
+              ? parseInt(security_pin) * 10
+              : security_pin;
 
           try {
             //! Check if the user has no unconfirmed shoppings
@@ -1421,7 +1429,7 @@ redisCluster.on("connect", function () {
                       note: req.note,
                     },
                     shopping_list: req.shopping_list, //! The list of items to shop for
-                    ride_mode: req.ride_mode, //ride, delivery or shopping
+                    ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
                     request_state_vars: {
                       isAccepted: false, //If the shopping request is accepted
                       inRouteToPickupCash: false, //If the shopper is in route to pickup the cash
@@ -1536,7 +1544,10 @@ redisCluster.on("connect", function () {
             specialChars: false,
           });
           //! --------------
-          security_pin = String(otp).length < 6 ? parseInt(otp) * 10 : otp;
+          security_pin =
+            String(security_pin).length < 6
+              ? parseInt(security_pin) * 10
+              : security_pin;
 
           try {
             //! Check if the user has no unconfirmed shoppings
@@ -1950,6 +1961,78 @@ redisCluster.on("connect", function () {
 
                     //...
                     resolve([{ response: "success" }]);
+                  }
+                );
+              } //No request?
+              else {
+                resolve([{ response: "error" }]);
+              }
+            });
+        } //Invalid data
+        else {
+          resolve([{ response: "error" }]);
+        }
+      })
+        .then((result) => {
+          logger.info(result);
+          res.send(result);
+        })
+        .catch((error) => {
+          logger.error(error);
+          res.send([{ response: "error" }]);
+        });
+    });
+
+    //?9. Cancel request - user
+    app.post("/cancel_request_user", function (req, res) {
+      new Promise((resolve) => {
+        req = req.body;
+        logger.info(req);
+
+        if (
+          req.request_fp !== undefined &&
+          req.request_fp !== null &&
+          req.user_identifier !== undefined &&
+          req.user_identifier !== null
+        ) {
+          //Check if there is such request
+          let checkRequest = {
+            request_fp: req.request_fp,
+            client_id: req.user_identifier,
+          };
+          //...
+          collection_requests_central
+            .find(checkRequest)
+            .toArray(function (error, requestData) {
+              if (error) {
+                logger.error(error);
+                resolve([{ response: "error" }]);
+              }
+              //...
+              if (requestData !== undefined && requestData.length > 0) {
+                requestData = requestData[0];
+                //!...Delete and save in the cancelled
+                collection_requests_central.deleteOne(
+                  checkRequest,
+                  function (err, result) {
+                    if (err) {
+                      logger.error(err);
+                      resolve([{ response: "error" }]);
+                    }
+                    //....
+                    //!add the date cancelled
+                    requestData["date_cancelled"] = new Date(chaineDateUTC);
+                    collection_cancelled_requests_central.insertOne(
+                      requestData,
+                      function (err, result) {
+                        if (err) {
+                          logger.error(err);
+                          resolve([{ response: "error" }]);
+                        }
+                        //...
+                        resolve([{ response: "success" }]);
+                      }
+                    );
                   }
                 );
               } //No request?
