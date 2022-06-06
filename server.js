@@ -8,6 +8,7 @@ const MongoClient = require("mongodb").MongoClient;
 var fastFilter = require("fast-filter");
 const FuzzySet = require("fuzzyset");
 const crypto = require("crypto");
+var otpGenerator = require("otp-generator");
 
 const { logger } = require("./LogService");
 
@@ -667,6 +668,7 @@ function getRequestDataClient(requestData, resolve) {
             state_vars: shoppingData.request_state_vars,
             ewallet_details: {
               phone: "+264856997167",
+              security: shoppingData.security.pin,
             },
             date_requested: shoppingData.date_requested, //The time of the request
           };
@@ -1055,6 +1057,62 @@ function getRequestDataClient(requestData, resolve) {
         }
         //!3. DELIVERY DATA
         else if (shoppingData["ride_mode"].toUpperCase() === "DELIVERY") {
+          //Has a pending shopping
+          let RETURN_DATA_TEMPLATE = {
+            ride_mode: shoppingData["ride_mode"].toUpperCase(),
+            request_fp: shoppingData.request_fp,
+            client_id: requestData.user_identifier, //the user identifier - requester
+            driver_details: {}, //Will hold the details of the shopper
+            shopping_list: shoppingData.shopping_list, //The list of items to shop for
+            payment_method: shoppingData.payment_method, //mobile_money or cash
+            trip_locations: shoppingData.locations, //Has the pickup and delivery locations
+            totals_request: shoppingData.totals_request, //Has the cart details in terms of fees
+            request_type: shoppingData.request_type, //scheduled or immediate
+            state_vars: shoppingData.request_state_vars,
+            ewallet_details: {
+              phone: "+264856997167",
+              security: shoppingData.security.pin,
+            },
+            date_requested: shoppingData.date_requested, //The time of the request
+          };
+          //..Get the shopper's infos
+          collection_drivers_shoppers_central
+            .find({ driver_fingerprint: shoppingData.shopper_id })
+            .toArray(function (err, shopperData) {
+              if (err) {
+                logger.error(false);
+                resolve(false);
+              }
+              //...
+              if (shopperData !== undefined && shopperData.length > 0) {
+                //Has a shopper
+                let driverData = shopperData[0];
+
+                RETURN_DATA_TEMPLATE.driver_details = {
+                  name: driverData.name,
+                  picture: driverData.identification_data.profile_picture,
+                  rating: driverData.identification_data.rating,
+                  phone: driverData["phone_number"],
+                  vehicle: {
+                    picture: driverData.cars_data[0].taxi_picture,
+                    brand: driverData.cars_data[0].car_brand,
+                    plate_no: driverData.cars_data[0].plate_number,
+                    taxi_number: driverData.cars_data[0].taxi_number,
+                  },
+                };
+                //...
+                resolve([RETURN_DATA_TEMPLATE]);
+              } //No shoppers yet
+              else {
+                RETURN_DATA_TEMPLATE.driver_details = {
+                  name: null,
+                  phone: null,
+                  picture: null,
+                };
+                //...
+                resolve([RETURN_DATA_TEMPLATE]);
+              }
+            });
         } //Invalid data
         else {
           resolve(false);
@@ -1313,6 +1371,14 @@ redisCluster.on("connect", function () {
           req.ride_mode !== null
         ) {
           logger.info(req);
+          let security_pin = otpGenerator.generate(6, {
+            lowerCaseAlphabets: false,
+            upperCaseAlphabets: false,
+            specialChars: false,
+          });
+          //! --------------
+          security_pin = String(otp).length < 6 ? parseInt(otp) * 10 : otp;
+
           try {
             //! Check if the user has no unconfirmed shoppings
             let checkUnconfirmed = {
@@ -1369,6 +1435,9 @@ redisCluster.on("connect", function () {
                         comments: false, //The clients comments
                         compliments: [], //The service badges
                       }, //The rating infos
+                    },
+                    security: {
+                      pin: security_pin, //Will be used to check the request
                     },
                     date_requested: new Date(chaineDateUTC), //The time of the request
                     date_pickedupCash: null, //The time when the shopper picked up the cash from the client
@@ -1461,6 +1530,14 @@ redisCluster.on("connect", function () {
 
         if (checkerCondition) {
           logger.info(req);
+          let security_pin = otpGenerator.generate(6, {
+            lowerCaseAlphabets: false,
+            upperCaseAlphabets: false,
+            specialChars: false,
+          });
+          //! --------------
+          security_pin = String(otp).length < 6 ? parseInt(otp) * 10 : otp;
+
           try {
             //! Check if the user has no unconfirmed shoppings
             let checkUnconfirmed = {
@@ -1525,7 +1602,8 @@ redisCluster.on("connect", function () {
                           ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
                           request_state_vars: {
                             isAccepted: false, //If the shopping request is accepted
-                            inRouteToPickup: false, //If the driver is in route to pickup the package/client
+                            inRouteToPickupCash: false, //If the shopper is in route to pickup the cash
+                            didPickupCash: false, //If the shopper picked up the cash
                             inRouteToDropoff: false, //If the driver is in route to drop the client/package
                             completedDropoff: false, //If the driver is done trip
                             completedRatingClient: false, //If the client has completed the rating of the shopped items
@@ -1534,6 +1612,9 @@ redisCluster.on("connect", function () {
                               comments: false, //The clients comments
                               compliments: [], //The service badges
                             }, //The rating infos
+                          },
+                          security: {
+                            pin: security_pin, //Will be used to check the request
                           },
                           date_requested: new Date(chaineDateUTC), //The time of the request
                           date_pickedup: null, //The time when the driver picked up the  client/package
@@ -1578,6 +1659,9 @@ redisCluster.on("connect", function () {
                               comments: false, //The clients comments
                               compliments: [], //The service badges
                             }, //The rating infos
+                          },
+                          security: {
+                            pin: security_pin, //Will be used to check the request
                           },
                           date_requested: new Date(chaineDateUTC), //The time of the request
                           date_pickedup: null, //The time when the driver picked up the  client/package
