@@ -2333,6 +2333,66 @@ redisCluster.on("connect", function () {
             //     res.send({ response: [] });
             //   });
             // })
+
+            //?11. get the list of requests for riders
+            app.post("/getRequestListRiders", function (req, res) {
+              new Promise((resolve) => {
+                req = req.body;
+
+                if (
+                  req.user_identifier !== undefined &&
+                  req.user_identifier !== null
+                ) {
+                  let redisKey = `${req.user_identifier}-requestListCached`;
+
+                  collection_requests_central
+                    .find({ client_id: req.user_identifier })
+                    .sort({ date_requested: -1 })
+                    .toArray(function (err, requestData) {
+                      if (err) {
+                        logger.error(err);
+                        resolve({ response: [] });
+                      }
+                      logger.info(requestData);
+                      //...
+                      if (requestData !== undefined && requestData.length > 0) {
+                        //Has some requests
+                        let RETURN_DATA_TEMPLATE = [];
+
+                        requestData.map((request) => {
+                          let tmpRequest = {
+                            request_type: request.ride_mode,
+                            date_requested: request.date_requested,
+                            locations: request.locations,
+                            shopping_list:
+                              request.ride_mode.toLowerCase() === "shopping"
+                                ? request.shopping_list
+                                : null,
+                          };
+                          //...Save
+                          RETURN_DATA_TEMPLATE.push(tmpRequest);
+                        });
+                        //...
+                        resolve({ response: RETURN_DATA_TEMPLATE });
+                      } //No requests
+                      else {
+                        resolve({ response: [] });
+                      }
+                    });
+                } //Invalid data
+                else {
+                  resolve({ response: [] });
+                }
+              })
+                .then((result) => {
+                  logger.info(result);
+                  res.send(result);
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  res.send({ response: [] });
+                });
+            });
           }
         );
       }
