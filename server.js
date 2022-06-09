@@ -62,6 +62,7 @@ var ElasticSearch_client = new elasticsearch.Client({
 var chaineDateUTC = null;
 var dateObject = null;
 const moment = require("moment");
+const { equal } = require("assert");
 
 function resolveDate() {
   //Resolve date
@@ -1322,6 +1323,62 @@ function getRequestDataClient(requestData, resolve) {
     });
 }
 
+/**
+ * @func getFreshUserDataClients
+ * Responsible for getting users data and caching it straight from the db
+ * @param req: the request data
+ * @param redisKey
+ * @param resolve
+ */
+function getFreshUserDataClients(req, redisKey, resolve) {
+  //Check that the user is valid
+  collection_users_central
+    .find({ user_identifier: req.user_identifier })
+    .toArray(function (err, userData) {
+      if (err) {
+        logger.error(err);
+        resolve([{ response: [] }]);
+      }
+      logger.warn(userData);
+      //...
+      if (userData !== undefined && userData.length > 0) {
+        //Valid user
+        //?Cache the info
+        redisCluster.setex(
+          redisKey,
+          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 404,
+          JSON.stringify(userData)
+        );
+        //? Standardize
+        resolve([
+          { response: getOutputStandardizedUserDataFormat(userData[0]) },
+        ]);
+      } //Invalid user?
+      else {
+        resolve([{ response: [] }]);
+      }
+    });
+}
+
+//Get output standardazed user data format
+//@param userData in JSON
+function getOutputStandardizedUserDataFormat(userData) {
+  let RETURN_DATA_TEMPLATE = {
+    name: userData.name,
+    surname: userData.surname,
+    gender: userData.gender,
+    profile_picture: userData.media.profile_picture,
+    account_verifications: {
+      is_verified: userData.account_verifications.is_accountVerified,
+    },
+    phone: userData.phone_number,
+    email: userData.email,
+    user_identifier: userData.user_identifier,
+  };
+  //...
+  return RETURN_DATA_TEMPLATE;
+}
+
 var collection_catalogue_central = null;
 var collection_shops_central = null;
 var collection_requests_central = null;
@@ -2386,6 +2443,223 @@ redisCluster.on("connect", function () {
               })
                 .then((result) => {
                   logger.info(result);
+                  res.send(result);
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  res.send({ response: [] });
+                });
+            });
+
+            //?12. Update the users information
+            app.post("/updateUsersInformation", function (req, res) {
+              new Promise((resolve) => {
+                req = req.body;
+                logger.info(req);
+
+                if (
+                  req.user_identifier !== undefined &&
+                  req.user_identifier !== null &&
+                  req.data_type !== undefined &&
+                  req.data_type !== null &&
+                  req.data_value !== undefined &&
+                  req.data_value !== null
+                ) {
+                  //!Check the user
+                  switch (req.data_type) {
+                    case "name":
+                      //Update the name
+                      collection_users_central.updateOne(
+                        { user_identifier: req.user_identifier },
+                        { $set: { name: req.data_value } },
+                        function (err, result) {
+                          if (err) {
+                            logger.error(err);
+                            resolve({ response: "error" });
+                          }
+                          //...Success
+                          resolve({ response: "success" });
+                        }
+                      );
+                      break;
+                    case "surname":
+                      //Update the surname
+                      collection_users_central.updateOne(
+                        { user_identifier: req.user_identifier },
+                        { $set: { surname: req.data_value } },
+                        function (err, result) {
+                          if (err) {
+                            logger.error(err);
+                            resolve({ response: "error" });
+                          }
+                          //...Success
+                          resolve({ response: "success" });
+                        }
+                      );
+                      break;
+                    case "email":
+                      //Update the email
+                      collection_users_central.updateOne(
+                        { user_identifier: req.user_identifier },
+                        { $set: { email: req.data_value } },
+                        function (err, result) {
+                          if (err) {
+                            logger.error(err);
+                            resolve({ response: "error" });
+                          }
+                          //...Success
+                          resolve({ response: "success" });
+                        }
+                      );
+                    case "gender":
+                      //Update the gender
+                      collection_users_central.updateOne(
+                        { user_identifier: req.user_identifier },
+                        { $set: { gender: req.data_value } },
+                        function (err, result) {
+                          if (err) {
+                            logger.error(err);
+                            resolve({ response: "error" });
+                          }
+                          //...Success
+                          resolve({ response: "success" });
+                        }
+                      );
+                      break;
+                    case "phone":
+                      //Update the phone
+                      collection_users_central.updateOne(
+                        { user_identifier: req.user_identifier },
+                        { $set: { phone_number: req.data_value } },
+                        function (err, result) {
+                          if (err) {
+                            logger.error(err);
+                            resolve({ response: "error" });
+                          }
+                          //...Success
+                          resolve({ response: "success" });
+                        }
+                      );
+                      break;
+                    default:
+                      resolve({ response: "error" });
+                      break;
+                  }
+                } //Invalid data
+                else {
+                  resolve({ response: "error" });
+                }
+              })
+                .then((result) => {
+                  logger.info(result);
+                  if (result.response == "success") {
+                    //- update the cached data
+                    let redisKey = `${req.user_identifier}-cachedProfile-data`;
+                    collection_users_central
+                      .find({ user_identifier: req.user_identifier })
+                      .toArray(function (err, userData) {
+                        if (err) {
+                          logger.error(err);
+                          res.send({ response: "error" });
+                        }
+                        //...
+                        if (userData !== undefined && userData.length > 0) {
+                          //Valid info
+                          redisCluster.setex(
+                            redisKey,
+                            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 404,
+                            JSON.stringify(userData)
+                          );
+                          //...
+                          res.send({ response: "success" });
+                        } //No valid user
+                        else {
+                          res.send({ response: "error" });
+                        }
+                      });
+                  } //!error
+                  else {
+                    res.send({ response: "error" });
+                  }
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  res.send({ response: "error" });
+                });
+            });
+
+            //?13. Get the user data
+            app.post("/getGenericUserData", function (req, res) {
+              new Promise((resolve) => {
+                req = req.body;
+
+                if (
+                  req.user_identifier !== undefined &&
+                  req.user_identifier !== null
+                ) {
+                  let redisKey = `${req.user_identifier}-cachedProfile-data`;
+
+                  redisGet(redisKey)
+                    .then((resp) => {
+                      if (resp !== null) {
+                        try {
+                          resp = JSON.parse(resp);
+                          resolve([
+                            {
+                              response: getOutputStandardizedUserDataFormat(
+                                resp[0]
+                              ),
+                            },
+                          ]);
+                        } catch (error) {
+                          //?Get fresh data and cache
+                          logger.error(error);
+                          new Promise((resCompute) => {
+                            getFreshUserDataClients(req, redisKey, resCompute);
+                          })
+                            .then((result) => {
+                              resolve(result);
+                            })
+                            .catch((error) => {
+                              logger.error(error);
+                              resolve([{ response: [] }]);
+                            });
+                        }
+                      } //No cached data
+                      else {
+                        new Promise((resCompute) => {
+                          getFreshUserDataClients(req, redisKey, resCompute);
+                        })
+                          .then((result) => {
+                            resolve(result);
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            resolve([{ response: [] }]);
+                          });
+                      }
+                    })
+                    .catch((error) => {
+                      //?Get fresh data and cache
+                      logger.error(error);
+                      new Promise((resCompute) => {
+                        getFreshUserDataClients(req, redisKey, resCompute);
+                      })
+                        .then((result) => {
+                          resolve(result);
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          resolve([{ response: [] }]);
+                        });
+                    });
+                } //Invalid data
+                else {
+                  resolve([{ response: [] }]);
+                }
+              })
+                .then((result) => {
+                  // logger.info(result);
                   res.send(result);
                 })
                 .catch((error) => {
