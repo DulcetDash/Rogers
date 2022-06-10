@@ -2,8 +2,8 @@ require("dotenv").config();
 //require("newrelic");
 var express = require("express");
 const http = require("http");
+const fs = require("fs");
 const path = require("path");
-var multer = require("multer");
 const MongoClient = require("mongodb").MongoClient;
 var fastFilter = require("fast-filter");
 const FuzzySet = require("fuzzyset");
@@ -12,6 +12,11 @@ var otpGenerator = require("otp-generator");
 var elasticsearch = require("elasticsearch");
 
 const { logger } = require("./LogService");
+const AWS = require("aws-sdk");
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_S3_ID,
+  secretAccessKey: process.env.AWS_S3_SECRET,
+});
 
 var app = express();
 var server = http.createServer(app);
@@ -1367,7 +1372,7 @@ function getOutputStandardizedUserDataFormat(userData) {
     name: userData.name,
     surname: userData.surname,
     gender: userData.gender,
-    profile_picture: userData.media.profile_picture,
+    profile_picture: `${process.env.AWS_S3_CLIENTS_PROFILES_PATH}/clients_profiles/${userData.media.profile_picture}`,
     account_verifications: {
       is_verified: userData.account_verifications.is_accountVerified,
     },
@@ -2455,7 +2460,7 @@ redisCluster.on("connect", function () {
             app.post("/updateUsersInformation", function (req, res) {
               new Promise((resolve) => {
                 req = req.body;
-                logger.info(req);
+                logger.info(`${req.data_type}: profile update requested`);
 
                 if (
                   req.user_identifier !== undefined &&
@@ -2538,6 +2543,62 @@ redisCluster.on("connect", function () {
                           }
                           //...Success
                           resolve({ response: "success" });
+                        }
+                      );
+                      break;
+
+                    case "profile_picture":
+                      let localFileName = `.profile_photo${req.user_identifier}.${req.extension}`;
+                      //? Write the file locally
+                      fs.writeFile(
+                        localFileName,
+                        String(req.data_value),
+                        "base64",
+                        function (err) {
+                          if (err) {
+                            logger.error(err);
+                            resolve({ response: "error" });
+                          }
+                          //...success
+                          // Read content from the file
+                          const fileContentUploaded_locally =
+                            fs.readFileSync(localFileName);
+
+                          // Setting up S3 upload parameters
+                          let fileUploadName = `profile_${req.user_identifier}.${req.extension}`;
+                          const params = {
+                            Bucket: `${process.env.AWS_S3_CLIENTS_PROFILES_BUCKET_NAME}/clients_profiles`,
+                            Key: fileUploadName, // File name you want to save as in S3
+                            Body: fileContentUploaded_locally,
+                          };
+
+                          // Uploading files to the bucket
+                          s3.upload(params, function (err, data) {
+                            if (err) {
+                              logger.info(err);
+                              resolve({ response: "error" });
+                            }
+                            logger.info(
+                              `[USER]${localFileName} -> Successfully uploaded.`
+                            );
+                            //! Update the database
+                            collection_users_central.updateOne(
+                              { user_identifier: req.user_identifier },
+                              {
+                                $set: {
+                                  "media.profile_picture": fileUploadName,
+                                },
+                              },
+                              function (err, result) {
+                                if (err) {
+                                  logger.error(err);
+                                  resolve({ response: "error" });
+                                }
+                                //...Success
+                                resolve({ response: "success" });
+                              }
+                            );
+                          });
                         }
                       );
                       break;
