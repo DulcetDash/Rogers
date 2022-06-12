@@ -3500,6 +3500,41 @@ redisCluster.on("connect", function () {
                   if (isValid) {
                     //?Valid user
                     //Update the user's profile
+                    dynamo_update({
+                      table_name: "users_central",
+                      _idKey: { user_identifier: req.user_identifier },
+                      UpdateExpression:
+                        "set name = :val1, surname = :val2, gender = :val3, email = :val4, #m.#p = :val5",
+                      ExpressionAttributeValues: {
+                        ":val1": req.additional_data.name,
+                        ":val2": req.additional_data.surname,
+                        ":val3": req.additional_data.gender,
+                        ":val4": req.additional_data.email,
+                        ":val5": req.additional_data.profile_picture_generic,
+                      },
+                      ExpressionAttributeNames: {
+                        "#m": "media",
+                        "#p": "profile_picture",
+                      },
+                    })
+                      .then((result) => {
+                        if (result) {
+                          //Success
+                          //!Delete the user's profile cache
+                          let redisKey = `${req.user_identifier}-cachedProfile-data`;
+                          redisCluster.del(redisKey);
+                          //....
+
+                          resolve({ response: "success" });
+                        } //Failed
+                        else {
+                          resolve({ response: "error" });
+                        }
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        resolve({ response: "error" });
+                      });
                   } //! Invalid user
                   else {
                     resolve({ response: "error" });
