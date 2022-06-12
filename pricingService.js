@@ -36,6 +36,15 @@ var redisCluster = /production/i.test(String(process.env.EVIRONMENT))
     })
   : client;
 const redisGet = promisify(redisCluster.get).bind(redisCluster);
+
+//! Attach DynamoDB helper
+const {
+  dynamo_insert,
+  dynamo_update,
+  dynamo_find_query,
+  dynamo_delete,
+  dynamo_get_all,
+} = require("./DynamoServiceManager");
 //....
 var fastFilter = require("fast-filter");
 const escapeStringRegexp = require("escape-string-regexp");
@@ -173,16 +182,15 @@ redisCluster.on("connect", function () {
             .then((cleanDropOffs) => {
               //?2. Sum all the locations to come up with the base fare
               //Get all the vehicle types
-              collectionVehiclesInfos
-                .find({
-                  ride_type: req.ride_type.toUpperCase().trim(),
-                })
-                .toArray(function (err, vehicles_batch) {
-                  if (err) {
-                    logger.error(err);
-                    resolve([]);
-                  }
-                  //...
+              dynamo_find_query({
+                table_name: "vehicles_collection_infos",
+                IndexName: "ride_type",
+                KeyConditionExpression: "ride_type = :val1",
+                ExpressionAttributeValues: {
+                  ":val1": req.ride_type.toUpperCase().trim(),
+                },
+              })
+                .then((vehicles_batch) => {
                   if (
                     vehicles_batch !== undefined &&
                     vehicles_batch.length > 0
@@ -196,27 +204,29 @@ redisCluster.on("connect", function () {
                           let parentComputeInsider = cleanDropOffs.map(
                             (dropoff) => {
                               return new Promise((resAdd) => {
-                                let recordChecker = {
-                                  city: dropoff.city,
-                                  country: dropoff.country,
-                                  destination_suburb: dropoff.suburb,
-                                  pickup_suburb: req.pickup_location.suburb,
-                                  region: dropoff.state,
-                                };
+                                // let recordChecker = {
+                                //   city: dropoff.city,
+                                //   country: dropoff.country,
+                                //   destination_suburb: dropoff.suburb,
+                                //   pickup_suburb: ,
+                                //   region: dropoff.state,
+                                // };
                                 // logger.info(dropoff);
                                 //...
-                                collectionGlobalPricesMap
-                                  .find(recordChecker)
-                                  .toArray(function (err, priceRecord) {
-                                    if (err) {
-                                      logger.error(error);
-                                      //Set the base fare as the car's one
-                                      BASE_FARE += parseFloat(
-                                        vehicle["base_fare"]
-                                      );
-                                      resAdd(false);
-                                    }
-                                    //...
+                                dynamo_find_query({
+                                  table_name: "global_prices_to_locations_map",
+                                  IndexName: "pickup_suburb",
+                                  KeyConditionExpression:
+                                    "pickup_suburb = :val1 AND destination_suburb = :val2 AND city = :val3 AND country = :val4 AND region = :val5",
+                                  ExpressionAttributeValues: {
+                                    ":val1": req.pickup_location.suburb,
+                                    ":val2": dropoff.suburb,
+                                    ":val3": dropoff.city,
+                                    ":val4": dropoff.country,
+                                    ":val5": dropoff.state,
+                                  },
+                                })
+                                  .then((priceRecord) => {
                                     if (
                                       priceRecord !== undefined &&
                                       priceRecord.length > 0
@@ -233,6 +243,14 @@ redisCluster.on("connect", function () {
                                       );
                                       resAdd(false);
                                     }
+                                  })
+                                  .catch((error) => {
+                                    logger.error(error);
+                                    //Set the base fare as the car's one
+                                    BASE_FARE += parseFloat(
+                                      vehicle["base_fare"]
+                                    );
+                                    resAdd(false);
                                   });
                               });
                             }
@@ -299,6 +317,10 @@ redisCluster.on("connect", function () {
                   else {
                     resolve([]);
                   }
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resolve([]);
                 });
             })
             .catch((error) => {

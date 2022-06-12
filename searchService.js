@@ -36,6 +36,14 @@ var redisCluster = /production/i.test(String(process.env.EVIRONMENT))
     })
   : client;
 const redisGet = promisify(redisCluster.get).bind(redisCluster);
+
+//! Attach DynamoDB helper
+const {
+  dynamo_insert,
+  dynamo_update,
+  dynamo_find_query,
+  dynamo_get_all,
+} = require("./DynamoServiceManager");
 //....
 var fastFilter = require("fast-filter");
 const escapeStringRegexp = require("escape-string-regexp");
@@ -159,36 +167,17 @@ function newLoaction_search_engine(
   trailingData
 ) {
   //? 1. Check if it was written in mongodb
-  collectionSearchedLocationPersist
-    .find({
-      query: queryOR,
-      city: city,
-      state: trailingData.state.replace(/ Region/i, "").trim(),
-    })
-    .toArray(function (err, searchedData) {
-      if (err) {
-        logger.error(err);
-        //Fresh search
-        new Promise((resCompute) => {
-          initializeFreshGetOfLocations(
-            keyREDIS,
-            queryOR,
-            city,
-            cityCenter,
-            resCompute,
-            timestamp,
-            trailingData
-          );
-        })
-          .then((result) => {
-            res(result);
-          })
-          .catch((error) => {
-            logger.error(error);
-            res(false);
-          });
-      }
-      //...
+  dynamo_find_query({
+    table_name: "searched_locations_persist",
+    IndexName: "query",
+    KeyConditionExpression: "query = :val1 AND city = :val2 AND state = :val3",
+    ExpressionAttributeValues: {
+      ":val1": queryOR,
+      ":val2": city,
+      ":val3": trailingData.state.replace(/ Region/i, "").trim(),
+    },
+  })
+    .then((searchedData) => {
       if (
         searchedData !== undefined &&
         searchedData !== null &&
@@ -236,6 +225,28 @@ function newLoaction_search_engine(
             res(false);
           });
       }
+    })
+    .catch((error) => {
+      logger.error(error);
+      //Fresh search
+      new Promise((resCompute) => {
+        initializeFreshGetOfLocations(
+          keyREDIS,
+          queryOR,
+          city,
+          cityCenter,
+          resCompute,
+          timestamp,
+          trailingData
+        );
+      })
+        .then((result) => {
+          res(result);
+        })
+        .catch((error) => {
+          logger.error(error);
+          res(false);
+        });
     });
 }
 
@@ -533,24 +544,20 @@ function attachCoordinatesAndRegion(littlePack, resolve) {
     } //Not cached - check Mongo
     else {
       //? First check in mongo
-      collectionSearchedLocationPersist
-        .find({ "result.place_id": littlePack.location_id })
-        .toArray(function (err, placeInfo) {
-          if (err) {
-            logger.error(err);
-            //fresh
-            new Promise((resCompute) => {
-              doFreshGoogleSearchAndReturn(littlePack, redisKey, resCompute);
-            })
-              .then((result) => {
-                resolve(result);
-              })
-              .catch((error) => {
-                logger.error(error);
-                resolve(false);
-              });
-          }
-          //...
+      dynamo_find_query({
+        table_name: "searched_locations_persist",
+        IndexName: "query",
+        KeyConditionExpression: "query = :val1 AND #r.#p = :val2",
+        ExpressionAttributeValues: {
+          ":val1": littlePack.query,
+          ":val2": littlePack.location_id,
+        },
+        ExpressionAttributeNames: {
+          "#r": "result",
+          "#p": "place_id",
+        },
+      })
+        .then((placeInfo) => {
           if (
             placeInfo !== undefined &&
             placeInfo !== null &&
@@ -570,21 +577,31 @@ function attachCoordinatesAndRegion(littlePack, resolve) {
             littlePack.suburb = false;
             //..Save the body in mongo
             body["date_updated"] = new Date(chaineDateUTC);
-            new Promise((resSave) => {
-              collectionEnrichedLocationPersist.updateOne(
-                { "result.place_id": littlePack.place_id },
-                {
-                  $set: body,
-                },
-                { upsert: true },
-                function (err, res) {
-                  logger.error(err);
-                  resSave(true);
-                }
-              );
-            })
-              .then()
-              .catch();
+
+            dynamo_insert("enriched_locationSearch_persist", body)
+              .then((result) => {
+                resSave(true);
+              })
+              .catch((error) => {
+                logger.error(error);
+                resSave(true);
+              });
+
+            // new Promise((resSave) => {
+            //   collectionEnrichedLocationPersist.updateOne(
+            //     { "result.place_id": littlePack.place_id },
+            //     {
+            //       $set: body,
+            //     },
+            //     { upsert: true },
+            //     function (err, res) {
+            //       logger.error(err);
+            //       resSave(true);
+            //     }
+            //   );
+            // })
+            //   .then()
+            //   .catch();
             //...Cache it
             new Promise((resCache) => {
               redisCluster.setex(
@@ -609,6 +626,20 @@ function attachCoordinatesAndRegion(littlePack, resolve) {
                 resolve(false);
               });
           }
+        })
+        .catch((error) => {
+          logger.error(error);
+          //fresh
+          new Promise((resCompute) => {
+            doFreshGoogleSearchAndReturn(littlePack, redisKey, resCompute);
+          })
+            .then((result) => {
+              resolve(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              resolve(false);
+            });
         });
     }
   });
@@ -644,19 +675,29 @@ function doFreshGoogleSearchAndReturn(littlePack, redisKey, resolve) {
         littlePack.suburb = false;
         //..Save the body in mongo
         body["date_updated"] = new Date(chaineDateUTC);
-        new Promise((resSave) => {
-          collectionEnrichedLocationPersist.updateOne(
-            { "result.place_id": littlePack.place_id },
-            { $set: body },
-            { upsert: true },
-            function (err, res) {
-              logger.error(err);
-              resSave(true);
-            }
-          );
-        })
-          .then()
-          .catch();
+
+        dynamo_insert("enriched_locationSearch_persist", body)
+          .then((result) => {
+            resSave(true);
+          })
+          .catch((error) => {
+            logger.error(error);
+            resSave(true);
+          });
+
+        // new Promise((resSave) => {
+        //   collectionEnrichedLocationPersist.updateOne(
+        //     { "result.place_id": littlePack.place_id },
+        //     { $set: body },
+        //     { upsert: true },
+        //     function (err, res) {
+        //       logger.error(err);
+        //       resSave(true);
+        //     }
+        //   );
+        // })
+        //   .then()
+        //   .catch();
         //...Cache it
         new Promise((resCache) => {
           redisCluster.setex(
@@ -1120,35 +1161,15 @@ function execBrieflyCompleteEssentialsForLocations(
           //? OSM ID
           let osm_id = body.osm_id;
           //Check if there are any record in mongodb
-          collectionAutoCompletedSuburbs
-            .find({ osm_id: osm_id })
-            .toArray(function (err, locationData) {
-              if (err) {
-                logger.error(err);
-                //Make a fresh search
-                new Promise((resCompute) => {
-                  doFreshBrieflyCompleteEssentialsForLocations(
-                    coordinates,
-                    location_name,
-                    city,
-                    osm_id,
-                    resCompute
-                  );
-                })
-                  .then((result) => {
-                    resolve(result);
-                  })
-                  .catch((error) => {
-                    logger.error(error);
-                    resolve({
-                      coordinates: coordinates,
-                      state: false,
-                      suburb: false,
-                    });
-                  });
-              }
-
-              //...
+          dynamo_find_query({
+            table_name: "autocompleted_location_suburbs",
+            IndexName: "osm_id",
+            KeyConditionExpression: "osm_id = :val1",
+            ExpressionAttributeValues: {
+              ":val1": osm_id,
+            },
+          })
+            .then((locationData) => {
               if (locationData !== undefined && locationData.length > 0) {
                 logger.warn(
                   `Found mongo record for the related suburb - ${osm_id}`
@@ -1184,6 +1205,30 @@ function execBrieflyCompleteEssentialsForLocations(
                     });
                   });
               }
+            })
+            .catch((error) => {
+              logger.error(error);
+              //Make a fresh search
+              new Promise((resCompute) => {
+                doFreshBrieflyCompleteEssentialsForLocations(
+                  coordinates,
+                  location_name,
+                  city,
+                  osm_id,
+                  resCompute
+                );
+              })
+                .then((result) => {
+                  resolve(result);
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resolve({
+                    coordinates: coordinates,
+                    state: false,
+                    suburb: false,
+                  });
+                });
             });
         } catch (error) {
           resolve({
@@ -1361,12 +1406,15 @@ function makeFreshOpenCageRequests(coordinates, osm_id, redisKey, resolve) {
           //?Save in Mongo
           new Promise((resSaveMongo) => {
             body["osm_id"] = osm_id; //! Add osm id
-            collectionAutoCompletedSuburbs.insertOne(
-              body,
-              function (err, reslt) {
+
+            dynamo_insert("autocompleted_location_suburbs", body)
+              .then((result) => {
                 resSaveMongo(true);
-              }
-            );
+              })
+              .catch((error) => {
+                logger.error(error);
+                resSaveMongo(true);
+              });
           })
             .then()
             .catch();
@@ -2518,35 +2566,35 @@ redisCluster.on("connect", function () {
           request.user_fingerprint !== undefined
         ) {
           logger.error(JSON.stringify(request.user_fingerprint));
-          //Save the history of the geolocation
-          new Promise((resHistory) => {
-            if (request.geolocationData !== undefined) {
-              bundleData = {
-                user_fingerprint: request.user_fingerprint,
-                gps_data: request.geolocationData,
-                date: new Date(chaineDateUTC),
-              };
-              //..
-              collectionHistoricalGPS.insertOne(
-                bundleData,
-                function (err, reslt) {
-                  if (err) {
-                    logger.error(err);
-                    resHistory(false);
-                  }
-                  //...
-                  logger.info("Saved GPS data");
-                  resHistory(true);
-                }
-              );
-            } //No required data
-            else {
-              logger.info("No required GPS data for logs");
-              resHistory(false);
-            }
-          })
-            .then()
-            .catch();
+          //TODO: Save the history of the geolocation in Redis
+          // new Promise((resHistory) => {
+          //   if (request.geolocationData !== undefined) {
+          //     bundleData = {
+          //       user_fingerprint: request.user_fingerprint,
+          //       gps_data: request.geolocationData,
+          //       date: new Date(chaineDateUTC),
+          //     };
+          //     //..
+          //     collectionHistoricalGPS.insertOne(
+          //       bundleData,
+          //       function (err, reslt) {
+          //         if (err) {
+          //           logger.error(err);
+          //           resHistory(false);
+          //         }
+          //         //...
+          //         logger.info("Saved GPS data");
+          //         resHistory(true);
+          //       }
+          //     );
+          //   } //No required data
+          //   else {
+          //     logger.info("No required GPS data for logs");
+          //     resHistory(false);
+          //   }
+          // })
+          //   .then()
+          //   .catch();
 
           //Hand responses
           new Promise((resolve) => {
@@ -2622,35 +2670,36 @@ redisCluster.on("connect", function () {
           request.user_fingerprint !== undefined
         ) {
           logger.error(JSON.stringify(request.user_fingerprint));
-          //Save the history of the geolocation
-          new Promise((resHistory) => {
-            if (request.geolocationData !== undefined) {
-              bundleData = {
-                user_fingerprint: request.user_fingerprint,
-                gps_data: request.geolocationData,
-                date: new Date(chaineDateUTC),
-              };
-              //..
-              collectionHistoricalGPS.insertOne(
-                bundleData,
-                function (err, reslt) {
-                  if (err) {
-                    logger.error(err);
-                    resHistory(false);
-                  }
-                  //...
-                  logger.info("Saved GPS data");
-                  resHistory(true);
-                }
-              );
-            } //No required data
-            else {
-              logger.info("No required GPS data for logs");
-              resHistory(false);
-            }
-          })
-            .then()
-            .catch();
+          //TODO: Save the history of the geolocation in Redis
+          // new Promise((resHistory) => {
+          //   if (request.geolocationData !== undefined) {
+          //     bundleData = {
+          //       user_fingerprint: request.user_fingerprint,
+          //       gps_data: request.geolocationData,
+          //       date: new Date(chaineDateUTC),
+          //     };
+          //     //..
+
+          //     collectionHistoricalGPS.insertOne(
+          //       bundleData,
+          //       function (err, reslt) {
+          //         if (err) {
+          //           logger.error(err);
+          //           resHistory(false);
+          //         }
+          //         //...
+          //         logger.info("Saved GPS data");
+          //         resHistory(true);
+          //       }
+          //     );
+          //   } //No required data
+          //   else {
+          //     logger.info("No required GPS data for logs");
+          //     resHistory(false);
+          //   }
+          // })
+          //   .then()
+          //   .catch();
 
           //Hand responses
           new Promise((resolve) => {

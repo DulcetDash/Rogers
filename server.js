@@ -32,6 +32,15 @@ const io = require("socket.io")(server, {
   },
 });
 const requestAPI = require("request");
+
+//! Attach DynamoDB helper
+const {
+  dynamo_insert,
+  dynamo_update,
+  dynamo_find_query,
+  dynamo_delete,
+  dynamo_get_all,
+} = require("./DynamoServiceManager");
 //....
 
 const redis = require("redis");
@@ -217,90 +226,97 @@ function getStores(resolve) {
 }
 
 function execGetStores(redisKey, resolve) {
-  collection_shops_central.find({}).toArray(function (err, storesData) {
-    if (err) {
-      logger.error(err);
-      resolve({ response: [] });
-    }
-    //...
-    if (storesData !== undefined && storesData.length > 0) {
-      let STORES_MODEL = [];
-      storesData.map((store) => {
-        if (
-          store.publish === undefined ||
-          store.publish === null ||
-          store.publish
-        ) {
-          logger.info(store);
-          let tmpStore = {
-            name: store.name,
-            fd_name: store.friendly_name,
-            type: store.shop_type,
-            description: store.description,
-            background: store.shop_background_color,
-            border: store.border_color,
-            logo: `${process.env.AWS_S3_SHOPS_LOGO_PATH}/${store.shop_logo}`,
-            fp: store.shop_fp,
-            structured: store.structured_shopping,
-            times: {
-              target_state: null, //two values: opening or closing
-              string: null, //something like: opening in ...min or closing in ...h
-            },
-            date_added: new Date(store.date_added).getTime(),
-          };
-          //...
-          //? Determine the times
-          let store_opening_ref =
-            parseInt(
-              store.opening_time.split(":")[0].replace(/^0/, "").trim()
-            ) *
-              60 +
-            parseInt(store.opening_time.split(":")[1].replace(/^0/, "").trim()); //All in minutes
-          let store_closing_ref =
-            parseInt(
-              store.closing_time.split(":")[0].replace(/^0/, "").trim()
-            ) *
-              60 +
-            parseInt(store.closing_time.split(":")[1].replace(/^0/, "").trim()); //All in minutes
-          //...
-          let ref_time =
-            new Date(chaineDateUTC).getHours() * 60 +
-            new Date(chaineDateUTC).getMinutes();
+  dynamo_get_all("shops_central")
+    .then((storesData) => {
+      if (storesData !== undefined && storesData.length > 0) {
+        let STORES_MODEL = [];
+        storesData.map((store) => {
+          if (
+            store.publish === undefined ||
+            store.publish === null ||
+            store.publish
+          ) {
+            logger.info(store);
+            let tmpStore = {
+              name: store.name,
+              fd_name: store.friendly_name,
+              type: store.shop_type,
+              description: store.description,
+              background: store.shop_background_color,
+              border: store.border_color,
+              logo: `${process.env.AWS_S3_SHOPS_LOGO_PATH}/${store.shop_logo}`,
+              fp: store.shop_fp,
+              structured: store.structured_shopping,
+              times: {
+                target_state: null, //two values: opening or closing
+                string: null, //something like: opening in ...min or closing in ...h
+              },
+              date_added: new Date(store.date_added).getTime(),
+            };
+            //...
+            //? Determine the times
+            let store_opening_ref =
+              parseInt(
+                store.opening_time.split(":")[0].replace(/^0/, "").trim()
+              ) *
+                60 +
+              parseInt(
+                store.opening_time.split(":")[1].replace(/^0/, "").trim()
+              ); //All in minutes
+            let store_closing_ref =
+              parseInt(
+                store.closing_time.split(":")[0].replace(/^0/, "").trim()
+              ) *
+                60 +
+              parseInt(
+                store.closing_time.split(":")[1].replace(/^0/, "").trim()
+              ); //All in minutes
+            //...
+            let ref_time =
+              new Date(chaineDateUTC).getHours() * 60 +
+              new Date(chaineDateUTC).getMinutes();
 
-          if (ref_time >= store_opening_ref && ref_time <= store_closing_ref) {
-            //Target: closing
-            let time_left = Math.abs(store_closing_ref - ref_time);
-            time_left =
-              time_left >= 60
-                ? `Closing in ${Math.round(time_left / 60)}hours`
-                : `Closing in ${time_left}min`;
-            //...
-            tmpStore.times.target_state = "Closing";
-            tmpStore.times.string = time_left;
-          } //Target: opening
-          else {
-            let time_left = Math.abs(store_opening_ref - ref_time);
-            time_left =
-              time_left >= 60
-                ? `Opening in ${Math.round(time_left / 60)}hours`
-                : `Opening in ${time_left}min`;
-            //...
-            tmpStore.times.target_state = "Opening";
-            tmpStore.times.string = time_left;
+            if (
+              ref_time >= store_opening_ref &&
+              ref_time <= store_closing_ref
+            ) {
+              //Target: closing
+              let time_left = Math.abs(store_closing_ref - ref_time);
+              time_left =
+                time_left >= 60
+                  ? `Closing in ${Math.round(time_left / 60)}hours`
+                  : `Closing in ${time_left}min`;
+              //...
+              tmpStore.times.target_state = "Closing";
+              tmpStore.times.string = time_left;
+            } //Target: opening
+            else {
+              let time_left = Math.abs(store_opening_ref - ref_time);
+              time_left =
+                time_left >= 60
+                  ? `Opening in ${Math.round(time_left / 60)}hours`
+                  : `Opening in ${time_left}min`;
+              //...
+              tmpStore.times.target_state = "Opening";
+              tmpStore.times.string = time_left;
+            }
+            //? DONE - SAVE
+            STORES_MODEL.push(tmpStore);
           }
-          //? DONE - SAVE
-          STORES_MODEL.push(tmpStore);
-        }
-      });
-      //...
-      //! Cache
-      redisCluster.set(redisKey, JSON.stringify(STORES_MODEL));
-      resolve({ response: STORES_MODEL });
-    } //No stores
-    else {
+        });
+        //...
+        //! Cache
+        redisCluster.set(redisKey, JSON.stringify(STORES_MODEL));
+        resolve({ response: STORES_MODEL });
+      } //No stores
+      else {
+        resolve({ response: [] });
+      }
+    })
+    .catch((error) => {
+      logger.error(error);
       resolve({ response: [] });
-    }
-  });
+    });
 }
 
 /**
@@ -394,14 +410,15 @@ function shuffle(array) {
 
 function execGetCatalogueFor(req, redisKey, resolve) {
   //Get the store name first
-  collection_shops_central
-    .find({ shop_fp: req.store })
-    .toArray(function (err, storeData) {
-      if (err) {
-        logger.error(err);
-        resolve({ response: {}, store: req.store });
-      }
-      //...
+  dynamo_find_query({
+    table_name: "shops_central",
+    IndexName: "shop_fp",
+    KeyConditionExpression: "shop_fp = :val1",
+    ExpressionAttributeValues: {
+      ":val1": req.store,
+    },
+  })
+    .then((storeData) => {
       if (storeData !== undefined && storeData.length > 0) {
         //Found
         storeData = storeData[0];
@@ -409,38 +426,78 @@ function execGetCatalogueFor(req, redisKey, resolve) {
         let reformulateQuery =
           req.category !== undefined
             ? {
-                "meta.shop_name": storeData.name.toUpperCase().trim(),
-                "meta.category": req.category.toUpperCase().trim(),
+                table_name: "catalogue_central",
+                IndexName: "shop_fp",
+                KeyConditionExpression:
+                  "shop_fp = :val1 and #m.#s = :val2 and #m.#c = :val3",
+                ExpressionAttributeValues: {
+                  ":val1": req.store,
+                  ":val2": storeData.name.toUpperCase().trim(),
+                  ":val3": req.category.toUpperCase().trim(),
+                },
+                ExpressionAttributeNames: {
+                  "#m": "meta",
+                  "#s": "shop_name",
+                  "#c": "category",
+                },
               }
             : {
-                "meta.shop_name": storeData.name.toUpperCase().trim(),
+                table_name: "catalogue_central",
+                IndexName: "shop_fp",
+                KeyConditionExpression: "shop_fp = :val1 and #m.#s = :val2",
+                ExpressionAttributeValues: {
+                  ":val1": req.store,
+                  ":val2": storeData.name.toUpperCase().trim(),
+                },
+                ExpressionAttributeNames: {
+                  "#m": "meta",
+                  "#s": "shop_name",
+                },
               };
         //! Add subcategory
         reformulateQuery =
           req.subcategory !== undefined
             ? {
-                ...reformulateQuery,
-                ...{ "meta.subcategory": req.subcategory.toUpperCase().trim() },
+                table_name: "catalogue_central",
+                IndexName: "shop_fp",
+                KeyConditionExpression:
+                  "shop_fp = :val1 and #m.#s = :val2 and #m.#c = :val3 and #m.#sub = :val4",
+                ExpressionAttributeValues: {
+                  ":val1": req.store,
+                  ":val2": storeData.name.toUpperCase().trim(),
+                  ":val3": req.category.toUpperCase().trim(),
+                  ":val4": req.subcategory.toUpperCase().trim(),
+                },
+                ExpressionAttributeNames: {
+                  "#m": "meta",
+                  "#s": "shop_name",
+                  "#c": "category",
+                  "#sub": "subcategory",
+                },
               }
             : reformulateQuery;
         //! Cancel all the filtering - if a structured argument is set
         reformulateQuery =
           req.structured !== undefined && req.structured === "true"
             ? {
-                "meta.shop_name": storeData.name.toUpperCase().trim(),
+                table_name: "catalogue_central",
+                IndexName: "shop_fp",
+                KeyConditionExpression: "shop_fp = :val1 and #m.#s = :val2",
+                ExpressionAttributeValues: {
+                  ":val1": req.store,
+                  ":val2": storeData.name.toUpperCase().trim(),
+                },
+                ExpressionAttributeNames: {
+                  "#m": "meta",
+                  "#s": "shop_name",
+                },
               }
             : reformulateQuery;
 
         logger.warn(reformulateQuery);
 
-        collection_catalogue_central
-          .find(reformulateQuery)
-          .toArray(function (err, productsData) {
-            if (err) {
-              logger.error(err);
-              resolve({ response: {}, store: req.store });
-            }
-            //...
+        dynamo_find_query(reformulateQuery)
+          .then((productsData) => {
             if (productsData !== undefined && productsData.length > 0) {
               //Has data
               //Reformat the data
@@ -518,11 +575,19 @@ function execGetCatalogueFor(req, redisKey, resolve) {
             else {
               resolve({ response: {}, store: req.store });
             }
+          })
+          .catch((error) => {
+            logger.error(error);
+            resolve({ response: {}, store: req.store });
           });
       } //Invalid store
       else {
         resolve({ response: {}, store: req.store });
       }
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve({ response: {}, store: req.store });
     });
 }
 
@@ -567,6 +632,7 @@ function checkIndices(index_name, resolve) {
 /**
  * @func searchProductsFor
  * Search the product based on a key word in a specific store
+ * ! do not forget the store_fp
  * @param req: request meta (store, key)
  * @param resolve
  */
@@ -640,36 +706,73 @@ function execSearchProductsFor(req, redisKey, resolve) {
   let checkQuery =
     req.category !== null && req.category !== undefined
       ? {
-          "meta.shop_name": req.store,
-          "meta.category": req.category,
+          table_name: "catalogue_central",
+          IndexName: "shop_fp",
+          KeyConditionExpression:
+            "shop_fp = :val1 AND #m.#s = :val2 AND #m.#c = :val3",
+          ExpressionAttributeValues: {
+            ":val1": req.store_fp,
+            ":val2": req.store,
+            ":val3": req.category,
+          },
+          ExpressionAttributeNames: {
+            "#m": "meta",
+            "#s": "shop_name",
+            "#c": "category",
+          },
         }
       : req.subcategory !== null && req.subcategory !== undefined
       ? {
-          "meta.shop_name": req.store,
-          "meta.subcategory": req.subcategory,
+          table_name: "catalogue_central",
+          IndexName: "shop_fp",
+          KeyConditionExpression: "shop_fp = :val1 AND #m.#sub = :val2",
+          ExpressionAttributeValues: {
+            ":val1": req.store_fp,
+            ":val2": req.subcategory,
+          },
+          ExpressionAttributeNames: {
+            "#m": "meta",
+            "#sub": "subcategory",
+          },
         }
       : req.category !== null &&
         req.category !== undefined &&
         req.subcategory !== null &&
         req.subcategory !== undefined
       ? {
-          "meta.shop_name": req.store,
-          "meta.category": req.category,
-          "meta.subcategory": req.subcategory,
+          table_name: "catalogue_central",
+          IndexName: "shop_fp",
+          KeyConditionExpression:
+            "shop_fp = :val1 AND #m.#s = :val2 AND #m.#c = :val3 AND #m.#sub = :val4",
+          ExpressionAttributeValues: {
+            ":val1": req.store_fp,
+            ":val2": req.store,
+            ":val3": req.category,
+            ":val4": req.subcategory,
+          },
+          ExpressionAttributeNames: {
+            "#m": "meta",
+            "#s": "shop_name",
+            "#c": "category",
+            "#sub": "subcategory",
+          },
         }
       : {
-          "meta.shop_name": req.store,
+          table_name: "catalogue_central",
+          IndexName: "shop_fp",
+          KeyConditionExpression: "shop_fp = :val1 AND #m.#s = :val2",
+          ExpressionAttributeValues: {
+            ":val1": req.store_fp,
+            ":val2": req.store,
+          },
+          ExpressionAttributeNames: {
+            "#m": "meta",
+            "#s": "shop_name",
+          },
         };
 
-  collection_catalogue_central
-    .find(checkQuery)
-    .toArray(function (err, productsAll) {
-      if (err) {
-        logger.error(err);
-        resolve({ response: [] });
-      }
-
-      //...
+  dynamo_find_query(checkQuery)
+    .then((productsAll) => {
       if (productsAll !== undefined && productsAll.length > 0) {
         //Has data
         //! Filter based on the key word
@@ -829,6 +932,10 @@ function execSearchProductsFor(req, redisKey, resolve) {
       else {
         resolve({ response: [] });
       }
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve({ response: [] });
     });
 }
 
@@ -839,17 +946,20 @@ function execSearchProductsFor(req, redisKey, resolve) {
  * @param resolve
  */
 function getRequestDataClient(requestData, resolve) {
-  collection_requests_central
-    .find({
-      client_id: requestData.user_identifier,
-      "request_state_vars.completedRatingClient": false,
-    })
-    .toArray(function (err, shoppingData) {
-      if (err) {
-        logger.error(err);
-        resolve(false);
-      }
-
+  dynamo_find_query({
+    table_name: "requests_central",
+    IndexName: "client_id",
+    KeyConditionExpression: "client_id = :val1 and #r.#c = :val2",
+    ExpressionAttributeValues: {
+      ":val1": requestData.user_identifier,
+      ":val2": false,
+    },
+    ExpressionAttributeNames: {
+      "#r": "request_state_vars",
+      "#c": "completedRatingClient",
+    },
+  })
+    .then((shoppingData) => {
       //...
       if (shoppingData !== undefined && shoppingData.length > 0) {
         shoppingData = shoppingData[0];
@@ -875,14 +985,15 @@ function getRequestDataClient(requestData, resolve) {
             date_requested: shoppingData.date_requested, //The time of the request
           };
           //..Get the shopper's infos
-          collection_drivers_shoppers_central
-            .find({ driver_fingerprint: shoppingData.shopper_id })
-            .toArray(function (err, shopperData) {
-              if (err) {
-                logger.error(false);
-                resolve(false);
-              }
-              //...
+          dynamo_find_query({
+            table_name: "drivers_shoppers_central",
+            IndexName: "driver_fingerprint",
+            KeyConditionExpression: "driver_fingerprint = :val1",
+            ExpressionAttributeValues: {
+              ":val1": shoppingData.shopper_id,
+            },
+          })
+            .then((shopperData) => {
               if (shopperData !== undefined && shopperData.length > 0) {
                 //Has a shopper
                 let driverData = shopperData[0];
@@ -911,6 +1022,10 @@ function getRequestDataClient(requestData, resolve) {
                 //...
                 resolve([RETURN_DATA_TEMPLATE]);
               }
+            })
+            .catch((error) => {
+              logger.error(error);
+              resolve(false);
             });
         }
         //!2. RIDE DATA
@@ -1006,14 +1121,15 @@ function getRequestDataClient(requestData, resolve) {
             };
 
             //Get the drivers details
-            collection_drivers_shoppers_central
-              .find({ driver_fingerprint: shoppingData.shopper_id })
-              .toArray(function (err, driverData) {
-                if (err) {
-                  logger.error(false);
-                  resolve(false);
-                }
-                //...
+            dynamo_find_query({
+              table_name: "drivers_shoppers_central",
+              IndexName: "driver_fingerprint",
+              KeyConditionExpression: "driver_fingerprint = :val1",
+              ExpressionAttributeValues: {
+                ":val1": shoppingData.shopper_id,
+              },
+            })
+              .then((driverData) => {
                 if (driverData !== undefined && driverData.length > 0) {
                   //Has a driver
                   driverData = driverData[0];
@@ -1153,6 +1269,10 @@ function getRequestDataClient(requestData, resolve) {
                 else {
                   resolve(false);
                 }
+              })
+              .catch((error) => {
+                logger.error(error);
+                resolve(false);
               });
           }
           //?4. RIDE COMPLETED
@@ -1179,14 +1299,15 @@ function getRequestDataClient(requestData, resolve) {
             };
 
             //Get the drivers details
-            collection_drivers_shoppers_central
-              .find({ driver_fingerprint: shoppingData.shopper_id })
-              .toArray(function (err, driverData) {
-                if (err) {
-                  logger.error(false);
-                  resolve(false);
-                }
-                //...
+            dynamo_find_query({
+              table_name: "drivers_shoppers_central",
+              IndexName: "driver_fingerprint",
+              KeyConditionExpression: "driver_fingerprint = :val1",
+              ExpressionAttributeValues: {
+                ":val1": shoppingData.shopper_id,
+              },
+            })
+              .then((driverData) => {
                 if (driverData !== undefined && driverData.length > 0) {
                   //Has a driver
                   driverData = driverData[0];
@@ -1251,6 +1372,10 @@ function getRequestDataClient(requestData, resolve) {
                 else {
                   resolve(false);
                 }
+              })
+              .catch((error) => {
+                logger.error(error);
+                resolve(false);
               });
           } //No request
           else {
@@ -1278,14 +1403,15 @@ function getRequestDataClient(requestData, resolve) {
             date_requested: shoppingData.date_requested, //The time of the request
           };
           //..Get the shopper's infos
-          collection_drivers_shoppers_central
-            .find({ driver_fingerprint: shoppingData.shopper_id })
-            .toArray(function (err, shopperData) {
-              if (err) {
-                logger.error(false);
-                resolve(false);
-              }
-              //...
+          dynamo_find_query({
+            table_name: "drivers_shoppers_central",
+            IndexName: "driver_fingerprint",
+            KeyConditionExpression: "driver_fingerprint = :val1",
+            ExpressionAttributeValues: {
+              ":val1": shoppingData.shopper_id,
+            },
+          })
+            .then((shopperData) => {
               if (shopperData !== undefined && shopperData.length > 0) {
                 //Has a shopper
                 let driverData = shopperData[0];
@@ -1314,6 +1440,10 @@ function getRequestDataClient(requestData, resolve) {
                 //...
                 resolve([RETURN_DATA_TEMPLATE]);
               }
+            })
+            .catch((error) => {
+              logger.error(error);
+              resolve(false);
             });
         } //Invalid data
         else {
@@ -1325,6 +1455,10 @@ function getRequestDataClient(requestData, resolve) {
       else {
         resolve(false);
       }
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve(false);
     });
 }
 
@@ -1337,15 +1471,15 @@ function getRequestDataClient(requestData, resolve) {
  */
 function getFreshUserDataClients(req, redisKey, resolve) {
   //Check that the user is valid
-  collection_users_central
-    .find({ user_identifier: req.user_identifier })
-    .toArray(function (err, userData) {
-      if (err) {
-        logger.error(err);
-        resolve([{ response: [] }]);
-      }
-      logger.warn(userData);
-      //...
+  dynamo_find_query({
+    table_name: "users_central",
+    IndexName: "user_identifier",
+    KeyConditionExpression: "user_identifier = :val1",
+    ExpressionAttributeValues: {
+      ":val1": req.user_identifier,
+    },
+  })
+    .then((userData) => {
       if (userData !== undefined && userData.length > 0) {
         //Valid user
         //?Cache the info
@@ -1362,6 +1496,10 @@ function getFreshUserDataClients(req, redisKey, resolve) {
       else {
         resolve([{ response: [] }]);
       }
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve([{ response: [] }]);
     });
 }
 
@@ -1493,119 +1631,116 @@ redisCluster.on("connect", function () {
             app.post("/getImageRessourcesFromExternal", function (req, res) {
               //Get all the images that where not moved yet into the internal ressources
               //? In an image ressource was moved, it will be in the meta.moved_ressources_manifest, else proceed with the getting
-              collection_catalogue_central
-                .find({})
-                .toArray(function (err, productsData) {
-                  if (err) {
-                    logger.error(err);
-                    res.send({ response: "error", flag: err });
-                  }
-                  //...
-                  if (productsData !== undefined && productsData.length > 0) {
-                    //Has some products
-                    let parentPromises = productsData.map((product, index) => {
-                      return new Promise((resolve) => {
-                        //Get the array of images
-                        let arrayImages = product.product_picture;
-                        //Get the transition manifest
-                        //? Looks like {'old_image_name_external_url': new_image_name_url}
-                        console.log(arrayImages);
-                        let transition_manifest =
-                          product.meta.moved_ressources_manifest !==
-                            undefined &&
-                          product.meta.moved_ressources_manifest !== null
-                            ? product.meta.moved_ressources_manifest
-                            : {};
-
-                        let parentPromises2 = arrayImages.map((picture) => {
-                          return new Promise((resCompute) => {
-                            if (
-                              transition_manifest[picture] !== undefined &&
-                              transition_manifest[picture] !== null
-                            ) {
-                              //!Was moved
-                              //Already processed
-                              resCompute({
-                                message: "Already processed",
-                                index: index,
-                              });
-                            } //!Not moved yet - move
-                            else {
-                              let options = {
-                                uri: picture,
-                                encoding: null,
-                              };
-                              requestAPI(
-                                options,
-                                function (error, response, body) {
-                                  if (error || response.statusCode !== 200) {
-                                    console.log("failed to get image");
-                                    console.log(error);
-                                    resCompute({
-                                      message: "Processed - failed",
-                                      index: index,
-                                    });
-                                  } else {
-                                    logger.info("Got the image");
-                                    s3.putObject(
-                                      {
-                                        Body: body,
-                                        Key: path,
-                                        Bucket: "bucket_name",
-                                      },
-                                      function (error, data) {
-                                        if (error) {
-                                          console.log(
-                                            "error downloading image to s3"
-                                          );
-                                          resCompute({
-                                            message: "Processed - failed",
-                                            index: index,
-                                          });
-                                        } else {
-                                          console.log(
-                                            "success uploading to s3"
-                                          );
-                                          resCompute({
-                                            message: "Processed",
-                                            index: index,
-                                          });
-                                        }
-                                      }
-                                    );
-                                  }
-                                }
-                              );
-                            }
-                          });
-                        });
-
-                        //? Done with this
-                        Promise.all(parentPromises2)
-                          .then((result) => {
-                            resolve(result);
-                          })
-                          .catch((error) => {
-                            logger.error(error);
-                            resolve({ response: "error_processing" });
-                          });
-                      });
-                    });
-
-                    //! DONE
-                    Promise.all(parentPromises)
-                      .then((result) => {
-                        res.send({ response: result });
-                      })
-                      .catch((error) => {
-                        logger.error(error);
-                        res.send({ response: "unable_to_work", flag: error });
-                      });
-                  } //No products
-                  else {
-                    res.send({ response: "no_products_found" });
-                  }
-                });
+              // collection_catalogue_central
+              //   .find({})
+              //   .toArray(function (err, productsData) {
+              //     if (err) {
+              //       logger.error(err);
+              //       res.send({ response: "error", flag: err });
+              //     }
+              //     //...
+              //     if (productsData !== undefined && productsData.length > 0) {
+              //       //Has some products
+              //       let parentPromises = productsData.map((product, index) => {
+              //         return new Promise((resolve) => {
+              //           //Get the array of images
+              //           let arrayImages = product.product_picture;
+              //           //Get the transition manifest
+              //           //? Looks like {'old_image_name_external_url': new_image_name_url}
+              //           console.log(arrayImages);
+              //           let transition_manifest =
+              //             product.meta.moved_ressources_manifest !==
+              //               undefined &&
+              //             product.meta.moved_ressources_manifest !== null
+              //               ? product.meta.moved_ressources_manifest
+              //               : {};
+              //           let parentPromises2 = arrayImages.map((picture) => {
+              //             return new Promise((resCompute) => {
+              //               if (
+              //                 transition_manifest[picture] !== undefined &&
+              //                 transition_manifest[picture] !== null
+              //               ) {
+              //                 //!Was moved
+              //                 //Already processed
+              //                 resCompute({
+              //                   message: "Already processed",
+              //                   index: index,
+              //                 });
+              //               } //!Not moved yet - move
+              //               else {
+              //                 let options = {
+              //                   uri: picture,
+              //                   encoding: null,
+              //                 };
+              //                 requestAPI(
+              //                   options,
+              //                   function (error, response, body) {
+              //                     if (error || response.statusCode !== 200) {
+              //                       console.log("failed to get image");
+              //                       console.log(error);
+              //                       resCompute({
+              //                         message: "Processed - failed",
+              //                         index: index,
+              //                       });
+              //                     } else {
+              //                       logger.info("Got the image");
+              //                       s3.putObject(
+              //                         {
+              //                           Body: body,
+              //                           Key: path,
+              //                           Bucket: "bucket_name",
+              //                         },
+              //                         function (error, data) {
+              //                           if (error) {
+              //                             console.log(
+              //                               "error downloading image to s3"
+              //                             );
+              //                             resCompute({
+              //                               message: "Processed - failed",
+              //                               index: index,
+              //                             });
+              //                           } else {
+              //                             console.log(
+              //                               "success uploading to s3"
+              //                             );
+              //                             resCompute({
+              //                               message: "Processed",
+              //                               index: index,
+              //                             });
+              //                           }
+              //                         }
+              //                       );
+              //                     }
+              //                   }
+              //                 );
+              //               }
+              //             });
+              //           });
+              //           //? Done with this
+              //           Promise.all(parentPromises2)
+              //             .then((result) => {
+              //               resolve(result);
+              //             })
+              //             .catch((error) => {
+              //               logger.error(error);
+              //               resolve({ response: "error_processing" });
+              //             });
+              //         });
+              //       });
+              //       //! DONE
+              //       Promise.all(parentPromises)
+              //         .then((result) => {
+              //           res.send({ response: result });
+              //         })
+              //         .catch((error) => {
+              //           logger.error(error);
+              //           res.send({ response: "unable_to_work", flag: error });
+              //         });
+              //     } //No products
+              //     else {
+              //       res.send({ response: "no_products_found" });
+              //     }
+              //   });
             });
 
             //?5. Get the user location geocoded
@@ -1676,14 +1811,21 @@ redisCluster.on("connect", function () {
                       "request_state_vars.completedRatingClient": false,
                     };
 
-                    collection_requests_central
-                      .find(checkUnconfirmed)
-                      .toArray(function (err, prevShopping) {
-                        if (err) {
-                          logger.error(err);
-                          resolve({ response: "unable_to_request" });
-                        }
-                        //...
+                    dynamo_find_query({
+                      table_name: "requests_central",
+                      IndexName: "client_id",
+                      KeyConditionExpression:
+                        "client_id = :val1 and #r.#c = :val2",
+                      ExpressionAttributeValues: {
+                        ":val1": req.user_identifier,
+                        ":val2": false,
+                      },
+                      ExpressionAttributeNames: {
+                        "#r": "request_state_vars",
+                        "#c": "completedRatingClient",
+                      },
+                    })
+                      .then((prevShopping) => {
                         if (
                           prevShopping !== undefined &&
                           prevShopping.length <= 0
@@ -1764,22 +1906,27 @@ redisCluster.on("connect", function () {
                             })
                             .finally(() => {
                               //?Continue here
-                              collection_requests_central.insertOne(
-                                REQUEST_TEMPLATE,
-                                function (err, reslt) {
-                                  if (err) {
-                                    logger.error(err);
-                                    resolve({ response: "unable_to_request" });
-                                  }
+                              dynamo_insert(
+                                "requests_central",
+                                REQUEST_TEMPLATE
+                              )
+                                .then((result) => {
                                   //....DONE
                                   resolve({ response: "successful" });
-                                }
-                              );
+                                })
+                                .catch((error) => {
+                                  logger.error(error);
+                                  resolve({ response: "unable_to_request" });
+                                });
                             });
                         } //Has an unconfirmed shopping - block
                         else {
                           resolve({ response: "has_a_pending_shopping" });
                         }
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        resolve({ response: "unable_to_request" });
                       });
                   } catch (error) {
                     logger.error(error);
@@ -1845,14 +1992,21 @@ redisCluster.on("connect", function () {
                       "request_state_vars.completedRatingClient": false,
                     };
 
-                    collection_requests_central
-                      .find(checkUnconfirmed)
-                      .toArray(function (err, prevDelivery) {
-                        if (err) {
-                          logger.error(err);
-                          resolve({ response: "unable_to_request" });
-                        }
-                        //...
+                    dynamo_find_query({
+                      table_name: "requests_central",
+                      IndexName: "client_id",
+                      KeyConditionExpression:
+                        "client_id = :val1 and #r.#c = :val2",
+                      ExpressionAttributeValues: {
+                        ":val1": req.user_identifier,
+                        ":val2": false,
+                      },
+                      ExpressionAttributeNames: {
+                        "#r": "request_state_vars",
+                        "#c": "completedRatingClient",
+                      },
+                    })
+                      .then((prevDelivery) => {
                         if (
                           prevDelivery !== undefined &&
                           prevDelivery.length <= 0
@@ -1999,22 +2153,27 @@ redisCluster.on("connect", function () {
                             })
                             .finally(() => {
                               //?Continue here
-                              collection_requests_central.insertOne(
-                                REQUEST_TEMPLATE,
-                                function (err, reslt) {
-                                  if (err) {
-                                    logger.error(err);
-                                    resolve({ response: "unable_to_request" });
-                                  }
+                              dynamo_insert(
+                                "requests_central",
+                                REQUEST_TEMPLATE
+                              )
+                                .then((result) => {
                                   //....DONE
                                   resolve({ response: "successful" });
-                                }
-                              );
+                                })
+                                .catch((error) => {
+                                  logger.error(error);
+                                  resolve({ response: "unable_to_request" });
+                                });
                             });
                         } //Has an unconfirmed shopping - block
                         else {
                           resolve({ response: "has_a_pending_shopping" });
                         }
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        resolve({ response: "unable_to_request" });
                       });
                   } catch (error) {
                     logger.error(error);
@@ -2043,14 +2202,15 @@ redisCluster.on("connect", function () {
                   req.user_identifier !== null
                 ) {
                   //! Check if the user id exists
-                  collection_users_central
-                    .find({ user_identifier: req.user_identifier })
-                    .toArray(function (err, userData) {
-                      if (err) {
-                        logger.error(err);
-                        resolve(false);
-                      }
-                      //...
+                  dynamo_find_query({
+                    table_name: "users_central",
+                    IndexName: "user_identifier",
+                    KeyConditionExpression: "user_identifier = :val1",
+                    ExpressionAttributeValues: {
+                      ":val1": req.user_identifier,
+                    },
+                  })
+                    .then((userData) => {
                       if (userData !== undefined && userData.length > 0) {
                         //Known user
                         let redisKey = `${req.user_identifier}-shoppings`;
@@ -2153,6 +2313,10 @@ redisCluster.on("connect", function () {
                       else {
                         resolve(false);
                       }
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve(false);
                     });
                 } //Missing data
                 else {
@@ -2203,6 +2367,8 @@ redisCluster.on("connect", function () {
             //?8. Submit the rider rating
             app.post("/submitRiderOrClientRating", function (req, res) {
               new Promise((resolve) => {
+                resolveDate();
+
                 req = req.body;
 
                 logger.info(req);
@@ -2235,15 +2401,21 @@ redisCluster.on("connect", function () {
                     "request_state_vars.completedRatingClient": false,
                   };
 
-                  collection_requests_central
-                    .find(requestChecker)
-                    .toArray(function (error, requestData) {
-                      if (error) {
-                        logger.error(error);
-                        resolve([{ response: "error" }]);
-                      }
-
-                      //...
+                  dynamo_find_query({
+                    table_name: "requests_central",
+                    IndexName: "request_fp",
+                    KeyConditionExpression:
+                      "request_fp = :val1 and #r.#c = :val2",
+                    ExpressionAttributeValues: {
+                      ":val1": req.request_fp,
+                      ":val2": false,
+                    },
+                    ExpressionAttributeNames: {
+                      "#r": "request_state_vars",
+                      "#c": "completedRatingClient",
+                    },
+                  })
+                    .then((requestData) => {
                       if (requestData !== undefined && requestData.length > 0) {
                         //Valid
                         requestData = requestData[0];
@@ -2253,28 +2425,36 @@ redisCluster.on("connect", function () {
                         updatedRequestState["rating_data"] = RATING_DATA;
                         updatedRequestState["completedRatingClient"] = true;
 
-                        collection_requests_central.updateOne(
-                          requestChecker,
-                          {
-                            $set: {
-                              request_state_vars: updatedRequestState,
-                              date_clientRatedRide: new Date(chaineDateUTC),
-                            },
+                        dynamo_update({
+                          table_name: "requests_central",
+                          _idKey: requestData._id,
+                          UpdateExpression:
+                            "set request_state_vars = :val1, date_clientRatedRide = :val2",
+                          ExpressionAttributeValues: {
+                            ":val1": updatedRequestState,
+                            ":val2": new Date(chaineDateUTC).toISOString(),
                           },
-                          function (err, result) {
-                            if (err) {
-                              logger.error(err);
+                        })
+                          .then((result) => {
+                            if (result === false) {
+                              //Error
                               resolve([{ response: "error" }]);
                             }
-
                             //...
                             resolve([{ response: "success" }]);
-                          }
-                        );
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            resolve([{ response: "error" }]);
+                          });
                       } //No request?
                       else {
                         resolve([{ response: "error" }]);
                       }
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve([{ response: "error" }]);
                     });
                 } //Invalid data
                 else {
@@ -2309,46 +2489,67 @@ redisCluster.on("connect", function () {
                     client_id: req.user_identifier,
                   };
                   //...
-                  collection_requests_central
-                    .find(checkRequest)
-                    .toArray(function (error, requestData) {
-                      if (error) {
-                        logger.error(error);
-                        resolve([{ response: "error" }]);
-                      }
-                      //...
+                  dynamo_find_query({
+                    table_name: "requests_central",
+                    IndexName: "request_fp",
+                    KeyConditionExpression:
+                      "request_fp = :val1 AND client_id = :val2",
+                    ExpressionAttributeValues: {
+                      ":val1": req.request_fp,
+                      ":val2": req.user_identifier,
+                    },
+                  })
+                    .then((requestData) => {
                       if (requestData !== undefined && requestData.length > 0) {
                         requestData = requestData[0];
                         //!...Delete and save in the cancelled
-                        collection_requests_central.deleteOne(
-                          checkRequest,
-                          function (err, result) {
-                            if (err) {
-                              logger.error(err);
+                        dynamo_delete(
+                          "cancelled_requests_central",
+                          requestData._id
+                        )
+                          .then((result) => {
+                            if (result) {
+                              //Success
+                              //!add the date cancelled
+                              requestData["date_cancelled"] = new Date(
+                                chaineDateUTC
+                              );
+
+                              dynamo_insert(
+                                "cancelled_requests_central",
+                                requestData
+                              )
+                                .then((result) => {
+                                  if (result) {
+                                    //Success
+                                    //...
+                                    resolve([{ response: "success" }]);
+                                  } //Failure
+                                  else {
+                                    resolve([{ response: "error" }]);
+                                  }
+                                })
+                                .catch((error) => {
+                                  logger.error(error);
+                                  resolve([{ response: "error" }]);
+                                });
+                            } //Failure
+                            else {
                               resolve([{ response: "error" }]);
                             }
-                            //....
-                            //!add the date cancelled
-                            requestData["date_cancelled"] = new Date(
-                              chaineDateUTC
-                            );
-                            collection_cancelled_requests_central.insertOne(
-                              requestData,
-                              function (err, result) {
-                                if (err) {
-                                  logger.error(err);
-                                  resolve([{ response: "error" }]);
-                                }
-                                //...
-                                resolve([{ response: "success" }]);
-                              }
-                            );
-                          }
-                        );
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            resolve([{ response: "error" }]);
+                          });
                       } //No request?
                       else {
                         resolve([{ response: "error" }]);
                       }
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve([{ response: "error" }]);
                     });
                 } //Invalid data
                 else {
@@ -2407,14 +2608,16 @@ redisCluster.on("connect", function () {
                 ) {
                   let redisKey = `${req.user_identifier}-requestListCached`;
 
-                  collection_requests_central
-                    .find({ client_id: req.user_identifier })
-                    .sort({ date_requested: -1 })
-                    .toArray(function (err, requestData) {
-                      if (err) {
-                        logger.error(err);
-                        resolve({ response: [] });
-                      }
+                  //TODO: .sort({ date_requested: -1 })
+                  dynamo_find_query({
+                    table_name: "requests_central",
+                    IndexName: "client_id",
+                    KeyConditionExpression: "client_id = :val1",
+                    ExpressionAttributeValues: {
+                      ":val1": req.user_identifier,
+                    },
+                  })
+                    .then((requestData) => {
                       logger.info(requestData);
                       //...
                       if (requestData !== undefined && requestData.length > 0) {
@@ -2440,6 +2643,10 @@ redisCluster.on("connect", function () {
                       else {
                         resolve({ response: [] });
                       }
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve({ response: [] });
                     });
                 } //Invalid data
                 else {
@@ -2474,77 +2681,117 @@ redisCluster.on("connect", function () {
                   switch (req.data_type) {
                     case "name":
                       //Update the name
-                      collection_users_central.updateOne(
-                        { user_identifier: req.user_identifier },
-                        { $set: { name: req.data_value } },
-                        function (err, result) {
-                          if (err) {
+                      dynamo_update({
+                        table_name: "users_central",
+                        _idKey: { user_identifier: req.user_identifier },
+                        UpdateExpression: "set name = :val1",
+                        ExpressionAttributeValues: {
+                          ":val1": req.data_value,
+                        },
+                      })
+                        .then((result) => {
+                          if (result === false) {
                             logger.error(err);
                             resolve({ response: "error" });
                           }
                           //...Success
                           resolve({ response: "success" });
-                        }
-                      );
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          resolve({ response: "error" });
+                        });
                       break;
                     case "surname":
                       //Update the surname
-                      collection_users_central.updateOne(
-                        { user_identifier: req.user_identifier },
-                        { $set: { surname: req.data_value } },
-                        function (err, result) {
-                          if (err) {
+                      dynamo_update({
+                        table_name: "users_central",
+                        _idKey: { user_identifier: req.user_identifier },
+                        UpdateExpression: "set surname = :val1",
+                        ExpressionAttributeValues: {
+                          ":val1": req.data_value,
+                        },
+                      })
+                        .then((result) => {
+                          if (result === false) {
                             logger.error(err);
                             resolve({ response: "error" });
                           }
                           //...Success
                           resolve({ response: "success" });
-                        }
-                      );
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          resolve({ response: "error" });
+                        });
                       break;
                     case "email":
                       //Update the email
-                      collection_users_central.updateOne(
-                        { user_identifier: req.user_identifier },
-                        { $set: { email: req.data_value } },
-                        function (err, result) {
-                          if (err) {
+                      dynamo_update({
+                        table_name: "users_central",
+                        _idKey: { user_identifier: req.user_identifier },
+                        UpdateExpression: "set email = :val1",
+                        ExpressionAttributeValues: {
+                          ":val1": req.data_value,
+                        },
+                      })
+                        .then((result) => {
+                          if (result === false) {
                             logger.error(err);
                             resolve({ response: "error" });
                           }
                           //...Success
                           resolve({ response: "success" });
-                        }
-                      );
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          resolve({ response: "error" });
+                        });
                     case "gender":
                       //Update the gender
-                      collection_users_central.updateOne(
-                        { user_identifier: req.user_identifier },
-                        { $set: { gender: req.data_value } },
-                        function (err, result) {
-                          if (err) {
+                      dynamo_update({
+                        table_name: "users_central",
+                        _idKey: { user_identifier: req.user_identifier },
+                        UpdateExpression: "set gender = :val1",
+                        ExpressionAttributeValues: {
+                          ":val1": req.data_value,
+                        },
+                      })
+                        .then((result) => {
+                          if (result === false) {
                             logger.error(err);
                             resolve({ response: "error" });
                           }
                           //...Success
                           resolve({ response: "success" });
-                        }
-                      );
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          resolve({ response: "error" });
+                        });
                       break;
                     case "phone":
                       //Update the phone
-                      collection_users_central.updateOne(
-                        { user_identifier: req.user_identifier },
-                        { $set: { phone_number: req.data_value } },
-                        function (err, result) {
-                          if (err) {
+                      dynamo_update({
+                        table_name: "users_central",
+                        _idKey: { user_identifier: req.user_identifier },
+                        UpdateExpression: "set phone_number = :val1",
+                        ExpressionAttributeValues: {
+                          ":val1": req.data_value,
+                        },
+                      })
+                        .then((result) => {
+                          if (result === false) {
                             logger.error(err);
                             resolve({ response: "error" });
                           }
                           //...Success
                           resolve({ response: "success" });
-                        }
-                      );
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          resolve({ response: "error" });
+                        });
                       break;
 
                     case "profile_picture":
@@ -2582,22 +2829,30 @@ redisCluster.on("connect", function () {
                               `[USER]${localFileName} -> Successfully uploaded.`
                             );
                             //! Update the database
-                            collection_users_central.updateOne(
-                              { user_identifier: req.user_identifier },
-                              {
-                                $set: {
-                                  "media.profile_picture": fileUploadName,
-                                },
+                            dynamo_update({
+                              table_name: "users_central",
+                              _idKey: { user_identifier: req.user_identifier },
+                              UpdateExpression: "set #m.#p = :val1",
+                              ExpressionAttributeValues: {
+                                ":val1": fileUploadName,
                               },
-                              function (err, result) {
-                                if (err) {
+                              ExpressionAttributeNames: {
+                                "#m": "media",
+                                "#p": "profile_picture",
+                              },
+                            })
+                              .then((result) => {
+                                if (result === false) {
                                   logger.error(err);
                                   resolve({ response: "error" });
                                 }
                                 //...Success
                                 resolve({ response: "success" });
-                              }
-                            );
+                              })
+                              .catch((error) => {
+                                logger.error(error);
+                                resolve({ response: "error" });
+                              });
                           });
                         }
                       );
@@ -2616,14 +2871,16 @@ redisCluster.on("connect", function () {
                   if (result.response == "success") {
                     //- update the cached data
                     let redisKey = `${req.user_identifier}-cachedProfile-data`;
-                    collection_users_central
-                      .find({ user_identifier: req.user_identifier })
-                      .toArray(function (err, userData) {
-                        if (err) {
-                          logger.error(err);
-                          res.send({ response: "error" });
-                        }
-                        //...
+
+                    dynamo_find_query({
+                      table_name: "users_central",
+                      IndexName: "user_identifier",
+                      KeyConditionExpression: "user_identifier = :val1",
+                      ExpressionAttributeValues: {
+                        ":val1": req.user_identifier,
+                      },
+                    })
+                      .then((userData) => {
                         if (userData !== undefined && userData.length > 0) {
                           //Valid info
                           redisCluster.setex(
@@ -2637,6 +2894,10 @@ redisCluster.on("connect", function () {
                         else {
                           res.send({ response: "error" });
                         }
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        res.send({ response: "error" });
                       });
                   } //!error
                   else {
