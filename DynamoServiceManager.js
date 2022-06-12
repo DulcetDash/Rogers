@@ -193,6 +193,7 @@ async function update({
     //...
     dynamoClient.update(params, function (err, resultUpdate) {
       if (err) {
+        logger.warn(params);
         logger.error(err);
         resolve(false);
       }
@@ -222,6 +223,8 @@ async function find_query({
   ExpressionAttributeValues = {},
   ExpressionAttributeNames = {},
   IndexName = null,
+  Limit = null,
+  ScanIndexForward = null,
 }) {
   return new Promise((resolve) => {
     let params =
@@ -231,6 +234,8 @@ async function find_query({
             ExpressionAttributeValues: ExpressionAttributeValues,
             ExpressionAttributeNames: ExpressionAttributeNames,
             FilterExpression: FilterExpression,
+            Limit: Limit,
+            ScanIndexForward: ScanIndexForward,
             TableName: table_name,
             IndexName: IndexName,
           }
@@ -239,6 +244,8 @@ async function find_query({
             ExpressionAttributeValues: ExpressionAttributeValues,
             ExpressionAttributeNames: ExpressionAttributeNames,
             FilterExpression: FilterExpression,
+            Limit: Limit,
+            ScanIndexForward: ScanIndexForward,
             TableName: table_name,
             Key: {
               _id: _idKey,
@@ -249,8 +256,13 @@ async function find_query({
     //! Remove ExpressionAttributeNames or FilterExpression if not set
     if (Object.keys(ExpressionAttributeNames).length === 0)
       delete params["ExpressionAttributeNames"];
+
     if (Object.keys(FilterExpression).length === 0)
       delete params["FilterExpression"];
+
+    if (Limit === null) delete params["Limit"];
+
+    if (ScanIndexForward === null) delete params["ScanIndexForward"];
     //...
     dynamoClient.query(params, function (err, resultFindget) {
       if (err) {

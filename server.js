@@ -12,6 +12,7 @@ var otpGenerator = require("otp-generator");
 var elasticsearch = require("elasticsearch");
 
 const { logger } = require("./LogService");
+const { sendSMS } = require("./SendSMS");
 const AWS = require("aws-sdk");
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_S3_ID,
@@ -101,6 +102,63 @@ function resolveDate() {
 }
 resolveDate();
 
+var AWS_SMS = require("aws-sdk");
+
+function SendSMSTo(phone_number, message) {
+  // Load the AWS SDK for Node.js
+  AWS_SMS.config.update({ region: "us-east-1" });
+
+  // Create publish parameters
+  var params = {
+    Message: "TEXT_MESSAGE" /* required */,
+    PhoneNumber: "264856997167",
+    // attributes: {
+    //   SMSType: "Transactional",
+    // },
+  };
+
+  // Create promise and SNS service object
+  return new AWS_SMS.SNS({
+    apiVersion: "2010-03-31",
+    // sslEnabled: false,
+    // maxRetries: 10,
+  })
+    .publish(params)
+    .promise();
+
+  // Handle promise's fulfilled/rejected states
+  // publishTextPromise
+  //   .then(function (data) {
+  //     console.log("MessageID is " + data.MessageId);
+  //   })
+  //   .catch(function (err) {
+  //     console.error(err, err.stack);
+  //   });
+
+  // Set region
+  // AWS_SMS.config.update({ region: "us-east-1" });
+
+  // // Create publish parameters
+  // var params = {
+  //   Message: message /* required */,
+  //   PhoneNumber: phone_number,
+  // };
+
+  // // Create promise and SNS service object
+  // var publishTextPromise = new AWS_SMS.SNS({ apiVersion: "2010-03-31" })
+  //   .publish(params)
+  //   .promise();
+
+  // // Handle promise's fulfilled/rejected states
+  // publishTextPromise
+  //   .then(function (data) {
+  //     logger.info("MessageID is " + data.MessageId);
+  //   })
+  //   .catch(function (err) {
+  //     console.error(err);
+  //   });
+}
+
 /**
  * @func generateUniqueFingerprint()
  * Generate unique fingerprint for any string size.
@@ -137,28 +195,6 @@ function generateUniqueFingerprint(str, encryption = false, resolve) {
 }
 
 //EVENT GATEWAY PORT
-
-app
-  .get("/", function (req, res) {
-    res.send("[+] Nej server running.");
-  })
-  .use(express.static(path.join(__dirname, "assets")));
-app
-  .use(
-    express.json({
-      limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
-      extended: true,
-    })
-  )
-  .use(
-    express.urlencoded({
-      limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
-      extended: true,
-    })
-  )
-  // .use(multer().none())
-  .use(cors())
-  .use(helmet());
 
 /**
  * @func getStores
@@ -1536,6 +1572,167 @@ function getOutputStandardizedUserDataFormat(userData) {
   return RETURN_DATA_TEMPLATE;
 }
 
+/**
+ * @func shouldSendNewSMS
+ * Responsible for figuring out if the system is allowed to send new SMS to a specific number
+ * based on the daily limit that the number has ~ 10SMS per day.
+ * @param req: the request data containing the user's phone number : ATTACH THE _id if HAS AN ACCOUNT
+ * @param hasAccount: true (is an existing user) or false (do not have an account yet)
+ * @param resolve
+ */
+function shouldSendNewSMS({ req, hasAccount, resolve }) {
+  const DAILY_THRESHOLD = parseInt(process.env.DAILY_SMS_THRESHOLD_PER_USER);
+
+  resolveDate();
+  let refDate = new Date(chaineDateUTC);
+  let today_beginning = `${refDate.getFullYear()}-${
+    refDate.getMonth() + 1 > 10
+      ? refDate.getMonth() + 1
+      : `0${refDate.getMonth() + 1}`
+  }-${refDate.getDate()}T00:00:00.000Z`;
+  let today_end = `${refDate.getFullYear()}-${
+    refDate.getMonth() + 1 > 10
+      ? refDate.getMonth() + 1
+      : `0${refDate.getMonth() + 1}`
+  }-${refDate.getDate()}T21:59:59.000Z`;
+  //Check how many SMS were sent to this specific number today
+  dynamo_find_query({
+    table_name: "otp_dispatch_map",
+    IndexName: "phone_number",
+    KeyConditionExpression:
+      "phone_number = :val1 AND date_sent BETWEEN :start_date AND :end_date",
+    ScanIndexForward: false,
+    ExpressionAttributeValues: {
+      ":val1": req.phone,
+      ":start_date": today_beginning,
+      ":end_date": today_end,
+    },
+  })
+    .then((otpData) => {
+      logger.error(otpData);
+      if (otpData !== undefined && otpData.length < DAILY_THRESHOLD) {
+        //Can still send the SMS
+        //? SEND OTP AND UPDATE THE RECORDS
+        let onlyDigitsPhone = req.phone.replace("+", "").trim();
+        let otp = otpGenerator.generate(6, {
+          lowerCaseAlphabets: false,
+          upperCaseAlphabets: false,
+          specialChars: false,
+        });
+        //! --------------
+        //let otp = 55576;
+        otp = String(otp).length < 5 ? parseInt(otp) * 10 : otp;
+        new Promise((res0) => {
+          let message = otp + ` is your NEJ Verification Code.`;
+
+          let urlSMS = `http://localhost:9393/?message=${message}&number=${onlyDigitsPhone}&subject=TEST`;
+          requestAPI(urlSMS, function (error, response, body) {
+            if (error === null) {
+              //Success
+              console.log(body);
+              res0(true);
+            } //Unable to send SMS
+            else {
+              res0(true);
+            }
+          });
+        }).then(
+          () => {
+            //1. Update the records for the OTP MAP for registered or non registered users
+            new Promise((resUpdateOTPMAP) => {
+              let basicOTPMAP_data = {
+                phone_number: req.phone,
+                otp: parseInt(otp),
+                date_sent: new Date(chaineDateUTC).toISOString(),
+              };
+              //...
+              dynamo_insert("otp_dispatch_map", basicOTPMAP_data)
+                .then((reslt) => {
+                  logger.info(reslt);
+                  resUpdateOTPMAP(true);
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resUpdateOTPMAP(false);
+                });
+            })
+              .then()
+              .catch((error) => logger.error(error));
+
+            //? Update the user's profile if has an account
+            if (hasAccount) {
+              logger.warn("USER HAS AN ACCOUNT.");
+              dynamo_update({
+                table_name: "users_central",
+                _idKey: req._id,
+                UpdateExpression: "set #a.#p = :val1",
+                ExpressionAttributeValues: {
+                  ":val1": {
+                    otp: parseInt(otp),
+                    date_sent: new Date(chaineDateUTC).toISOString(),
+                  },
+                },
+                ExpressionAttributeNames: {
+                  "#a": "account_verifications",
+                  "#p": "phone_verification_secrets",
+                },
+              })
+                .then((result) => {
+                  logger.info(result);
+                  resolve(result);
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resolve(false);
+                });
+            } //No accounts
+            else {
+              logger.warn("USER HAS NOT AN ACCOUNT.");
+              //Done
+              resolve(true);
+            }
+          },
+          (error) => {
+            logger.info(error);
+            resolve(false);
+          }
+        );
+      } //!Exceeded the daily SMS request
+      else {
+        resolve(false);
+      }
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve(false);
+    });
+}
+
+/**
+ * @func isUserValid
+ * Responsible for checking if a user account is valid or not based on the Primary key
+ * which is in this case the user_identifier.
+ * @param user_identifier
+ * @param resolve
+ */
+function isUserValid(user_identifier, resolve) {
+  dynamo_find_query({
+    table_name: "users_central",
+    IndexName: "user_identifier",
+    KeyConditionExpression: "user_identifier = :val1",
+    ExpressionAttributeValues: {
+      ":val1": user_identifier,
+    },
+  })
+    .then((result) => {
+      resolve(result !== undefined && result.length > 0);
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve(false);
+    });
+}
+
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
 
@@ -1551,6 +1748,27 @@ redisCluster.on("connect", function () {
       } else {
         logger.info("[*] Elasticsearch connected");
         logger.info("[+] Nej service active");
+        app
+          .get("/", function (req, res) {
+            res.send("[+] Nej server running.");
+          })
+          .use(express.static(path.join(__dirname, "assets")));
+        app
+          .use(
+            express.json({
+              limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+              extended: true,
+            })
+          )
+          .use(
+            express.urlencoded({
+              limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+              extended: true,
+            })
+          )
+          // .use(multer().none())
+          .use(cors())
+          .use(helmet());
         //?1. Get all the available stores in the app.
         //Get the main ones (4) and the new ones (X)
         app.post("/getStores", function (req, res) {
@@ -2889,6 +3107,8 @@ redisCluster.on("connect", function () {
           new Promise((resolve) => {
             req = req.body;
 
+            logger.info(req);
+
             if (
               req.user_identifier !== undefined &&
               req.user_identifier !== null
@@ -2961,6 +3181,346 @@ redisCluster.on("connect", function () {
             .catch((error) => {
               logger.error(error);
               res.send({ response: [] });
+            });
+        });
+
+        //?14. Check the user's phone number and send the code and the account status back
+        app.post("/checkPhoneAndSendOTP_status", function (req, res) {
+          new Promise((resolve) => {
+            req = req.body;
+            logger.info(req);
+
+            //1. Check if the account exists
+            dynamo_find_query({
+              table_name: "users_central",
+              IndexName: "phone_number",
+              KeyConditionExpression: "phone_number = :val1",
+              ExpressionAttributeValues: {
+                ":val1": req.phone,
+              },
+            })
+              .then((userData) => {
+                if (userData !== undefined && userData.length > 0) {
+                  //!Existing user - attach the _id
+                  req["_id"] = userData[0]._id;
+
+                  new Promise((resCompute) => {
+                    shouldSendNewSMS({
+                      req: req,
+                      hasAccount: true,
+                      user_identifier: userData[0].user_identifier,
+                      resolve: resCompute,
+                    });
+                  })
+                    .then((didSendOTP) => {
+                      resolve({
+                        response: {
+                          didSendOTP: didSendOTP,
+                          hasAccount: true, //!Has account
+                        },
+                      });
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve({ response: {} });
+                    });
+                } //Unregistered user
+                else {
+                  //Get the last
+                  new Promise((resCompute) => {
+                    shouldSendNewSMS({
+                      req: req,
+                      hasAccount: false,
+                      resolve: resCompute,
+                    });
+                  })
+                    .then((didSendOTP) => {
+                      resolve({
+                        response: {
+                          didSendOTP: didSendOTP,
+                          hasAccount: false, //!No account
+                        },
+                      });
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve({ response: {} });
+                    });
+                }
+              })
+              .catch((error) => {
+                logger.error(error);
+                resolve({ response: {} });
+              });
+          })
+            .then((result) => {
+              // logger.info(result);
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send({ response: {} });
+            });
+        });
+
+        //?15. Validate user OTP
+        app.post("/validateUserOTP", function (req, res) {
+          new Promise((resolve) => {
+            req = req.body;
+
+            if (
+              req.phone !== undefined &&
+              req.phone !== null &&
+              req.hasAccount !== undefined &&
+              req.hasAccount !== null &&
+              req.otp !== undefined &&
+              req.otp !== null
+            ) {
+              if (
+                req.hasAccount &&
+                req.user_identifier !== undefined &&
+                req.user_identifier !== null
+              ) {
+                //Registered user
+                dynamo_find_query({
+                  table_name: "users_central",
+                  IndexName: "user_identifier",
+                  KeyConditionExpression: "user_identifier = :val1",
+                  FilterExpression: "phone_number = :val2 and #a.#p.#o = :val3",
+                  ExpressionAttributeValues: {
+                    ":val1": req.user_identifier,
+                    ":val2": req.phone,
+                    ":val3": parseInt(req.otp),
+                  },
+                  ExpressionAttributeNames: {
+                    "#a": "account_verifications",
+                    "#p": "phone_verification_secrets",
+                    "#o": "otp",
+                  },
+                })
+                  .then((userData) => {
+                    if (userData !== undefined && userData.length > 0) {
+                      //?Found the account
+                      let url = `http://localhost:${process.env.SERVER_MOTHER_PORT}/getGenericUserData`;
+                      requestAPI.post(
+                        {
+                          url,
+                          form: req,
+                        },
+                        function (error, response, body) {
+                          // console.log(error, body);
+                          if (error === null) {
+                            //Success
+                            try {
+                              body = JSON.parse(body);
+                              resolve({
+                                response: "success",
+                                account_state: userData[0].account_state, //!Very important for state restoration
+                                userData: body,
+                              });
+                            } catch (error) {
+                              logger.error(error);
+                              resolve({ response: {} });
+                            }
+                          } //Failed
+                          else {
+                            resolve({ response: {} });
+                          }
+                        }
+                      );
+                    } //No account found?
+                    else {
+                      resolve({ response: "wrong_otp" });
+                    }
+                  })
+                  .catch((error) => {
+                    logger.error(error);
+                    resolve({ response: {} });
+                  });
+              } //Non registered user
+              else {
+                dynamo_find_query({
+                  table_name: "otp_dispatch_map",
+                  IndexName: "phone_number",
+                  KeyConditionExpression: "phone_number = :val1",
+                  FilterExpression: "otp = :val2",
+                  ExpressionAttributeValues: {
+                    ":val1": req.phone,
+                    ":val2": parseInt(req.otp),
+                  },
+                })
+                  .then((anonymousUserData) => {
+                    if (
+                      anonymousUserData !== undefined &&
+                      anonymousUserData.length > 0
+                    ) {
+                      //Found evidence!
+                      resolve({ response: "success", userData: "new_user" });
+                    } //No evidence?
+                    else {
+                      resolve({ response: "wrong_otp" });
+                    }
+                  })
+                  .catch((error) => {
+                    logger.error(error);
+                    resolve({ response: {} });
+                  });
+              }
+            } //Invalid data
+            else {
+              resolve({ response: {} });
+            }
+          })
+            .then((result) => {
+              // logger.info(result);
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send({ response: {} });
+            });
+        });
+
+        //?16. Create a basic account quickly
+        app.post("/createBasicUserAccount", function (req, res) {
+          new Promise((resolve) => {
+            resolveDate();
+
+            req = req.body;
+
+            if (req.phone !== undefined && req.phone !== null) {
+              //!Check if there is an account with this phone number
+              dynamo_find_query({
+                table_name: "users_central",
+                IndexName: "phone_number",
+                KeyConditionExpression: "phone_number = :val1",
+                ExpressionAttributeValues: {
+                  ":val1": req.phone,
+                },
+              })
+                .then((userData) => {
+                  if (userData !== undefined && userData.length == 0) {
+                    //!No account yet - create one
+                    let TEMPLATE_BASIC_ACCOUNT = {
+                      user_identifier: null,
+                      last_updated: new Date(chaineDateUTC).toISOString(),
+                      gender: "unknown",
+                      account_verifications: {
+                        is_accountVerified: true,
+                        is_policies_accepted: true,
+                        phone_verification_secrets: {},
+                      },
+                      media: {
+                        profile_picture: "user.png",
+                      },
+                      date_registered: new Date(chaineDateUTC).toISOString(),
+                      password: false,
+                      surname: "",
+                      name: "",
+                      phone_number: req.phone,
+                      account_state: "half",
+                      pushnotif_token: {},
+                      email: "",
+                    };
+                    //Compute the user fingerprint
+                    new Promise((resUserFp) => {
+                      generateUniqueFingerprint(
+                        `${req.phone}${new Date(chaineDateUTC).getTime()}`,
+                        false,
+                        resUserFp
+                      );
+                    })
+                      .then((userFp) => {
+                        TEMPLATE_BASIC_ACCOUNT.user_identifier = userFp;
+
+                        //? Save the account
+                        dynamo_insert("users_central", TEMPLATE_BASIC_ACCOUNT)
+                          .then((result) => {
+                            if (result) {
+                              //Success
+                              logger.info(TEMPLATE_BASIC_ACCOUNT);
+                              //?Get the user indetifier
+                              resolve({
+                                response: "success",
+                                userData: { user_identifier: userFp },
+                              });
+                            } //Failed
+                            else {
+                              resolve({ response: "error" });
+                            }
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            resolve({ response: "error" });
+                          });
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        resolve({ response: "error" });
+                      });
+                  } //!Existing account already there
+                  else {
+                    resolve({ response: "phone_already_in_use" });
+                  }
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resolve({ response: "error" });
+                });
+            } //Invalid data
+            else {
+              resolve({ response: "error" });
+            }
+          })
+            .then((result) => {
+              // logger.info(result);
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send({ response: "error" });
+            });
+        });
+
+        //?17. Add additional user account details
+        app.post("/addAdditionalUserAccDetails", function (req, res) {
+          new Promise((resolve) => {
+            req = req.body;
+
+            if (
+              req.user_identifier !== undefined &&
+              req.user_identifier !== null &&
+              req.additional_data !== undefined &&
+              req.additional_data !== null
+            ) {
+              new Promise((resCheck) => {
+                isUserValid(req.user_identifier, resCheck);
+              })
+                .then((isValid) => {
+                  if (isValid) {
+                    //?Valid user
+                    //Update the user's profile
+                  } //! Invalid user
+                  else {
+                    resolve({ response: "error" });
+                  }
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resolve({ response: "error" });
+                });
+            } //Invalid data
+            else {
+              resolve({ response: "error" });
+            }
+          })
+            .then((result) => {
+              // logger.info(result);
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send({ response: "error" });
             });
         });
       }

@@ -10,7 +10,7 @@
     "@babel/core": "^7.12.10",
     "@babel/runtime": "^7.12.5",
     "amqplib": "^0.8.0",
-    "aws-sdk": "^2.937.0",
+    "aws-sdk": "2.480.0",
     "babel-plugin-transform-remove-console": "^6.9.4",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
