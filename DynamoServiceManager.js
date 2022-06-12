@@ -69,34 +69,34 @@ async function insert_many({ table_name, array_data }) {
 
     console.log(el);
     // console.error(el["date_added"]);
+    //? TO USE ONLY FOR DATA MIGRATION FROM MONGODB -> DYNAMODB
+    // if (el["date_requested"] !== undefined && el["date_requested"] !== null)
+    //   el["date_requested"] = el["date_requested"].toISOString();
 
-    if (el["date_requested"] !== undefined && el["date_requested"] !== null)
-      el["date_requested"] = el["date_requested"].toISOString();
+    // if (el["date_cancelled"] !== undefined && el["date_cancelled"] !== null)
+    //   el["date_cancelled"] = el["date_cancelled"].toISOString();
 
-    if (el["date_cancelled"] !== undefined && el["date_cancelled"] !== null)
-      el["date_cancelled"] = el["date_cancelled"].toISOString();
+    // if (
+    //   el["date_added"] !== undefined &&
+    //   el["date_added"] !== null &&
+    //   el["date_added"] !== "date"
+    // )
+    //   el["date_added"] = el["date_added"].toISOString();
 
-    if (
-      el["date_added"] !== undefined &&
-      el["date_added"] !== null &&
-      el["date_added"] !== "date"
-    )
-      el["date_added"] = el["date_added"].toISOString();
+    // if (el["date_registered"] !== undefined && el["date_registered"] !== null)
+    //   el["date_registered"] = el["date_registered"].toISOString();
 
-    if (el["date_registered"] !== undefined && el["date_registered"] !== null)
-      el["date_registered"] = el["date_registered"].toISOString();
+    // if (el["date_updated"] !== undefined && el["date_updated"] !== null)
+    //   el["date_updated"] = el["date_updated"].toISOString();
 
-    if (el["date_updated"] !== undefined && el["date_updated"] !== null)
-      el["date_updated"] = el["date_updated"].toISOString();
+    // if (
+    //   el["date_clientRatedRide"] !== undefined &&
+    //   el["date_clientRatedRide"] !== null
+    // )
+    //   el["date_clientRatedRide"] = el["date_clientRatedRide"].toISOString();
 
-    if (
-      el["date_clientRatedRide"] !== undefined &&
-      el["date_clientRatedRide"] !== null
-    )
-      el["date_clientRatedRide"] = el["date_clientRatedRide"].toISOString();
-
-    if (el["last_updated"] !== undefined && el["last_updated"] !== null)
-      el["last_updated"] = el["last_updated"].toISOString();
+    // if (el["last_updated"] !== undefined && el["last_updated"] !== null)
+    //   el["last_updated"] = el["last_updated"].toISOString();
 
     //...
     reformatted_data.push({
