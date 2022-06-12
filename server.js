@@ -1522,13 +1522,6 @@ function getOutputStandardizedUserDataFormat(userData) {
   return RETURN_DATA_TEMPLATE;
 }
 
-var collection_catalogue_central = null;
-var collection_shops_central = null;
-var collection_requests_central = null;
-var collection_users_central = null;
-var collection_drivers_shoppers_central = null;
-var collection_cancelled_requests_central = null;
-
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
 
@@ -1543,751 +1536,673 @@ redisCluster.on("connect", function () {
         logger.warn("Error:", error);
       } else {
         logger.info("[*] Elasticsearch connected");
+        logger.info("[+] Nej service active");
+        //?1. Get all the available stores in the app.
+        //Get the main ones (4) and the new ones (X)
+        app.post("/getStores", function (req, res) {
+          new Promise((resolve) => {
+            getStores(resolve);
+          })
+            .then((result) => {
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send({ response: [] });
+            });
+        });
 
-        MongoClient.connect(
-          process.env.DB_URL_MONGODB,
-          function (err, clientMongo) {
-            if (err) throw err;
-            logger.info("[+] Nej service active");
-            const dbMongo = clientMongo.db(process.env.DB_NAME_MONGODDB);
-            collection_catalogue_central =
-              dbMongo.collection("catalogue_central"); //Hold all the product from the catalogue
-            collection_shops_central = dbMongo.collection("shops_central"); //Hold all the shops subscribed
-            collection_requests_central =
-              dbMongo.collection("requests_central"); //Hold all the shopping, ride and delivery requests
-            collection_cancelled_requests_central = dbMongo.collection(
-              "cancelled_requests_central"
-            ); //Hold all the shopping, ride and delivery requests
-            collection_users_central = dbMongo.collection("users_central"); //Hold all the users data
-            collection_drivers_shoppers_central = dbMongo.collection(
-              "drivers_shoppers_central"
-            ); //Hold all the shoppers and drivers data
-
-            //?1. Get all the available stores in the app.
-            //Get the main ones (4) and the new ones (X)
-            app.post("/getStores", function (req, res) {
-              new Promise((resolve) => {
-                getStores(resolve);
+        //?2. Get all the products based on a store
+        app.post("/getCatalogueFor", function (req, res) {
+          req = req.body;
+          if (req.store !== undefined && req.store !== null) {
+            req.store = req.store;
+            //Ok
+            new Promise((resolve) => {
+              getCatalogueFor(req, resolve);
+            })
+              .then((result) => {
+                res.send(result);
               })
-                .then((result) => {
-                  res.send(result);
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  res.send({ response: [] });
-                });
-            });
-
-            //?2. Get all the products based on a store
-            app.post("/getCatalogueFor", function (req, res) {
-              req = req.body;
-              if (req.store !== undefined && req.store !== null) {
-                req.store = req.store;
-                //Ok
-                new Promise((resolve) => {
-                  getCatalogueFor(req, resolve);
-                })
-                  .then((result) => {
-                    res.send(result);
-                  })
-                  .catch((error) => {
-                    logger.error(error);
-                    res.send({ response: "no_products" });
-                  });
-              } //No valid data
-              else {
+              .catch((error) => {
+                logger.error(error);
                 res.send({ response: "no_products" });
-              }
-            });
+              });
+          } //No valid data
+          else {
+            res.send({ response: "no_products" });
+          }
+        });
 
-            //?3. Search in  the catalogue of a  specific shop
-            app.post("/getResultsForKeywords", function (req, res) {
-              req = req.body;
-              if (
-                req.key !== undefined &&
-                req.key !== null &&
-                req.store !== undefined &&
-                req.store !== null
-              ) {
-                new Promise((resolve) => {
-                  searchProductsFor(req, resolve);
+        //?3. Search in  the catalogue of a  specific shop
+        app.post("/getResultsForKeywords", function (req, res) {
+          req = req.body;
+          if (
+            req.key !== undefined &&
+            req.key !== null &&
+            req.store !== undefined &&
+            req.store !== null
+          ) {
+            new Promise((resolve) => {
+              searchProductsFor(req, resolve);
+            })
+              .then((result) => {
+                //! Limit to 5
+                // result = result.response.splice(0, 5);
+                res.send(result);
+              })
+              .catch((error) => {
+                logger.error(error);
+                res.send({ response: [] });
+              });
+          } //No valid data
+          else {
+            res.send({ response: [] });
+          }
+        });
+
+        //?4. Move all the pictures from external remote servers to our local server
+        app.post("/getImageRessourcesFromExternal", function (req, res) {
+          //Get all the images that where not moved yet into the internal ressources
+          //? In an image ressource was moved, it will be in the meta.moved_ressources_manifest, else proceed with the getting
+          // collection_catalogue_central
+          //   .find({})
+          //   .toArray(function (err, productsData) {
+          //     if (err) {
+          //       logger.error(err);
+          //       res.send({ response: "error", flag: err });
+          //     }
+          //     //...
+          //     if (productsData !== undefined && productsData.length > 0) {
+          //       //Has some products
+          //       let parentPromises = productsData.map((product, index) => {
+          //         return new Promise((resolve) => {
+          //           //Get the array of images
+          //           let arrayImages = product.product_picture;
+          //           //Get the transition manifest
+          //           //? Looks like {'old_image_name_external_url': new_image_name_url}
+          //           console.log(arrayImages);
+          //           let transition_manifest =
+          //             product.meta.moved_ressources_manifest !==
+          //               undefined &&
+          //             product.meta.moved_ressources_manifest !== null
+          //               ? product.meta.moved_ressources_manifest
+          //               : {};
+          //           let parentPromises2 = arrayImages.map((picture) => {
+          //             return new Promise((resCompute) => {
+          //               if (
+          //                 transition_manifest[picture] !== undefined &&
+          //                 transition_manifest[picture] !== null
+          //               ) {
+          //                 //!Was moved
+          //                 //Already processed
+          //                 resCompute({
+          //                   message: "Already processed",
+          //                   index: index,
+          //                 });
+          //               } //!Not moved yet - move
+          //               else {
+          //                 let options = {
+          //                   uri: picture,
+          //                   encoding: null,
+          //                 };
+          //                 requestAPI(
+          //                   options,
+          //                   function (error, response, body) {
+          //                     if (error || response.statusCode !== 200) {
+          //                       console.log("failed to get image");
+          //                       console.log(error);
+          //                       resCompute({
+          //                         message: "Processed - failed",
+          //                         index: index,
+          //                       });
+          //                     } else {
+          //                       logger.info("Got the image");
+          //                       s3.putObject(
+          //                         {
+          //                           Body: body,
+          //                           Key: path,
+          //                           Bucket: "bucket_name",
+          //                         },
+          //                         function (error, data) {
+          //                           if (error) {
+          //                             console.log(
+          //                               "error downloading image to s3"
+          //                             );
+          //                             resCompute({
+          //                               message: "Processed - failed",
+          //                               index: index,
+          //                             });
+          //                           } else {
+          //                             console.log(
+          //                               "success uploading to s3"
+          //                             );
+          //                             resCompute({
+          //                               message: "Processed",
+          //                               index: index,
+          //                             });
+          //                           }
+          //                         }
+          //                       );
+          //                     }
+          //                   }
+          //                 );
+          //               }
+          //             });
+          //           });
+          //           //? Done with this
+          //           Promise.all(parentPromises2)
+          //             .then((result) => {
+          //               resolve(result);
+          //             })
+          //             .catch((error) => {
+          //               logger.error(error);
+          //               resolve({ response: "error_processing" });
+          //             });
+          //         });
+          //       });
+          //       //! DONE
+          //       Promise.all(parentPromises)
+          //         .then((result) => {
+          //           res.send({ response: result });
+          //         })
+          //         .catch((error) => {
+          //           logger.error(error);
+          //           res.send({ response: "unable_to_work", flag: error });
+          //         });
+          //     } //No products
+          //     else {
+          //       res.send({ response: "no_products_found" });
+          //     }
+          //   });
+        });
+
+        //?5. Get the user location geocoded
+        app.post("/geocode_this_point", function (req, res) {
+          let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/geocode_this_point`;
+
+          requestAPI.post(
+            { url: urlRequest, form: req.body },
+            function (err, response, body) {
+              if (err) {
+                logger.error(err);
+              }
+              //...
+              res.send(body);
+            }
+          );
+        });
+
+        //?5. Get location search suggestions
+        app.post("/getSearchedLocations", function (req, res) {
+          let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getSearchedLocations`;
+
+          requestAPI.post(
+            { url: urlRequest, form: req.body },
+            function (err, response, body) {
+              if (err) {
+                logger.error(err);
+              }
+              //...
+              res.send(body);
+            }
+          );
+        });
+
+        //?6. Request for shopping
+        app.post("/requestForShopping", function (req, res) {
+          new Promise((resolve) => {
+            req = req.body;
+            //! Check for the user identifier, shopping_list and totals
+            if (
+              req.user_identifier !== undefined &&
+              req.user_identifier !== null &&
+              req.shopping_list !== undefined &&
+              req.shopping_list !== null &&
+              req.totals !== undefined &&
+              req.totals !== null &&
+              req.locations !== undefined &&
+              req.locations !== null &&
+              req.ride_mode !== undefined &&
+              req.ride_mode !== null
+            ) {
+              logger.info(req);
+              let security_pin = otpGenerator.generate(6, {
+                lowerCaseAlphabets: false,
+                upperCaseAlphabets: false,
+                specialChars: false,
+              });
+              //! --------------
+              security_pin =
+                String(security_pin).length < 6
+                  ? parseInt(security_pin) * 10
+                  : security_pin;
+
+              try {
+                //! Check if the user has no unconfirmed shoppings
+                let checkUnconfirmed = {
+                  client_id: req.user_identifier,
+                  "request_state_vars.completedRatingClient": false,
+                };
+
+                dynamo_find_query({
+                  table_name: "requests_central",
+                  IndexName: "client_id",
+                  KeyConditionExpression: "client_id = :val1 and #r.#c = :val2",
+                  ExpressionAttributeValues: {
+                    ":val1": req.user_identifier,
+                    ":val2": false,
+                  },
+                  ExpressionAttributeNames: {
+                    "#r": "request_state_vars",
+                    "#c": "completedRatingClient",
+                  },
                 })
-                  .then((result) => {
-                    //! Limit to 5
-                    // result = result.response.splice(0, 5);
-                    res.send(result);
+                  .then((prevShopping) => {
+                    if (
+                      prevShopping !== undefined &&
+                      prevShopping.length <= 0
+                    ) {
+                      //No unconfirmed shopping - okay
+                      //! Perform the conversions
+                      req.shopping_list =
+                        req.shopping_list !== undefined
+                          ? JSON.parse(req.shopping_list)
+                          : null;
+                      req.totals =
+                        req.totals !== undefined
+                          ? JSON.parse(req.totals)
+                          : null;
+                      req.locations =
+                        req.locations !== undefined
+                          ? JSON.parse(req.locations)
+                          : null;
+
+                      //...
+                      let REQUEST_TEMPLATE = {
+                        request_fp: null,
+                        client_id: req.user_identifier, //the user identifier - requester
+                        shopper_id: false, //The id of the shopper
+                        payment_method: req.payment_method, //mobile_money or cash
+                        locations: req.locations, //Has the pickup and delivery locations
+                        totals_request: req.totals, //Has the cart details in terms of fees
+                        request_type: "immediate", //scheduled or immediate
+                        request_documentation: {
+                          note: req.note,
+                        },
+                        shopping_list: req.shopping_list, //! The list of items to shop for
+                        ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
+                        request_state_vars: {
+                          isAccepted: false, //If the shopping request is accepted
+                          inRouteToPickupCash: false, //If the shopper is in route to pickup the cash
+                          didPickupCash: false, //If the shopper picked up the cash
+                          inRouteToShop: false, //If the shopper is in route to the shop(s)
+                          inRouteToDelivery: false, //If the shopper is on his(her) way to delivery the shopped items
+                          completedShopping: false, //If the shopper is done shopping
+                          completedRatingClient: false, //If the client has completed the rating of the shopped items
+                          rating_data: {
+                            rating: false, //Out of 5
+                            comments: false, //The clients comments
+                            compliments: [], //The service badges
+                          }, //The rating infos
+                        },
+                        security: {
+                          pin: security_pin, //Will be used to check the request
+                        },
+                        date_requested: new Date(chaineDateUTC), //The time of the request
+                        date_pickedupCash: null, //The time when the shopper picked up the cash from the client
+                        date_routeToShop: null, //The time when the shopper started going to the shops
+                        date_completedShopping: null, //The time when the shopper was done shopping
+                        date_routeToDelivery: null, //The time when the shopper started going to delivery the shopped items
+                        date_clientRatedShopping: null, //The time when the client rated the shopper
+                      };
+                      //...
+                      //?1. Get the request_fp
+                      new Promise((resCompute) => {
+                        generateUniqueFingerprint(
+                          `${JSON.stringify(req)}`,
+                          "basic",
+                          resCompute
+                        );
+                      })
+                        .then((result) => {
+                          REQUEST_TEMPLATE.request_fp = result;
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          REQUEST_TEMPLATE.request_fp = `${req.user_identifier.subtr(
+                            0,
+                            10
+                          )}${Math.round(new Date(chaineDateUTC).getTime())}`;
+                        })
+                        .finally(() => {
+                          //?Continue here
+                          dynamo_insert("requests_central", REQUEST_TEMPLATE)
+                            .then((result) => {
+                              //....DONE
+                              resolve({ response: "successful" });
+                            })
+                            .catch((error) => {
+                              logger.error(error);
+                              resolve({ response: "unable_to_request" });
+                            });
+                        });
+                    } //Has an unconfirmed shopping - block
+                    else {
+                      resolve({ response: "has_a_pending_shopping" });
+                    }
                   })
                   .catch((error) => {
                     logger.error(error);
-                    res.send({ response: [] });
+                    resolve({ response: "unable_to_request" });
                   });
-              } //No valid data
-              else {
-                res.send({ response: [] });
+              } catch (error) {
+                logger.error(error);
+                resolve({ response: "unable_to_request" });
               }
+            } else {
+              resolve({ response: "unable_to_request" });
+            }
+          })
+            .then((result) => {
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send({ response: "unable_to_request" });
             });
+        });
 
-            //?4. Move all the pictures from external remote servers to our local server
-            app.post("/getImageRessourcesFromExternal", function (req, res) {
-              //Get all the images that where not moved yet into the internal ressources
-              //? In an image ressource was moved, it will be in the meta.moved_ressources_manifest, else proceed with the getting
-              // collection_catalogue_central
-              //   .find({})
-              //   .toArray(function (err, productsData) {
-              //     if (err) {
-              //       logger.error(err);
-              //       res.send({ response: "error", flag: err });
-              //     }
-              //     //...
-              //     if (productsData !== undefined && productsData.length > 0) {
-              //       //Has some products
-              //       let parentPromises = productsData.map((product, index) => {
-              //         return new Promise((resolve) => {
-              //           //Get the array of images
-              //           let arrayImages = product.product_picture;
-              //           //Get the transition manifest
-              //           //? Looks like {'old_image_name_external_url': new_image_name_url}
-              //           console.log(arrayImages);
-              //           let transition_manifest =
-              //             product.meta.moved_ressources_manifest !==
-              //               undefined &&
-              //             product.meta.moved_ressources_manifest !== null
-              //               ? product.meta.moved_ressources_manifest
-              //               : {};
-              //           let parentPromises2 = arrayImages.map((picture) => {
-              //             return new Promise((resCompute) => {
-              //               if (
-              //                 transition_manifest[picture] !== undefined &&
-              //                 transition_manifest[picture] !== null
-              //               ) {
-              //                 //!Was moved
-              //                 //Already processed
-              //                 resCompute({
-              //                   message: "Already processed",
-              //                   index: index,
-              //                 });
-              //               } //!Not moved yet - move
-              //               else {
-              //                 let options = {
-              //                   uri: picture,
-              //                   encoding: null,
-              //                 };
-              //                 requestAPI(
-              //                   options,
-              //                   function (error, response, body) {
-              //                     if (error || response.statusCode !== 200) {
-              //                       console.log("failed to get image");
-              //                       console.log(error);
-              //                       resCompute({
-              //                         message: "Processed - failed",
-              //                         index: index,
-              //                       });
-              //                     } else {
-              //                       logger.info("Got the image");
-              //                       s3.putObject(
-              //                         {
-              //                           Body: body,
-              //                           Key: path,
-              //                           Bucket: "bucket_name",
-              //                         },
-              //                         function (error, data) {
-              //                           if (error) {
-              //                             console.log(
-              //                               "error downloading image to s3"
-              //                             );
-              //                             resCompute({
-              //                               message: "Processed - failed",
-              //                               index: index,
-              //                             });
-              //                           } else {
-              //                             console.log(
-              //                               "success uploading to s3"
-              //                             );
-              //                             resCompute({
-              //                               message: "Processed",
-              //                               index: index,
-              //                             });
-              //                           }
-              //                         }
-              //                       );
-              //                     }
-              //                   }
-              //                 );
-              //               }
-              //             });
-              //           });
-              //           //? Done with this
-              //           Promise.all(parentPromises2)
-              //             .then((result) => {
-              //               resolve(result);
-              //             })
-              //             .catch((error) => {
-              //               logger.error(error);
-              //               resolve({ response: "error_processing" });
-              //             });
-              //         });
-              //       });
-              //       //! DONE
-              //       Promise.all(parentPromises)
-              //         .then((result) => {
-              //           res.send({ response: result });
-              //         })
-              //         .catch((error) => {
-              //           logger.error(error);
-              //           res.send({ response: "unable_to_work", flag: error });
-              //         });
-              //     } //No products
-              //     else {
-              //       res.send({ response: "no_products_found" });
-              //     }
-              //   });
-            });
-
-            //?5. Get the user location geocoded
-            app.post("/geocode_this_point", function (req, res) {
-              let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/geocode_this_point`;
-
-              requestAPI.post(
-                { url: urlRequest, form: req.body },
-                function (err, response, body) {
-                  if (err) {
-                    logger.error(err);
-                  }
-                  //...
-                  res.send(body);
-                }
-              );
-            });
-
-            //?5. Get location search suggestions
-            app.post("/getSearchedLocations", function (req, res) {
-              let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getSearchedLocations`;
-
-              requestAPI.post(
-                { url: urlRequest, form: req.body },
-                function (err, response, body) {
-                  if (err) {
-                    logger.error(err);
-                  }
-                  //...
-                  res.send(body);
-                }
-              );
-            });
-
-            //?6. Request for shopping
-            app.post("/requestForShopping", function (req, res) {
-              new Promise((resolve) => {
-                req = req.body;
-                //! Check for the user identifier, shopping_list and totals
-                if (
-                  req.user_identifier !== undefined &&
+        //?6. Request for delivery or ride
+        app.post("/requestForRideOrDelivery", function (req, res) {
+          new Promise((resolve) => {
+            req = req.body;
+            //! Check for the user identifier, shopping_list and totals
+            //Check basic ride or delivery conditions
+            let checkerCondition =
+              req.ride_mode !== undefined &&
+              req.ride_mode !== null &&
+              req.ride_mode == "delivery"
+                ? req.user_identifier !== undefined &&
                   req.user_identifier !== null &&
-                  req.shopping_list !== undefined &&
-                  req.shopping_list !== null &&
+                  req.dropOff_data !== undefined &&
+                  req.dropOff_data !== null &&
                   req.totals !== undefined &&
                   req.totals !== null &&
-                  req.locations !== undefined &&
-                  req.locations !== null &&
-                  req.ride_mode !== undefined &&
-                  req.ride_mode !== null
-                ) {
-                  logger.info(req);
-                  let security_pin = otpGenerator.generate(6, {
-                    lowerCaseAlphabets: false,
-                    upperCaseAlphabets: false,
-                    specialChars: false,
-                  });
-                  //! --------------
-                  security_pin =
-                    String(security_pin).length < 6
-                      ? parseInt(security_pin) * 10
-                      : security_pin;
+                  req.pickup_location !== undefined &&
+                  req.pickup_location !== null
+                : req.user_identifier !== undefined &&
+                  req.user_identifier !== null &&
+                  req.dropOff_data !== undefined &&
+                  req.dropOff_data !== null &&
+                  req.passengers_number !== undefined &&
+                  req.passengers_number !== null &&
+                  req.pickup_location !== undefined &&
+                  req.pickup_location !== null;
 
-                  try {
-                    //! Check if the user has no unconfirmed shoppings
-                    let checkUnconfirmed = {
-                      client_id: req.user_identifier,
-                      "request_state_vars.completedRatingClient": false,
-                    };
+            if (checkerCondition) {
+              logger.info(req);
+              let security_pin = otpGenerator.generate(6, {
+                lowerCaseAlphabets: false,
+                upperCaseAlphabets: false,
+                specialChars: false,
+              });
+              //! --------------
+              security_pin =
+                String(security_pin).length < 6
+                  ? parseInt(security_pin) * 10
+                  : security_pin;
 
-                    dynamo_find_query({
-                      table_name: "requests_central",
-                      IndexName: "client_id",
-                      KeyConditionExpression:
-                        "client_id = :val1 and #r.#c = :val2",
-                      ExpressionAttributeValues: {
-                        ":val1": req.user_identifier,
-                        ":val2": false,
-                      },
-                      ExpressionAttributeNames: {
-                        "#r": "request_state_vars",
-                        "#c": "completedRatingClient",
-                      },
-                    })
-                      .then((prevShopping) => {
-                        if (
-                          prevShopping !== undefined &&
-                          prevShopping.length <= 0
-                        ) {
-                          //No unconfirmed shopping - okay
-                          //! Perform the conversions
-                          req.shopping_list =
-                            req.shopping_list !== undefined
-                              ? JSON.parse(req.shopping_list)
-                              : null;
-                          req.totals =
-                            req.totals !== undefined
-                              ? JSON.parse(req.totals)
-                              : null;
-                          req.locations =
-                            req.locations !== undefined
-                              ? JSON.parse(req.locations)
-                              : null;
+              try {
+                //! Check if the user has no unconfirmed shoppings
+                let checkUnconfirmed = {
+                  client_id: req.user_identifier,
+                  "request_state_vars.completedRatingClient": false,
+                };
 
-                          //...
-                          let REQUEST_TEMPLATE = {
-                            request_fp: null,
-                            client_id: req.user_identifier, //the user identifier - requester
-                            shopper_id: false, //The id of the shopper
-                            payment_method: req.payment_method, //mobile_money or cash
-                            locations: req.locations, //Has the pickup and delivery locations
-                            totals_request: req.totals, //Has the cart details in terms of fees
-                            request_type: "immediate", //scheduled or immediate
-                            request_documentation: {
-                              note: req.note,
-                            },
-                            shopping_list: req.shopping_list, //! The list of items to shop for
-                            ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
-                            request_state_vars: {
-                              isAccepted: false, //If the shopping request is accepted
-                              inRouteToPickupCash: false, //If the shopper is in route to pickup the cash
-                              didPickupCash: false, //If the shopper picked up the cash
-                              inRouteToShop: false, //If the shopper is in route to the shop(s)
-                              inRouteToDelivery: false, //If the shopper is on his(her) way to delivery the shopped items
-                              completedShopping: false, //If the shopper is done shopping
-                              completedRatingClient: false, //If the client has completed the rating of the shopped items
-                              rating_data: {
-                                rating: false, //Out of 5
-                                comments: false, //The clients comments
-                                compliments: [], //The service badges
-                              }, //The rating infos
-                            },
-                            security: {
-                              pin: security_pin, //Will be used to check the request
-                            },
-                            date_requested: new Date(chaineDateUTC), //The time of the request
-                            date_pickedupCash: null, //The time when the shopper picked up the cash from the client
-                            date_routeToShop: null, //The time when the shopper started going to the shops
-                            date_completedShopping: null, //The time when the shopper was done shopping
-                            date_routeToDelivery: null, //The time when the shopper started going to delivery the shopped items
-                            date_clientRatedShopping: null, //The time when the client rated the shopper
-                          };
-                          //...
-                          //?1. Get the request_fp
-                          new Promise((resCompute) => {
-                            generateUniqueFingerprint(
-                              `${JSON.stringify(req)}`,
-                              "basic",
-                              resCompute
-                            );
-                          })
-                            .then((result) => {
-                              REQUEST_TEMPLATE.request_fp = result;
-                            })
-                            .catch((error) => {
-                              logger.error(error);
-                              REQUEST_TEMPLATE.request_fp = `${req.user_identifier.subtr(
-                                0,
-                                10
-                              )}${Math.round(
-                                new Date(chaineDateUTC).getTime()
-                              )}`;
-                            })
-                            .finally(() => {
-                              //?Continue here
-                              dynamo_insert(
-                                "requests_central",
-                                REQUEST_TEMPLATE
-                              )
-                                .then((result) => {
-                                  //....DONE
-                                  resolve({ response: "successful" });
-                                })
-                                .catch((error) => {
-                                  logger.error(error);
-                                  resolve({ response: "unable_to_request" });
-                                });
-                            });
-                        } //Has an unconfirmed shopping - block
-                        else {
-                          resolve({ response: "has_a_pending_shopping" });
-                        }
-                      })
-                      .catch((error) => {
-                        logger.error(error);
-                        resolve({ response: "unable_to_request" });
-                      });
-                  } catch (error) {
-                    logger.error(error);
-                    resolve({ response: "unable_to_request" });
-                  }
-                } else {
-                  resolve({ response: "unable_to_request" });
-                }
-              })
-                .then((result) => {
-                  res.send(result);
+                dynamo_find_query({
+                  table_name: "requests_central",
+                  IndexName: "client_id",
+                  KeyConditionExpression: "client_id = :val1 and #r.#c = :val2",
+                  ExpressionAttributeValues: {
+                    ":val1": req.user_identifier,
+                    ":val2": false,
+                  },
+                  ExpressionAttributeNames: {
+                    "#r": "request_state_vars",
+                    "#c": "completedRatingClient",
+                  },
                 })
-                .catch((error) => {
-                  logger.error(error);
-                  res.send({ response: "unable_to_request" });
-                });
-            });
-
-            //?6. Request for delivery or ride
-            app.post("/requestForRideOrDelivery", function (req, res) {
-              new Promise((resolve) => {
-                req = req.body;
-                //! Check for the user identifier, shopping_list and totals
-                //Check basic ride or delivery conditions
-                let checkerCondition =
-                  req.ride_mode !== undefined &&
-                  req.ride_mode !== null &&
-                  req.ride_mode == "delivery"
-                    ? req.user_identifier !== undefined &&
-                      req.user_identifier !== null &&
-                      req.dropOff_data !== undefined &&
-                      req.dropOff_data !== null &&
-                      req.totals !== undefined &&
-                      req.totals !== null &&
-                      req.pickup_location !== undefined &&
-                      req.pickup_location !== null
-                    : req.user_identifier !== undefined &&
-                      req.user_identifier !== null &&
-                      req.dropOff_data !== undefined &&
-                      req.dropOff_data !== null &&
-                      req.passengers_number !== undefined &&
-                      req.passengers_number !== null &&
-                      req.pickup_location !== undefined &&
-                      req.pickup_location !== null;
-
-                if (checkerCondition) {
-                  logger.info(req);
-                  let security_pin = otpGenerator.generate(6, {
-                    lowerCaseAlphabets: false,
-                    upperCaseAlphabets: false,
-                    specialChars: false,
-                  });
-                  //! --------------
-                  security_pin =
-                    String(security_pin).length < 6
-                      ? parseInt(security_pin) * 10
-                      : security_pin;
-
-                  try {
-                    //! Check if the user has no unconfirmed shoppings
-                    let checkUnconfirmed = {
-                      client_id: req.user_identifier,
-                      "request_state_vars.completedRatingClient": false,
-                    };
-
-                    dynamo_find_query({
-                      table_name: "requests_central",
-                      IndexName: "client_id",
-                      KeyConditionExpression:
-                        "client_id = :val1 and #r.#c = :val2",
-                      ExpressionAttributeValues: {
-                        ":val1": req.user_identifier,
-                        ":val2": false,
-                      },
-                      ExpressionAttributeNames: {
-                        "#r": "request_state_vars",
-                        "#c": "completedRatingClient",
-                      },
-                    })
-                      .then((prevDelivery) => {
-                        if (
-                          prevDelivery !== undefined &&
-                          prevDelivery.length <= 0
-                        ) {
-                          //No unconfirmed shopping - okay
-                          //! Perform the conversions
-                          req.dropOff_data =
-                            req.dropOff_data !== undefined
-                              ? JSON.parse(req.dropOff_data)
-                              : null;
-                          req.totals =
-                            req.totals !== undefined
-                              ? JSON.parse(req.totals)
-                              : null;
-                          req.pickup_location =
-                            req.pickup_location !== undefined
-                              ? JSON.parse(req.pickup_location)
-                              : null;
-                          req.passengers_number =
-                            req.passengers_number !== undefined
-                              ? parseInt(req.passengers_number)
-                              : null;
-                          req.areGoingTheSameWay =
-                            req.areGoingTheSameWay !== undefined
-                              ? req.areGoingTheSameWay === "true"
-                              : null;
-                          req.ride_selected =
-                            req.ride_selected !== undefined
-                              ? JSON.parse(req.ride_selected)
-                              : null;
-                          req.custom_fare =
-                            req.custom_fare !== undefined &&
-                            req.custom_fare !== "false"
-                              ? parseFloat(req.custom_fare)
-                              : false;
-                          //...
-                          let REQUEST_TEMPLATE =
-                            req.ride_mode === "delivery"
-                              ? {
-                                  request_fp: null,
-                                  client_id: req.user_identifier, //the user identifier - requester
-                                  shopper_id: false, //The id of the shopper
-                                  payment_method: req.payment_method, //mobile_money or cash
-                                  locations: {
-                                    pickup: req.pickup_location, //Has the pickup locations
-                                    dropoff: req.dropOff_data, //The list of recipient/riders and their locations
-                                  },
-                                  totals_request: req.totals, //Has the cart details in terms of fees
-                                  request_type: "immediate", //scheduled or immediate
-                                  request_documentation: {
-                                    note: req.note,
-                                  },
-                                  ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
-                                  request_state_vars: {
-                                    isAccepted: false, //If the shopping request is accepted
-                                    inRouteToPickupCash: false, //If the shopper is in route to pickup the cash
-                                    didPickupCash: false, //If the shopper picked up the cash
-                                    inRouteToDropoff: false, //If the driver is in route to drop the client/package
-                                    completedDropoff: false, //If the driver is done trip
-                                    completedRatingClient: false, //If the client has completed the rating of the shopped items
-                                    rating_data: {
-                                      rating: false, //Out of 5
-                                      comments: false, //The clients comments
-                                      compliments: [], //The service badges
-                                    }, //The rating infos
-                                  },
-                                  security: {
-                                    pin: security_pin, //Will be used to check the request
-                                  },
-                                  date_requested: new Date(chaineDateUTC), //The time of the request
-                                  date_pickedup: null, //The time when the driver picked up the  client/package
-                                  date_routeToDropoff: null, //The time when the driver started going to drop off the client/package
-                                  date_completedDropoff: null, //The time when the driver was done with the ride
-                                  date_routeToDropoff: null, //The time when the driver started going to dropoff the client/package
-                                  date_clientRatedRide: null, //The time when the client rated the driver
-                                }
-                              : {
-                                  request_fp: null,
-                                  client_id: req.user_identifier, //the user identifier - requester
-                                  shopper_id: false, //The id of the shopper
-                                  payment_method: req.payment_method, //mobile_money or cash
-                                  locations: {
-                                    pickup: req.pickup_location, //Has the pickup locations
-                                    dropoff: req.dropOff_data, //The list of recipient/riders and their locations
-                                  },
-                                  totals_request: {
-                                    fare:
-                                      req.custom_fare !== undefined &&
-                                      req.custom_fare !== false
-                                        ? req.custom_fare
-                                        : req.ride_selected.base_fare,
-                                  }, //Has the cart details in terms of fees
-                                  ride_selected: req.ride_selected, //The type of vehicle selected
-                                  request_type: "immediate", //scheduled or immediate
-                                  request_documentation: {
-                                    note: req.note,
-                                  },
-                                  passengers_number: req.passengers_number, //the number of passengers
-                                  areGoingTheSameWay: req.areGoingTheSameWay, //If all the passengers are going to the same destination or not
-                                  ride_style: req.ride_style, //Private or Shared rides
-                                  ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
-                                  request_state_vars: {
-                                    isAccepted: false, //If the shopping request is accepted
-                                    inRouteToPickup: false, //If the driver is in route to pickup the package/client
-                                    inRouteToDropoff: false, //If the driver is in route to drop the client/package
-                                    completedDropoff: false, //If the driver is done trip
-                                    completedRatingClient: false, //If the client has completed the rating of the shopped items
-                                    rating_data: {
-                                      rating: false, //Out of 5
-                                      comments: false, //The clients comments
-                                      compliments: [], //The service badges
-                                    }, //The rating infos
-                                  },
-                                  security: {
-                                    pin: security_pin, //Will be used to check the request
-                                  },
-                                  date_requested: new Date(chaineDateUTC), //The time of the request
-                                  date_pickedup: null, //The time when the driver picked up the  client/package
-                                  date_routeToDropoff: null, //The time when the driver started going to drop off the client/package
-                                  date_completedDropoff: null, //The time when the driver was done with the ride
-                                  date_routeToDropoff: null, //The time when the driver started going to dropoff the client/package
-                                  date_clientRatedRide: null, //The time when the client rated the driver
-                                };
-                          //...
-                          //?1. Get the request_fp
-                          new Promise((resCompute) => {
-                            generateUniqueFingerprint(
-                              `${JSON.stringify(req)}`,
-                              "basic",
-                              resCompute
-                            );
-                          })
-                            .then((result) => {
-                              REQUEST_TEMPLATE.request_fp = result;
-                            })
-                            .catch((error) => {
-                              logger.error(error);
-                              REQUEST_TEMPLATE.request_fp = `${req.user_identifier.subtr(
-                                0,
-                                10
-                              )}${Math.round(
-                                new Date(chaineDateUTC).getTime()
-                              )}`;
-                            })
-                            .finally(() => {
-                              //?Continue here
-                              dynamo_insert(
-                                "requests_central",
-                                REQUEST_TEMPLATE
-                              )
-                                .then((result) => {
-                                  //....DONE
-                                  resolve({ response: "successful" });
-                                })
-                                .catch((error) => {
-                                  logger.error(error);
-                                  resolve({ response: "unable_to_request" });
-                                });
-                            });
-                        } //Has an unconfirmed shopping - block
-                        else {
-                          resolve({ response: "has_a_pending_shopping" });
-                        }
-                      })
-                      .catch((error) => {
-                        logger.error(error);
-                        resolve({ response: "unable_to_request" });
-                      });
-                  } catch (error) {
-                    logger.error(error);
-                    resolve({ response: "unable_to_request" });
-                  }
-                } else {
-                  resolve({ response: "unable_to_request" });
-                }
-              })
-                .then((result) => {
-                  res.send(result);
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  res.send({ response: "unable_to_request" });
-                });
-            });
-
-            //?7. Get the current shopping data - client
-            app.post("/getShoppingData", function (req, res) {
-              new Promise((resolve) => {
-                req = req.body;
-
-                if (
-                  req.user_identifier !== undefined &&
-                  req.user_identifier !== null
-                ) {
-                  //! Check if the user id exists
-                  dynamo_find_query({
-                    table_name: "users_central",
-                    IndexName: "user_identifier",
-                    KeyConditionExpression: "user_identifier = :val1",
-                    ExpressionAttributeValues: {
-                      ":val1": req.user_identifier,
-                    },
-                  })
-                    .then((userData) => {
-                      if (userData !== undefined && userData.length > 0) {
-                        //Known user
-                        let redisKey = `${req.user_identifier}-shoppings`;
-
-                        redisGet(redisKey)
-                          .then((resp) => {
-                            if (resp !== null) {
-                              //Has some data
-                              try {
-                                //Rehydrate
-                                new Promise((resCompute) => {
-                                  getRequestDataClient(req, resCompute);
-                                })
-                                  .then((result) => {
-                                    //!Cache
-                                    redisCluster.setex(
-                                      redisKey,
-                                      parseInt(
-                                        process.env.REDIS_EXPIRATION_5MIN
-                                      ) * 100,
-                                      JSON.stringify(result)
-                                    );
-                                  })
-                                  .catch((error) => {
-                                    logger.error(error);
-                                    resolve(false);
-                                  });
-                                //....
-                                resp = JSON.parse(resp);
-                                resolve(resp);
-                              } catch (error) {
-                                logger.error(error);
-                                //Make a new request
-                                new Promise((resCompute) => {
-                                  getRequestDataClient(req, resCompute);
-                                })
-                                  .then((result) => {
-                                    //!Cache
-                                    redisCluster.setex(
-                                      redisKey,
-                                      parseInt(
-                                        process.env.REDIS_EXPIRATION_5MIN
-                                      ) * 100,
-                                      JSON.stringify(result)
-                                    );
-                                    //...
-                                    resolve(result);
-                                  })
-                                  .catch((error) => {
-                                    logger.error(error);
-                                    resolve(false);
-                                  });
-                              }
-                            } //Make a new request
-                            else {
-                              new Promise((resCompute) => {
-                                getRequestDataClient(req, resCompute);
-                              })
-                                .then((result) => {
-                                  //!Cache
-                                  redisCluster.setex(
-                                    redisKey,
-                                    parseInt(
-                                      process.env.REDIS_EXPIRATION_5MIN
-                                    ) * 100,
-                                    JSON.stringify(result)
-                                  );
-                                  //...
-                                  resolve(result);
-                                })
-                                .catch((error) => {
-                                  logger.error(error);
-                                  resolve(false);
-                                });
+                  .then((prevDelivery) => {
+                    if (
+                      prevDelivery !== undefined &&
+                      prevDelivery.length <= 0
+                    ) {
+                      //No unconfirmed shopping - okay
+                      //! Perform the conversions
+                      req.dropOff_data =
+                        req.dropOff_data !== undefined
+                          ? JSON.parse(req.dropOff_data)
+                          : null;
+                      req.totals =
+                        req.totals !== undefined
+                          ? JSON.parse(req.totals)
+                          : null;
+                      req.pickup_location =
+                        req.pickup_location !== undefined
+                          ? JSON.parse(req.pickup_location)
+                          : null;
+                      req.passengers_number =
+                        req.passengers_number !== undefined
+                          ? parseInt(req.passengers_number)
+                          : null;
+                      req.areGoingTheSameWay =
+                        req.areGoingTheSameWay !== undefined
+                          ? req.areGoingTheSameWay === "true"
+                          : null;
+                      req.ride_selected =
+                        req.ride_selected !== undefined
+                          ? JSON.parse(req.ride_selected)
+                          : null;
+                      req.custom_fare =
+                        req.custom_fare !== undefined &&
+                        req.custom_fare !== "false"
+                          ? parseFloat(req.custom_fare)
+                          : false;
+                      //...
+                      let REQUEST_TEMPLATE =
+                        req.ride_mode === "delivery"
+                          ? {
+                              request_fp: null,
+                              client_id: req.user_identifier, //the user identifier - requester
+                              shopper_id: false, //The id of the shopper
+                              payment_method: req.payment_method, //mobile_money or cash
+                              locations: {
+                                pickup: req.pickup_location, //Has the pickup locations
+                                dropoff: req.dropOff_data, //The list of recipient/riders and their locations
+                              },
+                              totals_request: req.totals, //Has the cart details in terms of fees
+                              request_type: "immediate", //scheduled or immediate
+                              request_documentation: {
+                                note: req.note,
+                              },
+                              ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
+                              request_state_vars: {
+                                isAccepted: false, //If the shopping request is accepted
+                                inRouteToPickupCash: false, //If the shopper is in route to pickup the cash
+                                didPickupCash: false, //If the shopper picked up the cash
+                                inRouteToDropoff: false, //If the driver is in route to drop the client/package
+                                completedDropoff: false, //If the driver is done trip
+                                completedRatingClient: false, //If the client has completed the rating of the shopped items
+                                rating_data: {
+                                  rating: false, //Out of 5
+                                  comments: false, //The clients comments
+                                  compliments: [], //The service badges
+                                }, //The rating infos
+                              },
+                              security: {
+                                pin: security_pin, //Will be used to check the request
+                              },
+                              date_requested: new Date(chaineDateUTC), //The time of the request
+                              date_pickedup: null, //The time when the driver picked up the  client/package
+                              date_routeToDropoff: null, //The time when the driver started going to drop off the client/package
+                              date_completedDropoff: null, //The time when the driver was done with the ride
+                              date_routeToDropoff: null, //The time when the driver started going to dropoff the client/package
+                              date_clientRatedRide: null, //The time when the client rated the driver
                             }
-                          })
-                          .catch((error) => {
+                          : {
+                              request_fp: null,
+                              client_id: req.user_identifier, //the user identifier - requester
+                              shopper_id: false, //The id of the shopper
+                              payment_method: req.payment_method, //mobile_money or cash
+                              locations: {
+                                pickup: req.pickup_location, //Has the pickup locations
+                                dropoff: req.dropOff_data, //The list of recipient/riders and their locations
+                              },
+                              totals_request: {
+                                fare:
+                                  req.custom_fare !== undefined &&
+                                  req.custom_fare !== false
+                                    ? req.custom_fare
+                                    : req.ride_selected.base_fare,
+                              }, //Has the cart details in terms of fees
+                              ride_selected: req.ride_selected, //The type of vehicle selected
+                              request_type: "immediate", //scheduled or immediate
+                              request_documentation: {
+                                note: req.note,
+                              },
+                              passengers_number: req.passengers_number, //the number of passengers
+                              areGoingTheSameWay: req.areGoingTheSameWay, //If all the passengers are going to the same destination or not
+                              ride_style: req.ride_style, //Private or Shared rides
+                              ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
+                              request_state_vars: {
+                                isAccepted: false, //If the shopping request is accepted
+                                inRouteToPickup: false, //If the driver is in route to pickup the package/client
+                                inRouteToDropoff: false, //If the driver is in route to drop the client/package
+                                completedDropoff: false, //If the driver is done trip
+                                completedRatingClient: false, //If the client has completed the rating of the shopped items
+                                rating_data: {
+                                  rating: false, //Out of 5
+                                  comments: false, //The clients comments
+                                  compliments: [], //The service badges
+                                }, //The rating infos
+                              },
+                              security: {
+                                pin: security_pin, //Will be used to check the request
+                              },
+                              date_requested: new Date(chaineDateUTC), //The time of the request
+                              date_pickedup: null, //The time when the driver picked up the  client/package
+                              date_routeToDropoff: null, //The time when the driver started going to drop off the client/package
+                              date_completedDropoff: null, //The time when the driver was done with the ride
+                              date_routeToDropoff: null, //The time when the driver started going to dropoff the client/package
+                              date_clientRatedRide: null, //The time when the client rated the driver
+                            };
+                      //...
+                      //?1. Get the request_fp
+                      new Promise((resCompute) => {
+                        generateUniqueFingerprint(
+                          `${JSON.stringify(req)}`,
+                          "basic",
+                          resCompute
+                        );
+                      })
+                        .then((result) => {
+                          REQUEST_TEMPLATE.request_fp = result;
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          REQUEST_TEMPLATE.request_fp = `${req.user_identifier.subtr(
+                            0,
+                            10
+                          )}${Math.round(new Date(chaineDateUTC).getTime())}`;
+                        })
+                        .finally(() => {
+                          //?Continue here
+                          dynamo_insert("requests_central", REQUEST_TEMPLATE)
+                            .then((result) => {
+                              //....DONE
+                              resolve({ response: "successful" });
+                            })
+                            .catch((error) => {
+                              logger.error(error);
+                              resolve({ response: "unable_to_request" });
+                            });
+                        });
+                    } //Has an unconfirmed shopping - block
+                    else {
+                      resolve({ response: "has_a_pending_shopping" });
+                    }
+                  })
+                  .catch((error) => {
+                    logger.error(error);
+                    resolve({ response: "unable_to_request" });
+                  });
+              } catch (error) {
+                logger.error(error);
+                resolve({ response: "unable_to_request" });
+              }
+            } else {
+              resolve({ response: "unable_to_request" });
+            }
+          })
+            .then((result) => {
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send({ response: "unable_to_request" });
+            });
+        });
+
+        //?7. Get the current shopping data - client
+        app.post("/getShoppingData", function (req, res) {
+          new Promise((resolve) => {
+            req = req.body;
+
+            if (
+              req.user_identifier !== undefined &&
+              req.user_identifier !== null
+            ) {
+              //! Check if the user id exists
+              dynamo_find_query({
+                table_name: "users_central",
+                IndexName: "user_identifier",
+                KeyConditionExpression: "user_identifier = :val1",
+                ExpressionAttributeValues: {
+                  ":val1": req.user_identifier,
+                },
+              })
+                .then((userData) => {
+                  if (userData !== undefined && userData.length > 0) {
+                    //Known user
+                    let redisKey = `${req.user_identifier}-shoppings`;
+
+                    redisGet(redisKey)
+                      .then((resp) => {
+                        if (resp !== null) {
+                          //Has some data
+                          try {
+                            //Rehydrate
+                            new Promise((resCompute) => {
+                              getRequestDataClient(req, resCompute);
+                            })
+                              .then((result) => {
+                                //!Cache
+                                redisCluster.setex(
+                                  redisKey,
+                                  parseInt(process.env.REDIS_EXPIRATION_5MIN) *
+                                    100,
+                                  JSON.stringify(result)
+                                );
+                              })
+                              .catch((error) => {
+                                logger.error(error);
+                                resolve(false);
+                              });
+                            //....
+                            resp = JSON.parse(resp);
+                            resolve(resp);
+                          } catch (error) {
                             logger.error(error);
                             //Make a new request
                             new Promise((resCompute) => {
@@ -2308,660 +2223,670 @@ redisCluster.on("connect", function () {
                                 logger.error(error);
                                 resolve(false);
                               });
-                          });
-                      } //! Unknown user
-                      else {
-                        resolve(false);
-                      }
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve(false);
-                    });
-                } //Missing data
-                else {
-                  resolve(false);
-                }
-              })
-                .then((result) => {
-                  res.send(result);
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  res.send(false);
-                });
-            });
-
-            //?6. Get the route snapshot for the ride
-            app.post("/getRouteToDestinationSnapshot", function (req, res) {
-              let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
-
-              requestAPI.post(
-                { url: urlRequest, form: req.body },
-                function (err, response, body) {
-                  if (err) {
-                    logger.error(err);
-                  }
-                  //...
-                  res.send(body);
-                }
-              );
-            });
-
-            //?7. Get the fares
-            app.post("/computeFares", function (req, res) {
-              let urlRequest = `http://localhost:${process.env.PRICING_SERVICE_PORT}/computeFares`;
-
-              requestAPI.post(
-                { url: urlRequest, form: req.body },
-                function (err, response, body) {
-                  if (err) {
-                    logger.error(err);
-                  }
-                  //...
-                  res.send(body);
-                }
-              );
-            });
-
-            //?8. Submit the rider rating
-            app.post("/submitRiderOrClientRating", function (req, res) {
-              new Promise((resolve) => {
-                resolveDate();
-
-                req = req.body;
-
-                logger.info(req);
-
-                if (
-                  req.request_fp !== undefined &&
-                  req.request_fp !== null &&
-                  req.rating !== undefined &&
-                  req.rating !== null &&
-                  req.badges !== undefined &&
-                  req.badges !== null &&
-                  req.note !== undefined &&
-                  req.note !== null &&
-                  req.user_fingerprint !== undefined &&
-                  req.user_fingerprint !== null
-                ) {
-                  req.badges = JSON.parse(req.badges);
-
-                  let RATING_DATA = {
-                    rating: parseFloat(req.rating),
-                    comments: req.note,
-                    compliments: req.badges,
-                    date_rated: new Date(chaineDateUTC),
-                  };
-
-                  //...Check the request
-                  //! Can only rate once
-                  let requestChecker = {
-                    request_fp: req.request_fp,
-                    "request_state_vars.completedRatingClient": false,
-                  };
-
-                  dynamo_find_query({
-                    table_name: "requests_central",
-                    IndexName: "request_fp",
-                    KeyConditionExpression:
-                      "request_fp = :val1 and #r.#c = :val2",
-                    ExpressionAttributeValues: {
-                      ":val1": req.request_fp,
-                      ":val2": false,
-                    },
-                    ExpressionAttributeNames: {
-                      "#r": "request_state_vars",
-                      "#c": "completedRatingClient",
-                    },
-                  })
-                    .then((requestData) => {
-                      if (requestData !== undefined && requestData.length > 0) {
-                        //Valid
-                        requestData = requestData[0];
-
-                        let updatedRequestState =
-                          requestData.request_state_vars;
-                        updatedRequestState["rating_data"] = RATING_DATA;
-                        updatedRequestState["completedRatingClient"] = true;
-
-                        dynamo_update({
-                          table_name: "requests_central",
-                          _idKey: requestData._id,
-                          UpdateExpression:
-                            "set request_state_vars = :val1, date_clientRatedRide = :val2",
-                          ExpressionAttributeValues: {
-                            ":val1": updatedRequestState,
-                            ":val2": new Date(chaineDateUTC).toISOString(),
-                          },
-                        })
-                          .then((result) => {
-                            if (result === false) {
-                              //Error
-                              resolve([{ response: "error" }]);
-                            }
-                            //...
-                            resolve([{ response: "success" }]);
-                          })
-                          .catch((error) => {
-                            logger.error(error);
-                            resolve([{ response: "error" }]);
-                          });
-                      } //No request?
-                      else {
-                        resolve([{ response: "error" }]);
-                      }
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve([{ response: "error" }]);
-                    });
-                } //Invalid data
-                else {
-                  resolve([{ response: "error" }]);
-                }
-              })
-                .then((result) => {
-                  logger.info(result);
-                  res.send(result);
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  res.send([{ response: "error" }]);
-                });
-            });
-
-            //?9. Cancel request - user
-            app.post("/cancel_request_user", function (req, res) {
-              new Promise((resolve) => {
-                req = req.body;
-                logger.info(req);
-
-                if (
-                  req.request_fp !== undefined &&
-                  req.request_fp !== null &&
-                  req.user_identifier !== undefined &&
-                  req.user_identifier !== null
-                ) {
-                  //Check if there is such request
-                  let checkRequest = {
-                    request_fp: req.request_fp,
-                    client_id: req.user_identifier,
-                  };
-                  //...
-                  dynamo_find_query({
-                    table_name: "requests_central",
-                    IndexName: "request_fp",
-                    KeyConditionExpression:
-                      "request_fp = :val1 AND client_id = :val2",
-                    ExpressionAttributeValues: {
-                      ":val1": req.request_fp,
-                      ":val2": req.user_identifier,
-                    },
-                  })
-                    .then((requestData) => {
-                      if (requestData !== undefined && requestData.length > 0) {
-                        requestData = requestData[0];
-                        //!...Delete and save in the cancelled
-                        dynamo_delete(
-                          "cancelled_requests_central",
-                          requestData._id
-                        )
-                          .then((result) => {
-                            if (result) {
-                              //Success
-                              //!add the date cancelled
-                              requestData["date_cancelled"] = new Date(
-                                chaineDateUTC
-                              );
-
-                              dynamo_insert(
-                                "cancelled_requests_central",
-                                requestData
-                              )
-                                .then((result) => {
-                                  if (result) {
-                                    //Success
-                                    //...
-                                    resolve([{ response: "success" }]);
-                                  } //Failure
-                                  else {
-                                    resolve([{ response: "error" }]);
-                                  }
-                                })
-                                .catch((error) => {
-                                  logger.error(error);
-                                  resolve([{ response: "error" }]);
-                                });
-                            } //Failure
-                            else {
-                              resolve([{ response: "error" }]);
-                            }
-                          })
-                          .catch((error) => {
-                            logger.error(error);
-                            resolve([{ response: "error" }]);
-                          });
-                      } //No request?
-                      else {
-                        resolve([{ response: "error" }]);
-                      }
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve([{ response: "error" }]);
-                    });
-                } //Invalid data
-                else {
-                  resolve([{ response: "error" }]);
-                }
-              })
-                .then((result) => {
-                  logger.info(result);
-                  res.send(result);
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  res.send([{ response: "error" }]);
-                });
-            });
-
-            //?10. Search for stores
-            // app.post("/searchForStores", function(req, res) {
-            //   new Promise((resolve) => {
-            //     new promises((resIndices) => {
-            //       let index_name = 'stores';
-            //       checkIndices(index_name, resIndices);
-            //     })
-            //     .then((result) => {
-            //       if(result)  //All good
-            //       {
-
-            //       }
-            //       else  //There was a problem
-            //       {
-            //         resolve({ response: [] });
-            //       }
-            //     }).catch((error) => {
-            //       logger.error(error);
-            //       resolve({ response: [] });
-            //     })
-            //   })
-            //   .then((result) => {
-            //     logger.info(result);
-            //     res.send(result);
-            //   })
-            //   .catch((error) => {
-            //     logger.error(error);
-            //     res.send({ response: [] });
-            //   });
-            // })
-
-            //?11. get the list of requests for riders
-            app.post("/getRequestListRiders", function (req, res) {
-              new Promise((resolve) => {
-                req = req.body;
-
-                if (
-                  req.user_identifier !== undefined &&
-                  req.user_identifier !== null
-                ) {
-                  let redisKey = `${req.user_identifier}-requestListCached`;
-
-                  //TODO: .sort({ date_requested: -1 })
-                  dynamo_find_query({
-                    table_name: "requests_central",
-                    IndexName: "client_id",
-                    KeyConditionExpression: "client_id = :val1",
-                    ExpressionAttributeValues: {
-                      ":val1": req.user_identifier,
-                    },
-                  })
-                    .then((requestData) => {
-                      logger.info(requestData);
-                      //...
-                      if (requestData !== undefined && requestData.length > 0) {
-                        //Has some requests
-                        let RETURN_DATA_TEMPLATE = [];
-
-                        requestData.map((request) => {
-                          let tmpRequest = {
-                            request_type: request.ride_mode,
-                            date_requested: request.date_requested,
-                            locations: request.locations,
-                            shopping_list:
-                              request.ride_mode.toLowerCase() === "shopping"
-                                ? request.shopping_list
-                                : null,
-                          };
-                          //...Save
-                          RETURN_DATA_TEMPLATE.push(tmpRequest);
-                        });
-                        //...
-                        resolve({ response: RETURN_DATA_TEMPLATE });
-                      } //No requests
-                      else {
-                        resolve({ response: [] });
-                      }
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve({ response: [] });
-                    });
-                } //Invalid data
-                else {
-                  resolve({ response: [] });
-                }
-              })
-                .then((result) => {
-                  logger.info(result);
-                  res.send(result);
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  res.send({ response: [] });
-                });
-            });
-
-            //?12. Update the users information
-            app.post("/updateUsersInformation", function (req, res) {
-              new Promise((resolve) => {
-                req = req.body;
-                logger.info(`${req.data_type}: profile update requested`);
-
-                if (
-                  req.user_identifier !== undefined &&
-                  req.user_identifier !== null &&
-                  req.data_type !== undefined &&
-                  req.data_type !== null &&
-                  req.data_value !== undefined &&
-                  req.data_value !== null
-                ) {
-                  //!Check the user
-                  switch (req.data_type) {
-                    case "name":
-                      //Update the name
-                      dynamo_update({
-                        table_name: "users_central",
-                        _idKey: { user_identifier: req.user_identifier },
-                        UpdateExpression: "set name = :val1",
-                        ExpressionAttributeValues: {
-                          ":val1": req.data_value,
-                        },
-                      })
-                        .then((result) => {
-                          if (result === false) {
-                            logger.error(err);
-                            resolve({ response: "error" });
                           }
-                          //...Success
-                          resolve({ response: "success" });
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          resolve({ response: "error" });
-                        });
-                      break;
-                    case "surname":
-                      //Update the surname
-                      dynamo_update({
-                        table_name: "users_central",
-                        _idKey: { user_identifier: req.user_identifier },
-                        UpdateExpression: "set surname = :val1",
-                        ExpressionAttributeValues: {
-                          ":val1": req.data_value,
-                        },
-                      })
-                        .then((result) => {
-                          if (result === false) {
-                            logger.error(err);
-                            resolve({ response: "error" });
-                          }
-                          //...Success
-                          resolve({ response: "success" });
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          resolve({ response: "error" });
-                        });
-                      break;
-                    case "email":
-                      //Update the email
-                      dynamo_update({
-                        table_name: "users_central",
-                        _idKey: { user_identifier: req.user_identifier },
-                        UpdateExpression: "set email = :val1",
-                        ExpressionAttributeValues: {
-                          ":val1": req.data_value,
-                        },
-                      })
-                        .then((result) => {
-                          if (result === false) {
-                            logger.error(err);
-                            resolve({ response: "error" });
-                          }
-                          //...Success
-                          resolve({ response: "success" });
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          resolve({ response: "error" });
-                        });
-                    case "gender":
-                      //Update the gender
-                      dynamo_update({
-                        table_name: "users_central",
-                        _idKey: { user_identifier: req.user_identifier },
-                        UpdateExpression: "set gender = :val1",
-                        ExpressionAttributeValues: {
-                          ":val1": req.data_value,
-                        },
-                      })
-                        .then((result) => {
-                          if (result === false) {
-                            logger.error(err);
-                            resolve({ response: "error" });
-                          }
-                          //...Success
-                          resolve({ response: "success" });
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          resolve({ response: "error" });
-                        });
-                      break;
-                    case "phone":
-                      //Update the phone
-                      dynamo_update({
-                        table_name: "users_central",
-                        _idKey: { user_identifier: req.user_identifier },
-                        UpdateExpression: "set phone_number = :val1",
-                        ExpressionAttributeValues: {
-                          ":val1": req.data_value,
-                        },
-                      })
-                        .then((result) => {
-                          if (result === false) {
-                            logger.error(err);
-                            resolve({ response: "error" });
-                          }
-                          //...Success
-                          resolve({ response: "success" });
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          resolve({ response: "error" });
-                        });
-                      break;
-
-                    case "profile_picture":
-                      let localFileName = `.profile_photo${req.user_identifier}.${req.extension}`;
-                      //? Write the file locally
-                      fs.writeFile(
-                        localFileName,
-                        String(req.data_value),
-                        "base64",
-                        function (err) {
-                          if (err) {
-                            logger.error(err);
-                            resolve({ response: "error" });
-                          }
-                          //...success
-                          // Read content from the file
-                          const fileContentUploaded_locally =
-                            fs.readFileSync(localFileName);
-
-                          // Setting up S3 upload parameters
-                          let fileUploadName = `profile_${req.user_identifier}.${req.extension}`;
-                          const params = {
-                            Bucket: `${process.env.AWS_S3_CLIENTS_PROFILES_BUCKET_NAME}/clients_profiles`,
-                            Key: fileUploadName, // File name you want to save as in S3
-                            Body: fileContentUploaded_locally,
-                          };
-
-                          // Uploading files to the bucket
-                          s3.upload(params, function (err, data) {
-                            if (err) {
-                              logger.info(err);
-                              resolve({ response: "error" });
-                            }
-                            logger.info(
-                              `[USER]${localFileName} -> Successfully uploaded.`
-                            );
-                            //! Update the database
-                            dynamo_update({
-                              table_name: "users_central",
-                              _idKey: { user_identifier: req.user_identifier },
-                              UpdateExpression: "set #m.#p = :val1",
-                              ExpressionAttributeValues: {
-                                ":val1": fileUploadName,
-                              },
-                              ExpressionAttributeNames: {
-                                "#m": "media",
-                                "#p": "profile_picture",
-                              },
-                            })
-                              .then((result) => {
-                                if (result === false) {
-                                  logger.error(err);
-                                  resolve({ response: "error" });
-                                }
-                                //...Success
-                                resolve({ response: "success" });
-                              })
-                              .catch((error) => {
-                                logger.error(error);
-                                resolve({ response: "error" });
-                              });
-                          });
-                        }
-                      );
-                      break;
-                    default:
-                      resolve({ response: "error" });
-                      break;
-                  }
-                } //Invalid data
-                else {
-                  resolve({ response: "error" });
-                }
-              })
-                .then((result) => {
-                  logger.info(result);
-                  if (result.response == "success") {
-                    //- update the cached data
-                    let redisKey = `${req.user_identifier}-cachedProfile-data`;
-
-                    dynamo_find_query({
-                      table_name: "users_central",
-                      IndexName: "user_identifier",
-                      KeyConditionExpression: "user_identifier = :val1",
-                      ExpressionAttributeValues: {
-                        ":val1": req.user_identifier,
-                      },
-                    })
-                      .then((userData) => {
-                        if (userData !== undefined && userData.length > 0) {
-                          //Valid info
-                          redisCluster.setex(
-                            redisKey,
-                            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 404,
-                            JSON.stringify(userData)
-                          );
-                          //...
-                          res.send({ response: "success" });
-                        } //No valid user
+                        } //Make a new request
                         else {
-                          res.send({ response: "error" });
-                        }
-                      })
-                      .catch((error) => {
-                        logger.error(error);
-                        res.send({ response: "error" });
-                      });
-                  } //!error
-                  else {
-                    res.send({ response: "error" });
-                  }
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  res.send({ response: "error" });
-                });
-            });
-
-            //?13. Get the user data
-            app.post("/getGenericUserData", function (req, res) {
-              new Promise((resolve) => {
-                req = req.body;
-
-                if (
-                  req.user_identifier !== undefined &&
-                  req.user_identifier !== null
-                ) {
-                  let redisKey = `${req.user_identifier}-cachedProfile-data`;
-
-                  redisGet(redisKey)
-                    .then((resp) => {
-                      if (resp !== null) {
-                        try {
-                          resp = JSON.parse(resp);
-                          resolve([
-                            {
-                              response: getOutputStandardizedUserDataFormat(
-                                resp[0]
-                              ),
-                            },
-                          ]);
-                        } catch (error) {
-                          //?Get fresh data and cache
-                          logger.error(error);
                           new Promise((resCompute) => {
-                            getFreshUserDataClients(req, redisKey, resCompute);
+                            getRequestDataClient(req, resCompute);
                           })
                             .then((result) => {
+                              //!Cache
+                              redisCluster.setex(
+                                redisKey,
+                                parseInt(process.env.REDIS_EXPIRATION_5MIN) *
+                                  100,
+                                JSON.stringify(result)
+                              );
+                              //...
                               resolve(result);
                             })
                             .catch((error) => {
                               logger.error(error);
-                              resolve([{ response: [] }]);
+                              resolve(false);
                             });
                         }
-                      } //No cached data
-                      else {
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        //Make a new request
                         new Promise((resCompute) => {
-                          getFreshUserDataClients(req, redisKey, resCompute);
+                          getRequestDataClient(req, resCompute);
                         })
                           .then((result) => {
+                            //!Cache
+                            redisCluster.setex(
+                              redisKey,
+                              parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
+                              JSON.stringify(result)
+                            );
+                            //...
                             resolve(result);
                           })
                           .catch((error) => {
                             logger.error(error);
-                            resolve([{ response: [] }]);
+                            resolve(false);
                           });
+                      });
+                  } //! Unknown user
+                  else {
+                    resolve(false);
+                  }
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resolve(false);
+                });
+            } //Missing data
+            else {
+              resolve(false);
+            }
+          })
+            .then((result) => {
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send(false);
+            });
+        });
+
+        //?6. Get the route snapshot for the ride
+        app.post("/getRouteToDestinationSnapshot", function (req, res) {
+          let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
+
+          requestAPI.post(
+            { url: urlRequest, form: req.body },
+            function (err, response, body) {
+              if (err) {
+                logger.error(err);
+              }
+              //...
+              res.send(body);
+            }
+          );
+        });
+
+        //?7. Get the fares
+        app.post("/computeFares", function (req, res) {
+          let urlRequest = `http://localhost:${process.env.PRICING_SERVICE_PORT}/computeFares`;
+
+          requestAPI.post(
+            { url: urlRequest, form: req.body },
+            function (err, response, body) {
+              if (err) {
+                logger.error(err);
+              }
+              //...
+              res.send(body);
+            }
+          );
+        });
+
+        //?8. Submit the rider rating
+        app.post("/submitRiderOrClientRating", function (req, res) {
+          new Promise((resolve) => {
+            resolveDate();
+
+            req = req.body;
+
+            logger.info(req);
+
+            if (
+              req.request_fp !== undefined &&
+              req.request_fp !== null &&
+              req.rating !== undefined &&
+              req.rating !== null &&
+              req.badges !== undefined &&
+              req.badges !== null &&
+              req.note !== undefined &&
+              req.note !== null &&
+              req.user_fingerprint !== undefined &&
+              req.user_fingerprint !== null
+            ) {
+              req.badges = JSON.parse(req.badges);
+
+              let RATING_DATA = {
+                rating: parseFloat(req.rating),
+                comments: req.note,
+                compliments: req.badges,
+                date_rated: new Date(chaineDateUTC),
+              };
+
+              //...Check the request
+              //! Can only rate once
+              let requestChecker = {
+                request_fp: req.request_fp,
+                "request_state_vars.completedRatingClient": false,
+              };
+
+              dynamo_find_query({
+                table_name: "requests_central",
+                IndexName: "request_fp",
+                KeyConditionExpression: "request_fp = :val1 and #r.#c = :val2",
+                ExpressionAttributeValues: {
+                  ":val1": req.request_fp,
+                  ":val2": false,
+                },
+                ExpressionAttributeNames: {
+                  "#r": "request_state_vars",
+                  "#c": "completedRatingClient",
+                },
+              })
+                .then((requestData) => {
+                  if (requestData !== undefined && requestData.length > 0) {
+                    //Valid
+                    requestData = requestData[0];
+
+                    let updatedRequestState = requestData.request_state_vars;
+                    updatedRequestState["rating_data"] = RATING_DATA;
+                    updatedRequestState["completedRatingClient"] = true;
+
+                    dynamo_update({
+                      table_name: "requests_central",
+                      _idKey: requestData._id,
+                      UpdateExpression:
+                        "set request_state_vars = :val1, date_clientRatedRide = :val2",
+                      ExpressionAttributeValues: {
+                        ":val1": updatedRequestState,
+                        ":val2": new Date(chaineDateUTC).toISOString(),
+                      },
+                    })
+                      .then((result) => {
+                        if (result === false) {
+                          //Error
+                          resolve([{ response: "error" }]);
+                        }
+                        //...
+                        resolve([{ response: "success" }]);
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        resolve([{ response: "error" }]);
+                      });
+                  } //No request?
+                  else {
+                    resolve([{ response: "error" }]);
+                  }
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resolve([{ response: "error" }]);
+                });
+            } //Invalid data
+            else {
+              resolve([{ response: "error" }]);
+            }
+          })
+            .then((result) => {
+              logger.info(result);
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send([{ response: "error" }]);
+            });
+        });
+
+        //?9. Cancel request - user
+        app.post("/cancel_request_user", function (req, res) {
+          new Promise((resolve) => {
+            req = req.body;
+            logger.info(req);
+
+            if (
+              req.request_fp !== undefined &&
+              req.request_fp !== null &&
+              req.user_identifier !== undefined &&
+              req.user_identifier !== null
+            ) {
+              //Check if there is such request
+              let checkRequest = {
+                request_fp: req.request_fp,
+                client_id: req.user_identifier,
+              };
+              //...
+              dynamo_find_query({
+                table_name: "requests_central",
+                IndexName: "request_fp",
+                KeyConditionExpression:
+                  "request_fp = :val1 AND client_id = :val2",
+                ExpressionAttributeValues: {
+                  ":val1": req.request_fp,
+                  ":val2": req.user_identifier,
+                },
+              })
+                .then((requestData) => {
+                  if (requestData !== undefined && requestData.length > 0) {
+                    requestData = requestData[0];
+                    //!...Delete and save in the cancelled
+                    dynamo_delete("cancelled_requests_central", requestData._id)
+                      .then((result) => {
+                        if (result) {
+                          //Success
+                          //!add the date cancelled
+                          requestData["date_cancelled"] = new Date(
+                            chaineDateUTC
+                          );
+
+                          dynamo_insert(
+                            "cancelled_requests_central",
+                            requestData
+                          )
+                            .then((result) => {
+                              if (result) {
+                                //Success
+                                //...
+                                resolve([{ response: "success" }]);
+                              } //Failure
+                              else {
+                                resolve([{ response: "error" }]);
+                              }
+                            })
+                            .catch((error) => {
+                              logger.error(error);
+                              resolve([{ response: "error" }]);
+                            });
+                        } //Failure
+                        else {
+                          resolve([{ response: "error" }]);
+                        }
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        resolve([{ response: "error" }]);
+                      });
+                  } //No request?
+                  else {
+                    resolve([{ response: "error" }]);
+                  }
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resolve([{ response: "error" }]);
+                });
+            } //Invalid data
+            else {
+              resolve([{ response: "error" }]);
+            }
+          })
+            .then((result) => {
+              logger.info(result);
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send([{ response: "error" }]);
+            });
+        });
+
+        //?10. Search for stores
+        // app.post("/searchForStores", function(req, res) {
+        //   new Promise((resolve) => {
+        //     new promises((resIndices) => {
+        //       let index_name = 'stores';
+        //       checkIndices(index_name, resIndices);
+        //     })
+        //     .then((result) => {
+        //       if(result)  //All good
+        //       {
+
+        //       }
+        //       else  //There was a problem
+        //       {
+        //         resolve({ response: [] });
+        //       }
+        //     }).catch((error) => {
+        //       logger.error(error);
+        //       resolve({ response: [] });
+        //     })
+        //   })
+        //   .then((result) => {
+        //     logger.info(result);
+        //     res.send(result);
+        //   })
+        //   .catch((error) => {
+        //     logger.error(error);
+        //     res.send({ response: [] });
+        //   });
+        // })
+
+        //?11. get the list of requests for riders
+        app.post("/getRequestListRiders", function (req, res) {
+          new Promise((resolve) => {
+            req = req.body;
+
+            if (
+              req.user_identifier !== undefined &&
+              req.user_identifier !== null
+            ) {
+              let redisKey = `${req.user_identifier}-requestListCached`;
+
+              //TODO: .sort({ date_requested: -1 })
+              dynamo_find_query({
+                table_name: "requests_central",
+                IndexName: "client_id",
+                KeyConditionExpression: "client_id = :val1",
+                ExpressionAttributeValues: {
+                  ":val1": req.user_identifier,
+                },
+              })
+                .then((requestData) => {
+                  logger.info(requestData);
+                  //...
+                  if (requestData !== undefined && requestData.length > 0) {
+                    //Has some requests
+                    let RETURN_DATA_TEMPLATE = [];
+
+                    requestData.map((request) => {
+                      let tmpRequest = {
+                        request_type: request.ride_mode,
+                        date_requested: request.date_requested,
+                        locations: request.locations,
+                        shopping_list:
+                          request.ride_mode.toLowerCase() === "shopping"
+                            ? request.shopping_list
+                            : null,
+                      };
+                      //...Save
+                      RETURN_DATA_TEMPLATE.push(tmpRequest);
+                    });
+                    //...
+                    resolve({ response: RETURN_DATA_TEMPLATE });
+                  } //No requests
+                  else {
+                    resolve({ response: [] });
+                  }
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resolve({ response: [] });
+                });
+            } //Invalid data
+            else {
+              resolve({ response: [] });
+            }
+          })
+            .then((result) => {
+              logger.info(result);
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send({ response: [] });
+            });
+        });
+
+        //?12. Update the users information
+        app.post("/updateUsersInformation", function (req, res) {
+          new Promise((resolve) => {
+            req = req.body;
+            logger.info(`${req.data_type}: profile update requested`);
+
+            if (
+              req.user_identifier !== undefined &&
+              req.user_identifier !== null &&
+              req.data_type !== undefined &&
+              req.data_type !== null &&
+              req.data_value !== undefined &&
+              req.data_value !== null
+            ) {
+              //!Check the user
+              switch (req.data_type) {
+                case "name":
+                  //Update the name
+                  dynamo_update({
+                    table_name: "users_central",
+                    _idKey: { user_identifier: req.user_identifier },
+                    UpdateExpression: "set name = :val1",
+                    ExpressionAttributeValues: {
+                      ":val1": req.data_value,
+                    },
+                  })
+                    .then((result) => {
+                      if (result === false) {
+                        logger.error(err);
+                        resolve({ response: "error" });
                       }
+                      //...Success
+                      resolve({ response: "success" });
                     })
                     .catch((error) => {
+                      logger.error(error);
+                      resolve({ response: "error" });
+                    });
+                  break;
+                case "surname":
+                  //Update the surname
+                  dynamo_update({
+                    table_name: "users_central",
+                    _idKey: { user_identifier: req.user_identifier },
+                    UpdateExpression: "set surname = :val1",
+                    ExpressionAttributeValues: {
+                      ":val1": req.data_value,
+                    },
+                  })
+                    .then((result) => {
+                      if (result === false) {
+                        logger.error(err);
+                        resolve({ response: "error" });
+                      }
+                      //...Success
+                      resolve({ response: "success" });
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve({ response: "error" });
+                    });
+                  break;
+                case "email":
+                  //Update the email
+                  dynamo_update({
+                    table_name: "users_central",
+                    _idKey: { user_identifier: req.user_identifier },
+                    UpdateExpression: "set email = :val1",
+                    ExpressionAttributeValues: {
+                      ":val1": req.data_value,
+                    },
+                  })
+                    .then((result) => {
+                      if (result === false) {
+                        logger.error(err);
+                        resolve({ response: "error" });
+                      }
+                      //...Success
+                      resolve({ response: "success" });
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve({ response: "error" });
+                    });
+                case "gender":
+                  //Update the gender
+                  dynamo_update({
+                    table_name: "users_central",
+                    _idKey: { user_identifier: req.user_identifier },
+                    UpdateExpression: "set gender = :val1",
+                    ExpressionAttributeValues: {
+                      ":val1": req.data_value,
+                    },
+                  })
+                    .then((result) => {
+                      if (result === false) {
+                        logger.error(err);
+                        resolve({ response: "error" });
+                      }
+                      //...Success
+                      resolve({ response: "success" });
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve({ response: "error" });
+                    });
+                  break;
+                case "phone":
+                  //Update the phone
+                  dynamo_update({
+                    table_name: "users_central",
+                    _idKey: { user_identifier: req.user_identifier },
+                    UpdateExpression: "set phone_number = :val1",
+                    ExpressionAttributeValues: {
+                      ":val1": req.data_value,
+                    },
+                  })
+                    .then((result) => {
+                      if (result === false) {
+                        logger.error(err);
+                        resolve({ response: "error" });
+                      }
+                      //...Success
+                      resolve({ response: "success" });
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve({ response: "error" });
+                    });
+                  break;
+
+                case "profile_picture":
+                  let localFileName = `.profile_photo${req.user_identifier}.${req.extension}`;
+                  //? Write the file locally
+                  fs.writeFile(
+                    localFileName,
+                    String(req.data_value),
+                    "base64",
+                    function (err) {
+                      if (err) {
+                        logger.error(err);
+                        resolve({ response: "error" });
+                      }
+                      //...success
+                      // Read content from the file
+                      const fileContentUploaded_locally =
+                        fs.readFileSync(localFileName);
+
+                      // Setting up S3 upload parameters
+                      let fileUploadName = `profile_${req.user_identifier}.${req.extension}`;
+                      const params = {
+                        Bucket: `${process.env.AWS_S3_CLIENTS_PROFILES_BUCKET_NAME}/clients_profiles`,
+                        Key: fileUploadName, // File name you want to save as in S3
+                        Body: fileContentUploaded_locally,
+                      };
+
+                      // Uploading files to the bucket
+                      s3.upload(params, function (err, data) {
+                        if (err) {
+                          logger.info(err);
+                          resolve({ response: "error" });
+                        }
+                        logger.info(
+                          `[USER]${localFileName} -> Successfully uploaded.`
+                        );
+                        //! Update the database
+                        dynamo_update({
+                          table_name: "users_central",
+                          _idKey: { user_identifier: req.user_identifier },
+                          UpdateExpression: "set #m.#p = :val1",
+                          ExpressionAttributeValues: {
+                            ":val1": fileUploadName,
+                          },
+                          ExpressionAttributeNames: {
+                            "#m": "media",
+                            "#p": "profile_picture",
+                          },
+                        })
+                          .then((result) => {
+                            if (result === false) {
+                              logger.error(err);
+                              resolve({ response: "error" });
+                            }
+                            //...Success
+                            resolve({ response: "success" });
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            resolve({ response: "error" });
+                          });
+                      });
+                    }
+                  );
+                  break;
+                default:
+                  resolve({ response: "error" });
+                  break;
+              }
+            } //Invalid data
+            else {
+              resolve({ response: "error" });
+            }
+          })
+            .then((result) => {
+              logger.info(result);
+              if (result.response == "success") {
+                //- update the cached data
+                let redisKey = `${req.user_identifier}-cachedProfile-data`;
+
+                dynamo_find_query({
+                  table_name: "users_central",
+                  IndexName: "user_identifier",
+                  KeyConditionExpression: "user_identifier = :val1",
+                  ExpressionAttributeValues: {
+                    ":val1": req.user_identifier,
+                  },
+                })
+                  .then((userData) => {
+                    if (userData !== undefined && userData.length > 0) {
+                      //Valid info
+                      redisCluster.setex(
+                        redisKey,
+                        parseInt(process.env.REDIS_EXPIRATION_5MIN) * 404,
+                        JSON.stringify(userData)
+                      );
+                      //...
+                      res.send({ response: "success" });
+                    } //No valid user
+                    else {
+                      res.send({ response: "error" });
+                    }
+                  })
+                  .catch((error) => {
+                    logger.error(error);
+                    res.send({ response: "error" });
+                  });
+              } //!error
+              else {
+                res.send({ response: "error" });
+              }
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send({ response: "error" });
+            });
+        });
+
+        //?13. Get the user data
+        app.post("/getGenericUserData", function (req, res) {
+          new Promise((resolve) => {
+            req = req.body;
+
+            if (
+              req.user_identifier !== undefined &&
+              req.user_identifier !== null
+            ) {
+              let redisKey = `${req.user_identifier}-cachedProfile-data`;
+
+              redisGet(redisKey)
+                .then((resp) => {
+                  if (resp !== null) {
+                    try {
+                      resp = JSON.parse(resp);
+                      resolve([
+                        {
+                          response: getOutputStandardizedUserDataFormat(
+                            resp[0]
+                          ),
+                        },
+                      ]);
+                    } catch (error) {
                       //?Get fresh data and cache
                       logger.error(error);
                       new Promise((resCompute) => {
@@ -2974,23 +2899,49 @@ redisCluster.on("connect", function () {
                           logger.error(error);
                           resolve([{ response: [] }]);
                         });
-                    });
-                } //Invalid data
-                else {
-                  resolve([{ response: [] }]);
-                }
-              })
-                .then((result) => {
-                  // logger.info(result);
-                  res.send(result);
+                    }
+                  } //No cached data
+                  else {
+                    new Promise((resCompute) => {
+                      getFreshUserDataClients(req, redisKey, resCompute);
+                    })
+                      .then((result) => {
+                        resolve(result);
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        resolve([{ response: [] }]);
+                      });
+                  }
                 })
                 .catch((error) => {
+                  //?Get fresh data and cache
                   logger.error(error);
-                  res.send({ response: [] });
+                  new Promise((resCompute) => {
+                    getFreshUserDataClients(req, redisKey, resCompute);
+                  })
+                    .then((result) => {
+                      resolve(result);
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve([{ response: [] }]);
+                    });
                 });
+            } //Invalid data
+            else {
+              resolve([{ response: [] }]);
+            }
+          })
+            .then((result) => {
+              // logger.info(result);
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send({ response: [] });
             });
-          }
-        );
+        });
       }
     }
   );

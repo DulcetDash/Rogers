@@ -47,6 +47,44 @@ async function insert(table_name, data) {
 }
 
 /**
+ * ? Insert: PUT MANY
+ * Add many new records in a desired table
+ * @param table_name: the name of the table that the record needs to be inserted in
+ * @param array_data: the array data to be inserted
+ */
+async function insert_many({ table_name, array_data }) {
+  //! Attach a new _id if unexistant and reformat
+  let reformatted_data = [];
+
+  array_data.map((el) => {
+    el["_id"] =
+      el["_id"] !== undefined && el["_id"] !== null ? el["_id"] : uuidv4();
+    //...
+    reformatted_data.push({
+      PutRequest: {
+        Item: el,
+      },
+    });
+  });
+
+  //...
+  let params = {
+    RequestItems: {},
+  };
+  params.RequestItems[table_name] = reformatted_data;
+  //...
+  dynamoClient.batchWrite(params, function (err, resultPut) {
+    if (err) {
+      logger.error(err);
+      return false;
+    }
+    //...
+    logger.info(resultPut);
+    return true;
+  });
+}
+
+/**
  * ? Delete
  * Delete a record from a desired table
  * @param table_name: the name of the table from which the record will be deleted.
@@ -208,6 +246,7 @@ async function get_all(table_name) {
 //? Exports
 module.exports = {
   dynamo_insert: insert,
+  dynamo_insert_many: insert_many,
   dynamo_delete: delete_r,
   dynamo_update: update,
   dynamo_find_get: find_get,

@@ -40,6 +40,7 @@ const redisGet = promisify(redisCluster.get).bind(redisCluster);
 //! Attach DynamoDB helper
 const {
   dynamo_insert,
+  dynamo_insert_many,
   dynamo_update,
   dynamo_find_query,
   dynamo_get_all,
@@ -385,13 +386,18 @@ function initializeFreshGetOfLocations(
             //! Save in mongo search persist - Cost reduction
             new Promise((saveMongo) => {
               if (result.length > 0) {
-                collectionSearchedLocationPersist.insertMany(
-                  result,
-                  function (err, reslt) {
+                dynamo_insert_many({
+                  table_name: "searched_locations_persist",
+                  array_data: result,
+                })
+                  .then((result) => {
                     saveMongo(true);
                     logger.warn("SAVED IN MONGO PERSIST!");
-                  }
-                );
+                  })
+                  .catch((error) => {
+                    logger.error(error);
+                    saveMongo(true);
+                  });
               } //Nothing to save
               else {
                 saveMongo(false);
@@ -2368,447 +2374,430 @@ var collectionEnrichedLocationPersist = null;
 
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
-  MongoClient.connect(process.env.DB_URL_MONGODB, function (err, clientMongo) {
-    if (err) throw err;
-    logger.info("Connected to Mongodb");
-    const dbMongo = clientMongo.db(process.env.DB_NAME_MONGODDB);
-    collectionSearchedLocationPersist = dbMongo.collection(
-      "searched_locations_persist"
+  //Cached restore OR initialized
+  app
+    .use(
+      express.json({
+        limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+        extended: true,
+      })
+    )
+    .use(
+      express.urlencoded({
+        limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+        extended: true,
+      })
     );
-    collectionAutoCompletedSuburbs = dbMongo.collection(
-      "autocompleted_location_suburbs"
-    );
-    collectionEnrichedLocationPersist = dbMongo.collection(
-      "enriched_locationSearch_persist"
-    ); //Will hold all the google locations searched using the place id
-    //-------------
-    //Cached restore OR initialized
-    app
-      .use(
-        express.json({
-          limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
-          extended: true,
-        })
-      )
-      .use(
-        express.urlencoded({
-          limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
-          extended: true,
-        })
-      );
 
-    //1. SEARCH API
-    app.post("/getSearchedLocations", function (request, res) {
-      resolveDate();
-      //..
-      request = request.body;
-      // logger.info(request);
-      //Update search timestamp
-      //search_timestamp = dateObject.unix();
-      // let search_timestamp = request.query.length;
-      let search_timestamp = new Date(chaineDateUTC).getTime();
-      request.state =
-        request.state !== undefined
-          ? request.state.replace(/ Region/i, "").trim()
-          : "Khomas"; //Default to Khomas
-      //...
-      //   request.city = "Windhoek";
-      //   request.country = "Namibia";
-      //   request.user_fp = "abcd";
-      //   request.query = "kh";
+  //1. SEARCH API
+  app.post("/getSearchedLocations", function (request, res) {
+    resolveDate();
+    //..
+    request = request.body;
+    // logger.info(request);
+    //Update search timestamp
+    //search_timestamp = dateObject.unix();
+    // let search_timestamp = request.query.length;
+    let search_timestamp = new Date(chaineDateUTC).getTime();
+    request.state =
+      request.state !== undefined
+        ? request.state.replace(/ Region/i, "").trim()
+        : "Khomas"; //Default to Khomas
+    //...
+    //   request.city = "Windhoek";
+    //   request.country = "Namibia";
+    //   request.user_fp = "abcd";
+    //   request.query = "kh";
 
-      let redisKeyConsistencyKeeper = `${request.user_fp}-autocompleteSearchRecordTime-${request.city}-${request.state}`;
-      //1. Get the cityCenter
-      request0 = new Promise((res) => {
-        //Save in Cache
-        redisCluster.set(redisKeyConsistencyKeeper, request.query);
-        getCityCenter(request.city, res);
-      }).then(
-        (result) => {
-          let cityCenter = result;
-          //Get the location
-          new Promise((res) => {
-            let tmpTimestamp = search_timestamp;
-            getLocationList_five(
-              request.query,
-              request.city,
-              request.country,
-              cityCenter,
-              res,
-              tmpTimestamp,
-              request
-            );
-          }).then(
-            (result) => {
-              //? Get the redis record time and compare
-              redisGet(redisKeyConsistencyKeeper)
-                .then((resp) => {
-                  if (
-                    resp !== null &&
-                    result !== false &&
-                    result.result !== undefined &&
-                    result.result[0].query !== undefined
-                  ) {
-                    logger.warn(`Redis last time record: ${resp}`);
-                    logger.warn(
-                      `Request time record: ${result.result[0].query}`
-                    );
-                    logger.warn(
-                      `Are search results consistent ? --> ${
-                        resp === result.result[0].query
-                      }`
-                    );
-                    if (resp === result.result[0].query) {
-                      logger.warn(result);
-                      //Inconsistent - do not update
-                      logger.info("Consistent");
-                      //res.send(false);
-                      res.send({ result: result });
-                    } //Consistent - update
-                    else {
-                      logger.info("Inconsistent");
-                      //logObject(result);
-                      // res.send({ result: result });
-                      res.send(false);
-                    }
-                  } //Nothing the compare to
+    let redisKeyConsistencyKeeper = `${request.user_fp}-autocompleteSearchRecordTime-${request.city}-${request.state}`;
+    //1. Get the cityCenter
+    request0 = new Promise((res) => {
+      //Save in Cache
+      redisCluster.set(redisKeyConsistencyKeeper, request.query);
+      getCityCenter(request.city, res);
+    }).then(
+      (result) => {
+        let cityCenter = result;
+        //Get the location
+        new Promise((res) => {
+          let tmpTimestamp = search_timestamp;
+          getLocationList_five(
+            request.query,
+            request.city,
+            request.country,
+            cityCenter,
+            res,
+            tmpTimestamp,
+            request
+          );
+        }).then(
+          (result) => {
+            //? Get the redis record time and compare
+            redisGet(redisKeyConsistencyKeeper)
+              .then((resp) => {
+                if (
+                  resp !== null &&
+                  result !== false &&
+                  result.result !== undefined &&
+                  result.result[0].query !== undefined
+                ) {
+                  logger.warn(`Redis last time record: ${resp}`);
+                  logger.warn(`Request time record: ${result.result[0].query}`);
+                  logger.warn(
+                    `Are search results consistent ? --> ${
+                      resp === result.result[0].query
+                    }`
+                  );
+                  if (resp === result.result[0].query) {
+                    logger.warn(result);
+                    //Inconsistent - do not update
+                    logger.info("Consistent");
+                    //res.send(false);
+                    res.send({ result: result });
+                  } //Consistent - update
                   else {
+                    logger.info("Inconsistent");
+                    //logObject(result);
+                    // res.send({ result: result });
                     res.send(false);
                   }
-                })
-                .catch((error) => {
-                  logger.error(error);
+                } //Nothing the compare to
+                else {
                   res.send(false);
-                });
-            },
-            (error) => {
-              logger.warn("HERE10");
-              logger.warn(error);
-              res.send(false);
-            }
-          );
-        },
-        (error) => {
-          logger.warn(error);
-          res.send(false);
-        }
-      );
-    });
-
-    //2. BRIEFLY COMPLETE THE SUBURBS AND STATE
-    app.get("/brieflyCompleteSuburbAndState", function (request, res) {
-      new Promise((resCompute) => {
-        resolveDate();
-
-        let params = urlParser.parse(request.url, true);
-        request = params.query;
-        //...
-        if (
-          request.latitude !== undefined &&
-          request.latitude !== null &&
-          request.longitude !== undefined &&
-          request.longitude !== null
-        ) {
-          brieflyCompleteEssentialsForLocations(
-            { latitude: request.latitude, longitude: request.longitude },
-            request.location_name,
-            request.city,
-            resCompute
-          );
-        } //Invalida data received
-        else {
-          logger.warn(
-            "Could not briefly complete the location due to invalid data received."
-          );
-          resCompute({
-            coordinates: {
-              latitude: request.latitude,
-              longitude: request.longitude,
-            },
-            state: false,
-            suburb: false,
-          });
-        }
-      })
-        .then((result) => {
-          res.send(result);
-        })
-        .catch((error) => {
-          logger.error(error);
-          res.send({
-            coordinates: {
-              latitude: request.latitude,
-              longitude: request.longitude,
-            },
-            state: false,
-            suburb: false,
-          });
-        });
-    });
-
-    /**
-     * REVERSE GEOCODER
-     * To get the exact approx. location of the user or driver.
-     * REDIS propertiy
-     * user_fingerprint -> currentLocationInfos: {...}
-     */
-    app.post("/geocode_this_point", function (req, res) {
-      new Promise((resMAIN) => {
-        let request = req.body;
-        resolveDate();
-
-        if (
-          request.latitude != undefined &&
-          request.latitude != null &&
-          request.longitude != undefined &&
-          request.longitude != null &&
-          request.user_fingerprint !== null &&
-          request.user_fingerprint !== undefined
-        ) {
-          logger.error(JSON.stringify(request.user_fingerprint));
-          //TODO: Save the history of the geolocation in Redis
-          // new Promise((resHistory) => {
-          //   if (request.geolocationData !== undefined) {
-          //     bundleData = {
-          //       user_fingerprint: request.user_fingerprint,
-          //       gps_data: request.geolocationData,
-          //       date: new Date(chaineDateUTC),
-          //     };
-          //     //..
-          //     collectionHistoricalGPS.insertOne(
-          //       bundleData,
-          //       function (err, reslt) {
-          //         if (err) {
-          //           logger.error(err);
-          //           resHistory(false);
-          //         }
-          //         //...
-          //         logger.info("Saved GPS data");
-          //         resHistory(true);
-          //       }
-          //     );
-          //   } //No required data
-          //   else {
-          //     logger.info("No required GPS data for logs");
-          //     resHistory(false);
-          //   }
-          // })
-          //   .then()
-          //   .catch();
-
-          //Hand responses
-          new Promise((resolve) => {
-            reverseGeocodeUserLocation(resolve, request);
-          }).then(
-            (result) => {
-              if (
-                result !== false &&
-                result !== "false" &&
-                result !== undefined &&
-                result !== null
-              ) {
-                //! SUPPORTED CITIES
-                let SUPPORTED_CITIES = ["WINDHOEK", "SWAKOPMUND", "WALVIS BAY"];
-                //? Attach the supported city state
-                result["isCity_supported"] = SUPPORTED_CITIES.includes(
-                  result.city !== undefined && result.city !== null
-                    ? result.city.trim().toUpperCase()
-                    : result.name !== undefined && result.name !== null
-                    ? result.name.trim().toUpperCase()
-                    : "Unknown city"
-                );
-                result["isCity_supported"] = true;
-                //! Replace Samora Machel Constituency by Wanaheda
-                if (
-                  result.suburb !== undefined &&
-                  result.suburb !== null &&
-                  /Samora Machel Constituency/i.test(result.suburb)
-                ) {
-                  result.suburb = "Wanaheda";
-                  resMAIN(result);
-                } else {
-                  resMAIN(result);
                 }
-              } //False returned
-              else {
-                resMAIN(false);
-              }
-            },
-            (error) => {
-              logger.error(error);
-              resMAIN(false);
-            }
-          );
-        }
-      })
-        .then((result) => {
-          res.send(result);
-        })
-        .catch((error) => {
-          //logger.info(error);
-          res.send(false);
+              })
+              .catch((error) => {
+                logger.error(error);
+                res.send(false);
+              });
+          },
+          (error) => {
+            logger.warn("HERE10");
+            logger.warn(error);
+            res.send(false);
+          }
+        );
+      },
+      (error) => {
+        logger.warn(error);
+        res.send(false);
+      }
+    );
+  });
+
+  //2. BRIEFLY COMPLETE THE SUBURBS AND STATE
+  app.get("/brieflyCompleteSuburbAndState", function (request, res) {
+    new Promise((resCompute) => {
+      resolveDate();
+
+      let params = urlParser.parse(request.url, true);
+      request = params.query;
+      //...
+      if (
+        request.latitude !== undefined &&
+        request.latitude !== null &&
+        request.longitude !== undefined &&
+        request.longitude !== null
+      ) {
+        brieflyCompleteEssentialsForLocations(
+          { latitude: request.latitude, longitude: request.longitude },
+          request.location_name,
+          request.city,
+          resCompute
+        );
+      } //Invalida data received
+      else {
+        logger.warn(
+          "Could not briefly complete the location due to invalid data received."
+        );
+        resCompute({
+          coordinates: {
+            latitude: request.latitude,
+            longitude: request.longitude,
+          },
+          state: false,
+          suburb: false,
         });
-    });
+      }
+    })
+      .then((result) => {
+        res.send(result);
+      })
+      .catch((error) => {
+        logger.error(error);
+        res.send({
+          coordinates: {
+            latitude: request.latitude,
+            longitude: request.longitude,
+          },
+          state: false,
+          suburb: false,
+        });
+      });
+  });
 
-    /**
-     * REVERSE GEOCODER
-     * To get the exact approx. location of the user or driver.
-     * REDIS propertiy
-     * user_fingerprint -> currentLocationInfos: {...}
-     */
-    app.post("/getUserLocationInfos", function (req, res) {
-      new Promise((resMAIN) => {
-        let request = req.body;
-        resolveDate();
+  /**
+   * REVERSE GEOCODER
+   * To get the exact approx. location of the user or driver.
+   * REDIS propertiy
+   * user_fingerprint -> currentLocationInfos: {...}
+   */
+  app.post("/geocode_this_point", function (req, res) {
+    new Promise((resMAIN) => {
+      let request = req.body;
+      resolveDate();
 
-        if (
-          request.latitude != undefined &&
-          request.latitude != null &&
-          request.longitude != undefined &&
-          request.longitude != null &&
-          request.user_fingerprint !== null &&
-          request.user_fingerprint !== undefined
-        ) {
-          logger.error(JSON.stringify(request.user_fingerprint));
-          //TODO: Save the history of the geolocation in Redis
-          // new Promise((resHistory) => {
-          //   if (request.geolocationData !== undefined) {
-          //     bundleData = {
-          //       user_fingerprint: request.user_fingerprint,
-          //       gps_data: request.geolocationData,
-          //       date: new Date(chaineDateUTC),
-          //     };
-          //     //..
+      if (
+        request.latitude != undefined &&
+        request.latitude != null &&
+        request.longitude != undefined &&
+        request.longitude != null &&
+        request.user_fingerprint !== null &&
+        request.user_fingerprint !== undefined
+      ) {
+        logger.error(JSON.stringify(request.user_fingerprint));
+        //TODO: Save the history of the geolocation in Redis
+        // new Promise((resHistory) => {
+        //   if (request.geolocationData !== undefined) {
+        //     bundleData = {
+        //       user_fingerprint: request.user_fingerprint,
+        //       gps_data: request.geolocationData,
+        //       date: new Date(chaineDateUTC),
+        //     };
+        //     //..
+        //     collectionHistoricalGPS.insertOne(
+        //       bundleData,
+        //       function (err, reslt) {
+        //         if (err) {
+        //           logger.error(err);
+        //           resHistory(false);
+        //         }
+        //         //...
+        //         logger.info("Saved GPS data");
+        //         resHistory(true);
+        //       }
+        //     );
+        //   } //No required data
+        //   else {
+        //     logger.info("No required GPS data for logs");
+        //     resHistory(false);
+        //   }
+        // })
+        //   .then()
+        //   .catch();
 
-          //     collectionHistoricalGPS.insertOne(
-          //       bundleData,
-          //       function (err, reslt) {
-          //         if (err) {
-          //           logger.error(err);
-          //           resHistory(false);
-          //         }
-          //         //...
-          //         logger.info("Saved GPS data");
-          //         resHistory(true);
-          //       }
-          //     );
-          //   } //No required data
-          //   else {
-          //     logger.info("No required GPS data for logs");
-          //     resHistory(false);
-          //   }
-          // })
-          //   .then()
-          //   .catch();
-
-          //Hand responses
-          new Promise((resolve) => {
-            reverseGeocodeUserLocation(resolve, request);
-          }).then(
-            (result) => {
+        //Hand responses
+        new Promise((resolve) => {
+          reverseGeocodeUserLocation(resolve, request);
+        }).then(
+          (result) => {
+            if (
+              result !== false &&
+              result !== "false" &&
+              result !== undefined &&
+              result !== null
+            ) {
+              //! SUPPORTED CITIES
+              let SUPPORTED_CITIES = ["WINDHOEK", "SWAKOPMUND", "WALVIS BAY"];
+              //? Attach the supported city state
+              result["isCity_supported"] = SUPPORTED_CITIES.includes(
+                result.city !== undefined && result.city !== null
+                  ? result.city.trim().toUpperCase()
+                  : result.name !== undefined && result.name !== null
+                  ? result.name.trim().toUpperCase()
+                  : "Unknown city"
+              );
+              result["isCity_supported"] = true;
+              //! Replace Samora Machel Constituency by Wanaheda
               if (
-                result !== false &&
-                result !== "false" &&
-                result !== undefined &&
-                result !== null
+                result.suburb !== undefined &&
+                result.suburb !== null &&
+                /Samora Machel Constituency/i.test(result.suburb)
               ) {
-                //! SUPPORTED CITIES
-                let SUPPORTED_CITIES = ["WINDHOEK", "SWAKOPMUND", "WALVIS BAY"];
-                //? Attach the supported city state
-                result["isCity_supported"] = SUPPORTED_CITIES.includes(
-                  result.city !== undefined && result.city !== null
-                    ? result.city.trim().toUpperCase()
-                    : result.name !== undefined && result.name !== null
-                    ? result.name.trim().toUpperCase()
-                    : "Unknown city"
-                );
-                result["isCity_supported"] = true;
-                //! Replace Samora Machel Constituency by Wanaheda
-                if (
-                  result.suburb !== undefined &&
-                  result.suburb !== null &&
-                  /Samora Machel Constituency/i.test(result.suburb)
-                ) {
-                  result.suburb = "Wanaheda";
-                  resMAIN(result);
-                } else {
-                  resMAIN(result);
-                }
-              } //False returned
-              else {
-                resMAIN(false);
+                result.suburb = "Wanaheda";
+                resMAIN(result);
+              } else {
+                resMAIN(result);
               }
-            },
-            (error) => {
-              logger.error(error);
+            } //False returned
+            else {
               resMAIN(false);
             }
-          );
-        }
+          },
+          (error) => {
+            logger.error(error);
+            resMAIN(false);
+          }
+        );
+      }
+    })
+      .then((result) => {
+        res.send(result);
       })
-        .then((result) => {
-          res.send(result);
-        })
-        .catch((error) => {
-          //logger.info(error);
-          res.send(false);
-        });
-    });
+      .catch((error) => {
+        //logger.info(error);
+        res.send(false);
+      });
+  });
 
-    /**
-     * ROUTE TO DESTINATION previewer
-     * Responsible for showing to the user the preview of the first destination after selecting on the app the destination.
-     */
-    app.post("/getRouteToDestinationSnapshot", function (req, res) {
-      new Promise((resMAIN) => {
-        req = req.body;
-        // logger.info(req);
-        //logger.info("here");
-        //...
-        if (
-          req.user_fingerprint !== undefined &&
-          req.org_latitude !== undefined &&
-          req.org_longitude !== undefined
-        ) {
-          new Promise((res) => {
-            let tmp = {
-              origin: {
-                latitude: req.org_latitude,
-                longitude: req.org_longitude,
-              },
-              destination: {
-                latitude: req.dest_latitude,
-                longitude: req.dest_longitude,
-              },
-              user_fingerprint: req.user_fingerprint,
-              request_fp:
-                req.request_fp !== undefined && req.request_fp !== null
-                  ? req.request_fp
-                  : false,
-            };
-            findDestinationPathPreview(res, tmp);
-          }).then(
-            (result) => {
-              resMAIN(result);
-            },
-            (error) => {
-              logger.error(error);
+  /**
+   * REVERSE GEOCODER
+   * To get the exact approx. location of the user or driver.
+   * REDIS propertiy
+   * user_fingerprint -> currentLocationInfos: {...}
+   */
+  app.post("/getUserLocationInfos", function (req, res) {
+    new Promise((resMAIN) => {
+      let request = req.body;
+      resolveDate();
+
+      if (
+        request.latitude != undefined &&
+        request.latitude != null &&
+        request.longitude != undefined &&
+        request.longitude != null &&
+        request.user_fingerprint !== null &&
+        request.user_fingerprint !== undefined
+      ) {
+        logger.error(JSON.stringify(request.user_fingerprint));
+        //TODO: Save the history of the geolocation in Redis
+        // new Promise((resHistory) => {
+        //   if (request.geolocationData !== undefined) {
+        //     bundleData = {
+        //       user_fingerprint: request.user_fingerprint,
+        //       gps_data: request.geolocationData,
+        //       date: new Date(chaineDateUTC),
+        //     };
+        //     //..
+
+        //     collectionHistoricalGPS.insertOne(
+        //       bundleData,
+        //       function (err, reslt) {
+        //         if (err) {
+        //           logger.error(err);
+        //           resHistory(false);
+        //         }
+        //         //...
+        //         logger.info("Saved GPS data");
+        //         resHistory(true);
+        //       }
+        //     );
+        //   } //No required data
+        //   else {
+        //     logger.info("No required GPS data for logs");
+        //     resHistory(false);
+        //   }
+        // })
+        //   .then()
+        //   .catch();
+
+        //Hand responses
+        new Promise((resolve) => {
+          reverseGeocodeUserLocation(resolve, request);
+        }).then(
+          (result) => {
+            if (
+              result !== false &&
+              result !== "false" &&
+              result !== undefined &&
+              result !== null
+            ) {
+              //! SUPPORTED CITIES
+              let SUPPORTED_CITIES = ["WINDHOEK", "SWAKOPMUND", "WALVIS BAY"];
+              //? Attach the supported city state
+              result["isCity_supported"] = SUPPORTED_CITIES.includes(
+                result.city !== undefined && result.city !== null
+                  ? result.city.trim().toUpperCase()
+                  : result.name !== undefined && result.name !== null
+                  ? result.name.trim().toUpperCase()
+                  : "Unknown city"
+              );
+              result["isCity_supported"] = true;
+              //! Replace Samora Machel Constituency by Wanaheda
+              if (
+                result.suburb !== undefined &&
+                result.suburb !== null &&
+                /Samora Machel Constituency/i.test(result.suburb)
+              ) {
+                result.suburb = "Wanaheda";
+                resMAIN(result);
+              } else {
+                resMAIN(result);
+              }
+            } //False returned
+            else {
               resMAIN(false);
             }
-          );
-        } //error
-        else {
-          resMAIN(false);
-        }
+          },
+          (error) => {
+            logger.error(error);
+            resMAIN(false);
+          }
+        );
+      }
+    })
+      .then((result) => {
+        res.send(result);
       })
-        .then((result) => {
-          res.send(result);
-        })
-        .catch((error) => {
-          logger.error(error);
-          res.send(false);
-        });
-    });
+      .catch((error) => {
+        //logger.info(error);
+        res.send(false);
+      });
+  });
+
+  /**
+   * ROUTE TO DESTINATION previewer
+   * Responsible for showing to the user the preview of the first destination after selecting on the app the destination.
+   */
+  app.post("/getRouteToDestinationSnapshot", function (req, res) {
+    new Promise((resMAIN) => {
+      req = req.body;
+      // logger.info(req);
+      //logger.info("here");
+      //...
+      if (
+        req.user_fingerprint !== undefined &&
+        req.org_latitude !== undefined &&
+        req.org_longitude !== undefined
+      ) {
+        new Promise((res) => {
+          let tmp = {
+            origin: {
+              latitude: req.org_latitude,
+              longitude: req.org_longitude,
+            },
+            destination: {
+              latitude: req.dest_latitude,
+              longitude: req.dest_longitude,
+            },
+            user_fingerprint: req.user_fingerprint,
+            request_fp:
+              req.request_fp !== undefined && req.request_fp !== null
+                ? req.request_fp
+                : false,
+          };
+          findDestinationPathPreview(res, tmp);
+        }).then(
+          (result) => {
+            resMAIN(result);
+          },
+          (error) => {
+            logger.error(error);
+            resMAIN(false);
+          }
+        );
+      } //error
+      else {
+        resMAIN(false);
+      }
+    })
+      .then((result) => {
+        res.send(result);
+      })
+      .catch((error) => {
+        logger.error(error);
+        res.send(false);
+      });
   });
 });
 
