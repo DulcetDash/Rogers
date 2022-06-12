@@ -77,6 +77,7 @@ var chaineDateUTC = null;
 var dateObject = null;
 const moment = require("moment");
 const { equal } = require("assert");
+const { Logger } = require("mongodb/lib/core");
 
 function resolveDate() {
   //Resolve date
@@ -420,6 +421,7 @@ function execGetCatalogueFor(req, redisKey, resolve) {
   })
     .then((storeData) => {
       if (storeData !== undefined && storeData.length > 0) {
+        logger.info(storeData);
         //Found
         storeData = storeData[0];
 
@@ -428,8 +430,8 @@ function execGetCatalogueFor(req, redisKey, resolve) {
             ? {
                 table_name: "catalogue_central",
                 IndexName: "shop_fp",
-                KeyConditionExpression:
-                  "shop_fp = :val1 and #m.#s = :val2 and #m.#c = :val3",
+                KeyConditionExpression: "shop_fp = :val1",
+                FilterExpression: "#m.#s = :val2 and #m.#c = :val3",
                 ExpressionAttributeValues: {
                   ":val1": req.store,
                   ":val2": storeData.name.toUpperCase().trim(),
@@ -444,7 +446,8 @@ function execGetCatalogueFor(req, redisKey, resolve) {
             : {
                 table_name: "catalogue_central",
                 IndexName: "shop_fp",
-                KeyConditionExpression: "shop_fp = :val1 and #m.#s = :val2",
+                KeyConditionExpression: "shop_fp = :val1",
+                FilterExpression: "#m.#s = :val2",
                 ExpressionAttributeValues: {
                   ":val1": req.store,
                   ":val2": storeData.name.toUpperCase().trim(),
@@ -460,8 +463,9 @@ function execGetCatalogueFor(req, redisKey, resolve) {
             ? {
                 table_name: "catalogue_central",
                 IndexName: "shop_fp",
-                KeyConditionExpression:
-                  "shop_fp = :val1 and #m.#s = :val2 and #m.#c = :val3 and #m.#sub = :val4",
+                KeyConditionExpression: "shop_fp = :val1",
+                FilterExpression:
+                  "#m.#s = :val2 and #m.#c = :val3 and #m.#sub = :val4",
                 ExpressionAttributeValues: {
                   ":val1": req.store,
                   ":val2": storeData.name.toUpperCase().trim(),
@@ -482,7 +486,8 @@ function execGetCatalogueFor(req, redisKey, resolve) {
             ? {
                 table_name: "catalogue_central",
                 IndexName: "shop_fp",
-                KeyConditionExpression: "shop_fp = :val1 and #m.#s = :val2",
+                KeyConditionExpression: "shop_fp = :val1",
+                FilterExpression: "#m.#s = :val2",
                 ExpressionAttributeValues: {
                   ":val1": req.store,
                   ":val2": storeData.name.toUpperCase().trim(),
@@ -577,6 +582,7 @@ function execGetCatalogueFor(req, redisKey, resolve) {
             }
           })
           .catch((error) => {
+            logger.warn("Here");
             logger.error(error);
             resolve({ response: {}, store: req.store });
           });
@@ -639,64 +645,64 @@ function checkIndices(index_name, resolve) {
 function searchProductsFor(req, resolve) {
   let redisKey = `${req.store}-${req.key}-productFiltered`;
 
-  new Promise((resCompute) => {
-    execSearchProductsFor(req, redisKey, resCompute);
-  })
-    .then((result) => {
-      resolve(result);
-    })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: [] });
-    });
-
-  // redisGet(redisKey)
-  //   .then((resp) => {
-  //     if (resp !== null) {
-  //       //Has data
-  //       try {
-  //         resp = JSON.parse(resp);
-  //         resolve(resp);
-  //       } catch (error) {
-  //         logger.error(error);
-  //         new Promise((resCompute) => {
-  //           execSearchProductsFor(req, redisKey, resCompute);
-  //         })
-  //           .then((result) => {
-  //             resolve(result);
-  //           })
-  //           .catch((error) => {
-  //             logger.error(error);
-  //             resolve({ response: [] });
-  //           });
-  //       }
-  //     } //No  data
-  //     else {
-  //       new Promise((resCompute) => {
-  //         execSearchProductsFor(req, redisKey, resCompute);
-  //       })
-  //         .then((result) => {
-  //           resolve(result);
-  //         })
-  //         .catch((error) => {
-  //           logger.error(error);
-  //           resolve({ response: [] });
-  //         });
-  //     }
+  // new Promise((resCompute) => {
+  //   execSearchProductsFor(req, redisKey, resCompute);
+  // })
+  //   .then((result) => {
+  //     resolve(result);
   //   })
   //   .catch((error) => {
   //     logger.error(error);
-  //     new Promise((resCompute) => {
-  //       execSearchProductsFor(req, redisKey, resCompute);
-  //     })
-  //       .then((result) => {
-  //         resolve(result);
-  //       })
-  //       .catch((error) => {
-  //         logger.error(error);
-  //         resolve({ response: [] });
-  //       });
+  //     resolve({ response: [] });
   //   });
+
+  redisGet(redisKey)
+    .then((resp) => {
+      if (resp !== null) {
+        //Has data
+        try {
+          resp = JSON.parse(resp);
+          resolve(resp);
+        } catch (error) {
+          logger.error(error);
+          new Promise((resCompute) => {
+            execSearchProductsFor(req, redisKey, resCompute);
+          })
+            .then((result) => {
+              resolve(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              resolve({ response: [] });
+            });
+        }
+      } //No  data
+      else {
+        new Promise((resCompute) => {
+          execSearchProductsFor(req, redisKey, resCompute);
+        })
+          .then((result) => {
+            resolve(result);
+          })
+          .catch((error) => {
+            logger.error(error);
+            resolve({ response: [] });
+          });
+      }
+    })
+    .catch((error) => {
+      logger.error(error);
+      new Promise((resCompute) => {
+        execSearchProductsFor(req, redisKey, resCompute);
+      })
+        .then((result) => {
+          resolve(result);
+        })
+        .catch((error) => {
+          logger.error(error);
+          resolve({ response: [] });
+        });
+    });
 }
 
 function execSearchProductsFor(req, redisKey, resolve) {
@@ -708,8 +714,8 @@ function execSearchProductsFor(req, redisKey, resolve) {
       ? {
           table_name: "catalogue_central",
           IndexName: "shop_fp",
-          KeyConditionExpression:
-            "shop_fp = :val1 AND #m.#s = :val2 AND #m.#c = :val3",
+          KeyConditionExpression: "shop_fp = :val1",
+          FilterExpression: "#m.#s = :val2 and #m.#c = :val3",
           ExpressionAttributeValues: {
             ":val1": req.store_fp,
             ":val2": req.store,
@@ -725,7 +731,8 @@ function execSearchProductsFor(req, redisKey, resolve) {
       ? {
           table_name: "catalogue_central",
           IndexName: "shop_fp",
-          KeyConditionExpression: "shop_fp = :val1 AND #m.#sub = :val2",
+          KeyConditionExpression: "shop_fp = :val1",
+          FilterExpression: "#m.#sub = :val2",
           ExpressionAttributeValues: {
             ":val1": req.store_fp,
             ":val2": req.subcategory,
@@ -742,8 +749,9 @@ function execSearchProductsFor(req, redisKey, resolve) {
       ? {
           table_name: "catalogue_central",
           IndexName: "shop_fp",
-          KeyConditionExpression:
-            "shop_fp = :val1 AND #m.#s = :val2 AND #m.#c = :val3 AND #m.#sub = :val4",
+          KeyConditionExpression: "shop_fp = :val1",
+          FilterExpression:
+            "#m.#s = :val2 AND #m.#c = :val3 AND #m.#sub = :val4",
           ExpressionAttributeValues: {
             ":val1": req.store_fp,
             ":val2": req.store,
@@ -760,7 +768,8 @@ function execSearchProductsFor(req, redisKey, resolve) {
       : {
           table_name: "catalogue_central",
           IndexName: "shop_fp",
-          KeyConditionExpression: "shop_fp = :val1 AND #m.#s = :val2",
+          KeyConditionExpression: "shop_fp = :val1",
+          FilterExpression: "#m.#s = :val2",
           ExpressionAttributeValues: {
             ":val1": req.store_fp,
             ":val2": req.store,
@@ -885,7 +894,7 @@ function execSearchProductsFor(req, redisKey, resolve) {
 
                             //?DONE
                             // console.log(resp.hits.hits);
-                            console.log(ordered);
+                            // console.log(ordered);
                             resCompute(ordered);
                           },
                           function (err) {
@@ -920,7 +929,7 @@ function execSearchProductsFor(req, redisKey, resolve) {
             );
             let final = { response: result };
             //! Cache
-            redisCluster.setex(redisKey, 432000, JSON.stringify(final));
+            redisCluster.setex(redisKey, 18000, JSON.stringify(final));
             //...
             resolve(final);
           } //No results
@@ -949,7 +958,8 @@ function getRequestDataClient(requestData, resolve) {
   dynamo_find_query({
     table_name: "requests_central",
     IndexName: "client_id",
-    KeyConditionExpression: "client_id = :val1 and #r.#c = :val2",
+    KeyConditionExpression: "client_id = :val1",
+    FilterExpression: "#r.#c = :val2",
     ExpressionAttributeValues: {
       ":val1": requestData.user_identifier,
       ":val2": false,
@@ -980,7 +990,11 @@ function getRequestDataClient(requestData, resolve) {
             state_vars: shoppingData.request_state_vars,
             ewallet_details: {
               phone: "+264856997167",
-              security: shoppingData.security.pin,
+              security:
+                shoppingData.security !== undefined &&
+                shoppingData.security !== null
+                  ? shoppingData.security.pin
+                  : "None",
             },
             date_requested: shoppingData.date_requested, //The time of the request
           };
@@ -1581,7 +1595,9 @@ redisCluster.on("connect", function () {
             req.key !== undefined &&
             req.key !== null &&
             req.store !== undefined &&
-            req.store !== null
+            req.store !== null &&
+            req.store_fp !== undefined &&
+            req.store_fp !== null
           ) {
             new Promise((resolve) => {
               searchProductsFor(req, resolve);
@@ -1788,7 +1804,8 @@ redisCluster.on("connect", function () {
                 dynamo_find_query({
                   table_name: "requests_central",
                   IndexName: "client_id",
-                  KeyConditionExpression: "client_id = :val1 and #r.#c = :val2",
+                  KeyConditionExpression: "client_id = :val1",
+                  FilterExpression: "#r.#c = :val2",
                   ExpressionAttributeValues: {
                     ":val1": req.user_identifier,
                     ":val2": false,
@@ -1849,7 +1866,7 @@ redisCluster.on("connect", function () {
                         security: {
                           pin: security_pin, //Will be used to check the request
                         },
-                        date_requested: new Date(chaineDateUTC), //The time of the request
+                        date_requested: new Date(chaineDateUTC).toISOString(), //The time of the request
                         date_pickedupCash: null, //The time when the shopper picked up the cash from the client
                         date_routeToShop: null, //The time when the shopper started going to the shops
                         date_completedShopping: null, //The time when the shopper was done shopping
@@ -1963,7 +1980,8 @@ redisCluster.on("connect", function () {
                 dynamo_find_query({
                   table_name: "requests_central",
                   IndexName: "client_id",
-                  KeyConditionExpression: "client_id = :val1 and #r.#c = :val2",
+                  KeyConditionExpression: "client_id = :val1",
+                  FilterExpression: "#r.#c = :val2",
                   ExpressionAttributeValues: {
                     ":val1": req.user_identifier,
                     ":val2": false,
@@ -2090,7 +2108,9 @@ redisCluster.on("connect", function () {
                               security: {
                                 pin: security_pin, //Will be used to check the request
                               },
-                              date_requested: new Date(chaineDateUTC), //The time of the request
+                              date_requested: new Date(
+                                chaineDateUTC
+                              ).toISOString(), //The time of the request
                               date_pickedup: null, //The time when the driver picked up the  client/package
                               date_routeToDropoff: null, //The time when the driver started going to drop off the client/package
                               date_completedDropoff: null, //The time when the driver was done with the ride
@@ -2362,7 +2382,8 @@ redisCluster.on("connect", function () {
               dynamo_find_query({
                 table_name: "requests_central",
                 IndexName: "request_fp",
-                KeyConditionExpression: "request_fp = :val1 and #r.#c = :val2",
+                KeyConditionExpression: "request_fp = :val1",
+                FilterExpression: "#r.#c = :val2",
                 ExpressionAttributeValues: {
                   ":val1": req.request_fp,
                   ":val2": false,
@@ -2448,8 +2469,8 @@ redisCluster.on("connect", function () {
               dynamo_find_query({
                 table_name: "requests_central",
                 IndexName: "request_fp",
-                KeyConditionExpression:
-                  "request_fp = :val1 AND client_id = :val2",
+                KeyConditionExpression: "request_fp = :val1",
+                FilterExpression: "client_id = :val2",
                 ExpressionAttributeValues: {
                   ":val1": req.request_fp,
                   ":val2": req.user_identifier,
@@ -2466,7 +2487,7 @@ redisCluster.on("connect", function () {
                           //!add the date cancelled
                           requestData["date_cancelled"] = new Date(
                             chaineDateUTC
-                          );
+                          ).toISOString();
 
                           dynamo_insert(
                             "cancelled_requests_central",

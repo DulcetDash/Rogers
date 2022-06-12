@@ -3,8 +3,6 @@ require("dotenv").config();
 var express = require("express");
 const http = require("http");
 const fs = require("fs");
-const MongoClient = require("mongodb").MongoClient;
-// const certFile = fs.readFileSync("./rds-combined-ca-bundle.pem");
 
 const { logger } = require("./LogService");
 
@@ -171,11 +169,16 @@ function newLoaction_search_engine(
   dynamo_find_query({
     table_name: "searched_locations_persist",
     IndexName: "query",
-    KeyConditionExpression: "query = :val1 AND city = :val2 AND state = :val3",
+    KeyConditionExpression: "#query_word = :val1",
+    FilterExpression: "city = :val2 and #state_word = :val3",
     ExpressionAttributeValues: {
       ":val1": queryOR,
       ":val2": city,
       ":val3": trailingData.state.replace(/ Region/i, "").trim(),
+    },
+    ExpressionAttributeNames: {
+      "#query_word": "query",
+      "#state_word": "state",
     },
   })
     .then((searchedData) => {
@@ -553,7 +556,8 @@ function attachCoordinatesAndRegion(littlePack, resolve) {
       dynamo_find_query({
         table_name: "searched_locations_persist",
         IndexName: "query",
-        KeyConditionExpression: "query = :val1 AND #r.#p = :val2",
+        KeyConditionExpression: "#query_word = :val1",
+        FilterExpression: "#r.#p = :val2",
         ExpressionAttributeValues: {
           ":val1": littlePack.query,
           ":val2": littlePack.location_id,
@@ -561,6 +565,7 @@ function attachCoordinatesAndRegion(littlePack, resolve) {
         ExpressionAttributeNames: {
           "#r": "result",
           "#p": "place_id",
+          "#query_word": "query",
         },
       })
         .then((placeInfo) => {
@@ -582,7 +587,7 @@ function attachCoordinatesAndRegion(littlePack, resolve) {
             littlePack.state = state;
             littlePack.suburb = false;
             //..Save the body in mongo
-            body["date_updated"] = new Date(chaineDateUTC);
+            body["date_updated"] = new Date(chaineDateUTC).toISOString();
 
             dynamo_insert("enriched_locationSearch_persist", body)
               .then((result) => {
@@ -680,7 +685,7 @@ function doFreshGoogleSearchAndReturn(littlePack, redisKey, resolve) {
         littlePack.state = state;
         littlePack.suburb = false;
         //..Save the body in mongo
-        body["date_updated"] = new Date(chaineDateUTC);
+        body["date_updated"] = new Date(chaineDateUTC).toISOString();
 
         dynamo_insert("enriched_locationSearch_persist", body)
           .then((result) => {
@@ -1978,7 +1983,8 @@ function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
 function findDestinationPathPreview(resolve, pointData) {
   if (pointData.origin !== undefined && pointData.destination !== undefined) {
     //Create the redis key
-    let redisKey = "pathToDestinationPreview-" + pointData.user_fingerprint;
+    let redisKey =
+      "pathToDestinationPreview-" + JSON.stringify(pointData.user_fingerprint);
     //Add redis key to pointData
     pointData.redisKey = null;
     pointData.redisKey = redisKey;
@@ -2367,10 +2373,6 @@ function getRouteInfosDestination(
     }
   });
 }
-
-var collectionSearchedLocationPersist = null;
-var collectionAutoCompletedSuburbs = null;
-var collectionEnrichedLocationPersist = null;
 
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
