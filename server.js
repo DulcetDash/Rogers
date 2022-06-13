@@ -1614,7 +1614,7 @@ function shouldSendNewSMS({ req, hasAccount, resolve }) {
         //Can still send the SMS
         //? SEND OTP AND UPDATE THE RECORDS
         let onlyDigitsPhone = req.phone.replace("+", "").trim();
-        let otp = otpGenerator.generate(6, {
+        let otp = otpGenerator.generate(5, {
           lowerCaseAlphabets: false,
           upperCaseAlphabets: false,
           specialChars: false,
@@ -3217,6 +3217,7 @@ redisCluster.on("connect", function () {
                         response: {
                           didSendOTP: didSendOTP,
                           hasAccount: true, //!Has account
+                          user_identifier: userData[0].user_identifier,
                         },
                       });
                     })
@@ -3276,10 +3277,17 @@ redisCluster.on("connect", function () {
               req.otp !== undefined &&
               req.otp !== null
             ) {
+              req.hasAccount =
+                req.hasAccount === true || req.hasAccount === "true"
+                  ? true
+                  : false;
+              req.otp = parseInt(req.otp);
+              //...
               if (
                 req.hasAccount &&
                 req.user_identifier !== undefined &&
-                req.user_identifier !== null
+                req.user_identifier !== null &&
+                req.user_fingerprint !== "false"
               ) {
                 //Registered user
                 dynamo_find_query({

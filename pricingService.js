@@ -113,13 +113,13 @@ redisCluster.on("connect", function () {
         req.ride_type !== null
       ) {
         //! DISABLE WHEN TESTING WITH POSTMAN
-        // req.pickup_location = JSON.parse(req.pickup_location);
-        // req.dropoff_locations = JSON.parse(req.dropoff_locations);
+        req.pickup_location = JSON.parse(req.pickup_location);
+        req.dropoff_locations = JSON.parse(req.dropoff_locations);
 
         //?1. Compute the general base fare
         let parentBaseFare = req.dropoff_locations.map(
           (dropoff_location, index) => {
-            dropoff_location = dropoff_location.dropoff_location; //? WORKS WITH POSTMAN TESTING
+            // dropoff_location = dropoff_location.dropoff_location; //? WORKS WITH POSTMAN TESTING
             //Add the passenger number
             dropoff_location["passenger_id"] = index;
             //! Complete the missing suburb
