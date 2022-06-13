@@ -1560,6 +1560,7 @@ function getOutputStandardizedUserDataFormat(userData) {
     name: userData.name,
     surname: userData.surname,
     gender: userData.gender,
+    account_state: userData.account_state,
     profile_picture: `${process.env.AWS_S3_CLIENTS_PROFILES_PATH}/clients_profiles/${userData.media.profile_picture}`,
     account_verifications: {
       is_verified: userData.account_verifications.is_accountVerified,
@@ -1725,11 +1726,14 @@ function isUserValid(user_identifier, resolve) {
     },
   })
     .then((result) => {
-      resolve(result !== undefined && result.length > 0);
+      resolve({
+        status: result !== undefined && result.length > 0,
+        _id: result !== undefined && result.length > 0 ? result[0]._id : null,
+      });
     })
     .catch((error) => {
       logger.error(error);
-      resolve(false);
+      resolve({ status: false, _id: null });
     });
 }
 
@@ -3501,28 +3505,32 @@ redisCluster.on("connect", function () {
               req.additional_data !== undefined &&
               req.additional_data !== null
             ) {
+              req.additional_data = JSON.parse(req.additional_data);
+
               new Promise((resCheck) => {
                 isUserValid(req.user_identifier, resCheck);
               })
                 .then((isValid) => {
-                  if (isValid) {
+                  if (isValid.status) {
                     //?Valid user
                     //Update the user's profile
                     dynamo_update({
                       table_name: "users_central",
-                      _idKey: { user_identifier: req.user_identifier },
+                      _idKey: isValid._id,
                       UpdateExpression:
-                        "set name = :val1, surname = :val2, gender = :val3, email = :val4, #m.#p = :val5",
+                        "set #name_word = :val1, surname = :val2, gender = :val3, email = :val4, #m.#p = :val5, account_state = :val6",
                       ExpressionAttributeValues: {
                         ":val1": req.additional_data.name,
                         ":val2": req.additional_data.surname,
                         ":val3": req.additional_data.gender,
                         ":val4": req.additional_data.email,
                         ":val5": req.additional_data.profile_picture_generic,
+                        ":val6": "full", //!Very important
                       },
                       ExpressionAttributeNames: {
                         "#m": "media",
                         "#p": "profile_picture",
+                        "#name_word": "name",
                       },
                     })
                       .then((result) => {
