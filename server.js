@@ -2268,7 +2268,7 @@ redisCluster.on("connect", function () {
                       let REQUEST_TEMPLATE = {
                         request_fp: null,
                         client_id: req.user_identifier, //the user identifier - requester
-                        shopper_id: false, //The id of the shopper
+                        shopper_id: "false", //The id of the shopper
                         payment_method: req.payment_method, //mobile_money or cash
                         locations: req.locations, //Has the pickup and delivery locations
                         totals_request: req.totals, //Has the cart details in terms of fees
@@ -2372,6 +2372,7 @@ redisCluster.on("connect", function () {
               req.ride_mode == "delivery"
                 ? req.user_identifier !== undefined &&
                   req.user_identifier !== null &&
+                  req.user_identifier !== "empty_fingerprint" &&
                   req.dropOff_data !== undefined &&
                   req.dropOff_data !== null &&
                   req.totals !== undefined &&
@@ -2380,6 +2381,7 @@ redisCluster.on("connect", function () {
                   req.pickup_location !== null
                 : req.user_identifier !== undefined &&
                   req.user_identifier !== null &&
+                  req.user_identifier !== "empty_fingerprint" &&
                   req.dropOff_data !== undefined &&
                   req.dropOff_data !== null &&
                   req.passengers_number !== undefined &&
@@ -2468,7 +2470,7 @@ redisCluster.on("connect", function () {
                           ? {
                               request_fp: null,
                               client_id: req.user_identifier, //the user identifier - requester
-                              shopper_id: false, //The id of the shopper
+                              shopper_id: "false", //The id of the shopper
                               payment_method: req.payment_method, //mobile_money or cash
                               locations: {
                                 pickup: req.pickup_location, //Has the pickup locations
@@ -2506,7 +2508,7 @@ redisCluster.on("connect", function () {
                           : {
                               request_fp: null,
                               client_id: req.user_identifier, //the user identifier - requester
-                              shopper_id: false, //The id of the shopper
+                              shopper_id: "false", //The id of the shopper
                               payment_method: req.payment_method, //mobile_money or cash
                               locations: {
                                 pickup: req.pickup_location, //Has the pickup locations
@@ -2575,8 +2577,13 @@ redisCluster.on("connect", function () {
                           //?Continue here
                           dynamo_insert("requests_central", REQUEST_TEMPLATE)
                             .then((result) => {
-                              //....DONE
-                              resolve({ response: "successful" });
+                              if (result) {
+                                //....DONE
+                                resolve({ response: "successful" });
+                              } //Failed
+                              else {
+                                resolve({ response: "unable_to_request" });
+                              }
                             })
                             .catch((error) => {
                               logger.error(error);
@@ -2601,6 +2608,7 @@ redisCluster.on("connect", function () {
             }
           })
             .then((result) => {
+              logger.info(result);
               res.send(result);
             })
             .catch((error) => {

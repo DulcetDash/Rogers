@@ -38,6 +38,8 @@ async function insert(table_name, data) {
       TableName: table_name,
       Item: data,
     };
+
+    // logger.error(params);
     //...
     dynamoClient.put(params, function (err, resultPut) {
       if (err) {
@@ -257,7 +259,6 @@ async function find_query({
             },
           };
 
-    logger.warn(params);
     //! Remove ExpressionAttributeNames or FilterExpression if not set
     if (Object.keys(ExpressionAttributeNames).length === 0)
       delete params["ExpressionAttributeNames"];
@@ -268,10 +269,12 @@ async function find_query({
     if (Limit === null) delete params["Limit"];
 
     if (ScanIndexForward === null) delete params["ScanIndexForward"];
+
+    logger.warn(params);
     //...
     dynamoClient.query(params, function (err, resultFindget) {
       if (err) {
-        logger.warn(params);
+        logger.warn("ERROR HERE");
         logger.error(err);
         resolve([]);
       }

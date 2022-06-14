@@ -161,8 +161,10 @@ redisCluster.on("connect", function () {
               table_name: "vehicles_collection_infos",
               IndexName: "ride_type",
               KeyConditionExpression: "ride_type = :val1",
+              FilterExpression: "category = :val2",
               ExpressionAttributeValues: {
                 ":val1": req.ride_type.toUpperCase().trim(),
+                ":val2": "Economy", //!Stay in Economy first
               },
             })
               .then((vehicles_batch) => {
@@ -281,6 +283,9 @@ redisCluster.on("connect", function () {
                   //...
                   Promise.all(parentPromisesCompute)
                     .then((vehicleFares) => {
+                      //Flip the results
+                      vehicleFares.reverse();
+                      //...
                       resolve(vehicleFares);
                     })
                     .catch((error) => {
