@@ -3896,6 +3896,8 @@ redisCluster.on("connect", function () {
             resolveDate();
             req = req.body;
 
+            logger.info(req);
+
             if (
               req.phone !== undefined &&
               req.phone !== null &&
@@ -3917,11 +3919,10 @@ redisCluster.on("connect", function () {
                 table_name: "users_central",
                 IndexName: "user_identifier",
                 KeyConditionExpression: "user_identifier = :val1",
-                FilterExpression: "phone_number = :val2 and #a.#p.#o = :val3",
+                FilterExpression: "#a.#p.#o = :val2",
                 ExpressionAttributeValues: {
                   ":val1": req.user_identifier,
-                  ":val2": req.phone,
-                  ":val3": parseInt(req.otp),
+                  ":val2": parseInt(req.otp),
                 },
                 ExpressionAttributeNames: {
                   "#a": "account_verifications",

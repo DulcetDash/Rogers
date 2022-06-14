@@ -190,6 +190,11 @@ async function update({
       ExpressionAttributeValues: ExpressionAttributeValues,
       ExpressionAttributeNames: ExpressionAttributeNames,
     };
+
+    //! Remove ExpressionAttributeNames or FilterExpression if not set
+    if (Object.keys(ExpressionAttributeNames).length === 0)
+      delete params["ExpressionAttributeNames"];
+
     //...
     dynamoClient.update(params, function (err, resultUpdate) {
       if (err) {
