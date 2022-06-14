@@ -209,14 +209,6 @@ function getStores(resolve) {
       if (resp !== null) {
         //Has some data
         try {
-          new Promise((resCompute) => {
-            execGetStores(redisKey, resCompute);
-          })
-            .then((result) => {})
-            .catch((error) => {
-              logger.error(error);
-            });
-          //...
           resp = JSON.parse(resp);
           resolve(resp);
         } catch (error) {
@@ -343,7 +335,11 @@ function execGetStores(redisKey, resolve) {
         });
         //...
         //! Cache
-        redisCluster.set(redisKey, JSON.stringify(STORES_MODEL));
+        redisCluster.setex(
+          redisKey,
+          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
+          JSON.stringify(STORES_MODEL)
+        );
         resolve({ response: STORES_MODEL });
       } //No stores
       else {
@@ -370,15 +366,6 @@ function getCatalogueFor(req, resolve) {
       if (resp !== null) {
         //Has products
         try {
-          //Rehydrate
-          new Promise((resCompute) => {
-            execGetCatalogueFor(req, redisKey, resCompute);
-          })
-            .then((result) => {})
-            .catch((error) => {
-              logger.error(error);
-            });
-
           resp = JSON.parse(resp);
           resolve(resp);
         } catch (error) {
@@ -605,7 +592,11 @@ function execGetCatalogueFor(req, redisKey, resolve) {
                 .then((result) => {
                   //! Cache
                   let final = { response: result };
-                  redisCluster.set(redisKey, JSON.stringify(final));
+                  redisCluster.setex(
+                    redisKey,
+                    parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
+                    JSON.stringify(final)
+                  );
                   resolve(final);
                 })
                 .catch((error) => {
@@ -965,7 +956,11 @@ function execSearchProductsFor(req, redisKey, resolve) {
             );
             let final = { response: result };
             //! Cache
-            redisCluster.setex(redisKey, 18000, JSON.stringify(final));
+            redisCluster.setex(
+              redisKey,
+              parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
+              JSON.stringify(final)
+            );
             //...
             resolve(final);
           } //No results
@@ -1883,6 +1878,62 @@ function getRecentlyVisitedShops(req, redisKey, resolve) {
     });
 }
 
+/**
+ * @func getRequestListDataUsers
+ * Responsible for getting the request list for the users
+ * @param req: the request data including the user_identifier
+ * @param redisKey: the redis key to which the valid results will be cached
+ * @param resolve
+ */
+function getRequestListDataUsers(req, redisKey, resolve) {
+  dynamo_find_query({
+    table_name: "requests_central",
+    IndexName: "client_id",
+    KeyConditionExpression: "client_id = :val1",
+    ExpressionAttributeValues: {
+      ":val1": req.user_identifier,
+    },
+  })
+    .then((requestData) => {
+      logger.error(requestData);
+      //...
+      if (requestData !== undefined && requestData.length > 0) {
+        //Has some requests
+        let RETURN_DATA_TEMPLATE = [];
+
+        requestData.map((request) => {
+          let tmpRequest = {
+            request_type: request.ride_mode,
+            date_requested: request.date_requested,
+            locations: request.locations,
+            shopping_list:
+              request.ride_mode.toLowerCase() === "shopping"
+                ? request.shopping_list
+                : null,
+          };
+          //...Save
+          RETURN_DATA_TEMPLATE.push(tmpRequest);
+        });
+        //...
+        let response = { response: RETURN_DATA_TEMPLATE };
+        //Cache
+        redisCluster.setex(
+          redisKey,
+          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
+          JSON.stringify(response)
+        );
+        resolve(response);
+      } //No requests
+      else {
+        resolve({ response: [] });
+      }
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve({ response: [] });
+    });
+}
+
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
 
@@ -1920,6 +1971,7 @@ redisCluster.on("connect", function () {
           .use(cors())
           .use(helmet());
         //?1. Get all the available stores in the app.
+        //? EFFIENCY A
         //Get the main ones (4) and the new ones (X)
         app.post("/getStores", function (req, res) {
           new Promise((resolve) => {
@@ -1935,6 +1987,7 @@ redisCluster.on("connect", function () {
         });
 
         //?2. Get all the products based on a store
+        //? EFFIENCY A
         app.post("/getCatalogueFor", function (req, res) {
           req = req.body;
           if (req.store !== undefined && req.store !== null) {
@@ -1957,6 +2010,7 @@ redisCluster.on("connect", function () {
         });
 
         //?3. Search in  the catalogue of a  specific shop
+        //? EFFIENCY A
         app.post("/getResultsForKeywords", function (req, res) {
           req = req.body;
           if (
@@ -2102,6 +2156,7 @@ redisCluster.on("connect", function () {
         });
 
         //?5. Get the user location geocoded
+        //? EFFIENCY A
         app.post("/geocode_this_point", function (req, res) {
           let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/geocode_this_point`;
 
@@ -2118,6 +2173,7 @@ redisCluster.on("connect", function () {
         });
 
         //?5. Get location search suggestions
+        //? EFFIENCY A
         app.post("/getSearchedLocations", function (req, res) {
           let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getSearchedLocations`;
 
@@ -2134,6 +2190,7 @@ redisCluster.on("connect", function () {
         });
 
         //?6. Request for shopping
+        //? EFFIENCY A
         app.post("/requestForShopping", function (req, res) {
           new Promise((resolve) => {
             req = req.body;
@@ -2184,6 +2241,10 @@ redisCluster.on("connect", function () {
                   },
                 })
                   .then((prevShopping) => {
+                    //! Delete previous cache
+                    let redisKey = `${req.user_identifier}-shoppings`;
+                    redisCluster.del(redisKey);
+                    //...
                     if (
                       prevShopping !== undefined &&
                       prevShopping.length <= 0
@@ -2299,6 +2360,7 @@ redisCluster.on("connect", function () {
         });
 
         //?6. Request for delivery or ride
+        //? EFFIENCY A
         app.post("/requestForRideOrDelivery", function (req, res) {
           new Promise((resolve) => {
             req = req.body;
@@ -2360,6 +2422,11 @@ redisCluster.on("connect", function () {
                   },
                 })
                   .then((prevDelivery) => {
+                    //! Delete previous cache
+                    let redisKey = `${req.user_identifier}-shoppings`;
+                    redisCluster.del(redisKey);
+                    //...
+
                     if (
                       prevDelivery !== undefined &&
                       prevDelivery.length <= 0
@@ -2543,6 +2610,7 @@ redisCluster.on("connect", function () {
         });
 
         //?7. Get the current shopping data - client
+        //? EFFIENCY A
         app.post("/getShoppingData", function (req, res) {
           new Promise((resolve) => {
             req = req.body;
@@ -2552,117 +2620,78 @@ redisCluster.on("connect", function () {
               req.user_identifier !== null
             ) {
               //! Check if the user id exists
-              dynamo_find_query({
-                table_name: "users_central",
-                IndexName: "user_identifier",
-                KeyConditionExpression: "user_identifier = :val1",
-                ExpressionAttributeValues: {
-                  ":val1": req.user_identifier,
-                },
-              })
-                .then((userData) => {
-                  if (userData !== undefined && userData.length > 0) {
-                    //Known user
-                    let redisKey = `${req.user_identifier}-shoppings`;
+              let redisKey = `${req.user_identifier}-shoppings`;
 
-                    redisGet(redisKey)
-                      .then((resp) => {
-                        if (resp !== null) {
-                          //Has some data
-                          try {
-                            //Rehydrate
-                            new Promise((resCompute) => {
-                              getRequestDataClient(req, resCompute);
-                            })
-                              .then((result) => {
-                                //!Cache
-                                redisCluster.setex(
-                                  redisKey,
-                                  parseInt(process.env.REDIS_EXPIRATION_5MIN) *
-                                    100,
-                                  JSON.stringify(result)
-                                );
-                              })
-                              .catch((error) => {
-                                logger.error(error);
-                                resolve(false);
-                              });
-                            //....
-                            resp = JSON.parse(resp);
-                            resolve(resp);
-                          } catch (error) {
-                            logger.error(error);
-                            //Make a new request
-                            new Promise((resCompute) => {
-                              getRequestDataClient(req, resCompute);
-                            })
-                              .then((result) => {
-                                //!Cache
-                                redisCluster.setex(
-                                  redisKey,
-                                  parseInt(process.env.REDIS_EXPIRATION_5MIN) *
-                                    100,
-                                  JSON.stringify(result)
-                                );
-                                //...
-                                resolve(result);
-                              })
-                              .catch((error) => {
-                                logger.error(error);
-                                resolve(false);
-                              });
-                          }
-                        } //Make a new request
-                        else {
-                          new Promise((resCompute) => {
-                            getRequestDataClient(req, resCompute);
-                          })
-                            .then((result) => {
-                              //!Cache
-                              redisCluster.setex(
-                                redisKey,
-                                parseInt(process.env.REDIS_EXPIRATION_5MIN) *
-                                  100,
-                                JSON.stringify(result)
-                              );
-                              //...
-                              resolve(result);
-                            })
-                            .catch((error) => {
-                              logger.error(error);
-                              resolve(false);
-                            });
-                        }
+              redisGet(redisKey)
+                .then((resp) => {
+                  if (resp !== null) {
+                    //Has some data
+                    try {
+                      //Rehydrate
+                      resp = JSON.parse(resp);
+                      resolve(resp);
+                    } catch (error) {
+                      logger.error(error);
+                      //Make a new request
+                      new Promise((resCompute) => {
+                        getRequestDataClient(req, resCompute);
+                      })
+                        .then((result) => {
+                          //!Cache
+                          redisCluster.setex(
+                            redisKey,
+                            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
+                            JSON.stringify(result)
+                          );
+                          //...
+                          resolve(result);
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          resolve(false);
+                        });
+                    }
+                  } //Make a new request
+                  else {
+                    new Promise((resCompute) => {
+                      getRequestDataClient(req, resCompute);
+                    })
+                      .then((result) => {
+                        //!Cache
+                        redisCluster.setex(
+                          redisKey,
+                          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
+                          JSON.stringify(result)
+                        );
+                        //...
+                        resolve(result);
                       })
                       .catch((error) => {
                         logger.error(error);
-                        //Make a new request
-                        new Promise((resCompute) => {
-                          getRequestDataClient(req, resCompute);
-                        })
-                          .then((result) => {
-                            //!Cache
-                            redisCluster.setex(
-                              redisKey,
-                              parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
-                              JSON.stringify(result)
-                            );
-                            //...
-                            resolve(result);
-                          })
-                          .catch((error) => {
-                            logger.error(error);
-                            resolve(false);
-                          });
+                        resolve(false);
                       });
-                  } //! Unknown user
-                  else {
-                    resolve(false);
                   }
                 })
                 .catch((error) => {
                   logger.error(error);
-                  resolve(false);
+                  //Make a new request
+                  new Promise((resCompute) => {
+                    getRequestDataClient(req, resCompute);
+                  })
+                    .then((result) => {
+                      //!Cache
+                      redisCluster.setex(
+                        redisKey,
+                        parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
+                        JSON.stringify(result)
+                      );
+                      //...
+                      resolve(result);
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve(false);
+                    });
                 });
             } //Missing data
             else {
@@ -2679,6 +2708,7 @@ redisCluster.on("connect", function () {
         });
 
         //?6. Get the route snapshot for the ride
+        //? EFFIENCY A
         app.post("/getRouteToDestinationSnapshot", function (req, res) {
           let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
 
@@ -2711,6 +2741,7 @@ redisCluster.on("connect", function () {
         });
 
         //?8. Submit the rider rating
+        //? EFFIENCY A
         app.post("/submitRiderOrClientRating", function (req, res) {
           new Promise((resolve) => {
             resolveDate();
@@ -2781,6 +2812,14 @@ redisCluster.on("connect", function () {
                       },
                     })
                       .then((result) => {
+                        //! Delete previous cache
+                        let redisKey = `${req.user_fingerprint}-shoppings`;
+                        redisCluster.del(redisKey);
+                        //! Delete previous request list cache
+                        let redisKey2 = `${req.user_identifier}-requestListCached`;
+                        redisCluster.del(redisKey2);
+                        //...
+
                         if (result === false) {
                           //Error
                           resolve([{ response: "error" }]);
@@ -2817,6 +2856,7 @@ redisCluster.on("connect", function () {
         });
 
         //?9. Cancel request - user
+        //? EFFIENCY A
         app.post("/cancel_request_user", function (req, res) {
           new Promise((resolve) => {
             req = req.body;
@@ -2850,6 +2890,11 @@ redisCluster.on("connect", function () {
                     //!...Delete and save in the cancelled
                     dynamo_delete("cancelled_requests_central", requestData._id)
                       .then((result) => {
+                        //! Delete previous cache
+                        let redisKey = `${req.user_identifier}-shoppings`;
+                        redisCluster.del(redisKey);
+                        //...
+
                         if (result) {
                           //Success
                           //!add the date cancelled
@@ -2940,6 +2985,7 @@ redisCluster.on("connect", function () {
         // })
 
         //?11. get the list of requests for riders
+        //? EFFIENCY A
         app.post("/getRequestListRiders", function (req, res) {
           new Promise((resolve) => {
             req = req.body;
@@ -2951,45 +2997,40 @@ redisCluster.on("connect", function () {
               let redisKey = `${req.user_identifier}-requestListCached`;
 
               //TODO: .sort({ date_requested: -1 })
-              dynamo_find_query({
-                table_name: "requests_central",
-                IndexName: "client_id",
-                KeyConditionExpression: "client_id = :val1",
-                ExpressionAttributeValues: {
-                  ":val1": req.user_identifier,
-                },
-              })
-                .then((requestData) => {
-                  logger.info(requestData);
-                  //...
-                  if (requestData !== undefined && requestData.length > 0) {
-                    //Has some requests
-                    let RETURN_DATA_TEMPLATE = [];
-
-                    requestData.map((request) => {
-                      let tmpRequest = {
-                        request_type: request.ride_mode,
-                        date_requested: request.date_requested,
-                        locations: request.locations,
-                        shopping_list:
-                          request.ride_mode.toLowerCase() === "shopping"
-                            ? request.shopping_list
-                            : null,
-                      };
-                      //...Save
-                      RETURN_DATA_TEMPLATE.push(tmpRequest);
-                    });
-                    //...
-                    resolve({ response: RETURN_DATA_TEMPLATE });
-                  } //No requests
-                  else {
-                    resolve({ response: [] });
+              redisGet(redisKey).then((resp) => {
+                if (resp !== null) {
+                  //Has some data
+                  try {
+                    resp = JSON.parse(resp);
+                    resolve(resp);
+                  } catch (error) {
+                    //Make a fresh request
+                    logger.error(error);
+                    new Promise((resCompute) => {
+                      getRequestListDataUsers(req, redisKey, resCompute);
+                    })
+                      .then((result) => {
+                        resolve(result);
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        resolve({ response: [] });
+                      });
                   }
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  resolve({ response: [] });
-                });
+                } //No data - fresh request
+                else {
+                  new Promise((resCompute) => {
+                    getRequestListDataUsers(req, redisKey, resCompute);
+                  })
+                    .then((result) => {
+                      resolve(result);
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      resolve({ response: [] });
+                    });
+                }
+              });
             } //Invalid data
             else {
               resolve({ response: [] });
@@ -3006,6 +3047,7 @@ redisCluster.on("connect", function () {
         });
 
         //?12. Update the users information
+        //? EFFIENCY A
         app.post("/updateUsersInformation", function (req, res) {
           new Promise((resolve) => {
             req = req.body;
@@ -3213,34 +3255,10 @@ redisCluster.on("connect", function () {
               if (result.response == "success") {
                 //- update the cached data
                 let redisKey = `${req.user_identifier}-cachedProfile-data`;
-
-                dynamo_find_query({
-                  table_name: "users_central",
-                  IndexName: "user_identifier",
-                  KeyConditionExpression: "user_identifier = :val1",
-                  ExpressionAttributeValues: {
-                    ":val1": req.user_identifier,
-                  },
-                })
-                  .then((userData) => {
-                    if (userData !== undefined && userData.length > 0) {
-                      //Valid info
-                      redisCluster.setex(
-                        redisKey,
-                        parseInt(process.env.REDIS_EXPIRATION_5MIN) * 404,
-                        JSON.stringify(userData)
-                      );
-                      //...
-                      res.send({ response: "success" });
-                    } //No valid user
-                    else {
-                      res.send({ response: "error" });
-                    }
-                  })
-                  .catch((error) => {
-                    logger.error(error);
-                    res.send({ response: "error" });
-                  });
+                //! Delete previous cache
+                redisCluster.del(redisKey);
+                //...
+                res.send({ response: "success" });
               } //!error
               else {
                 res.send({ response: "error" });
@@ -3253,6 +3271,7 @@ redisCluster.on("connect", function () {
         });
 
         //?13. Get the user data
+        //? EFFIENCY A
         app.post("/getGenericUserData", function (req, res) {
           new Promise((resolve) => {
             req = req.body;
@@ -3335,6 +3354,7 @@ redisCluster.on("connect", function () {
         });
 
         //?14. Check the user's phone number and send the code and the account status back
+        //? EFFIENCY A
         app.post("/checkPhoneAndSendOTP_status", function (req, res) {
           new Promise((resolve) => {
             req = req.body;
@@ -3415,6 +3435,7 @@ redisCluster.on("connect", function () {
         });
 
         //?15. Validate user OTP
+        //? EFFIENCY A
         app.post("/validateUserOTP", function (req, res) {
           new Promise((resolve) => {
             req = req.body;
@@ -3540,6 +3561,7 @@ redisCluster.on("connect", function () {
         });
 
         //?16. Create a basic account quickly
+        //? EFFIENCY A
         app.post("/createBasicUserAccount", function (req, res) {
           new Promise((resolve) => {
             resolveDate();
@@ -3641,6 +3663,7 @@ redisCluster.on("connect", function () {
         });
 
         //?17. Add additional user account details
+        //? EFFIENCY A
         app.post("/addAdditionalUserAccDetails", function (req, res) {
           new Promise((resolve) => {
             req = req.body;
@@ -3722,6 +3745,7 @@ redisCluster.on("connect", function () {
         });
 
         //?18. Get the go again list of the 3 recently visited shops - only for users
+        //? EFFIENCY A
         app.post("/getRecentlyVisitedShops", function (req, res) {
           new Promise((resolve) => {
             resolveDate();
@@ -3790,6 +3814,7 @@ redisCluster.on("connect", function () {
 
         //?19. Check the user's phone number and send the code and the account status back
         //? * FOR CHANGING USERS PHONE NUMBERS
+        //? EFFIENCY A
         app.post(
           "/checkPhoneAndSendOTP_changeNumber_status",
           function (req, res) {
@@ -3891,6 +3916,7 @@ redisCluster.on("connect", function () {
 
         //?20. Validate user OTP
         //? * FOR CHANGING USERS PHONE NUMBERS
+        //? EFFIENCY A
         app.post("/validateUserOTP_changeNumber", function (req, res) {
           new Promise((resolve) => {
             resolveDate();

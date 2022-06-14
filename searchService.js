@@ -198,7 +198,7 @@ function newLoaction_search_engine(
         new Promise((resCache) => {
           redisCluster.setex(
             keyREDIS,
-            parseFloat(process.env.REDIS_EXPIRATION_5MIN) * 24,
+            parseFloat(process.env.REDIS_EXPIRATION_5MIN) * 288,
             JSON.stringify(finalSearchResults)
           );
           resCache(true);
@@ -792,19 +792,19 @@ function getLocationList_five(
         //logObject(JSON.parse(reslt));
         try {
           //Rehydrate records
-          new Promise((resCompute) => {
-            newLoaction_search_engine(
-              keyREDIS,
-              queryOR,
-              city,
-              cityCenter,
-              resCompute,
-              timestamp,
-              trailingData
-            );
-          })
-            .then()
-            .catch();
+          // new Promise((resCompute) => {
+          //   newLoaction_search_engine(
+          //     keyREDIS,
+          //     queryOR,
+          //     city,
+          //     cityCenter,
+          //     resCompute,
+          //     timestamp,
+          //     trailingData
+          //   );
+          // })
+          //   .then()
+          //   .catch();
           //...
           resp = JSON.parse(resp);
           //Exceptions check
