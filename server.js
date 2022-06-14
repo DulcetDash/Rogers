@@ -3787,6 +3787,226 @@ redisCluster.on("connect", function () {
               res.send({ response: [] });
             });
         });
+
+        //?19. Check the user's phone number and send the code and the account status back
+        //? * FOR CHANGING USERS PHONE NUMBERS
+        app.post(
+          "/checkPhoneAndSendOTP_changeNumber_status",
+          function (req, res) {
+            new Promise((resolve) => {
+              req = req.body;
+              logger.info(req);
+              if (
+                req.phone !== undefined &&
+                req.phone !== null &&
+                req.user_identifier !== undefined &&
+                req.user_identifier !== null
+              ) {
+                //1. Check if the here another user having that same number
+                dynamo_find_query({
+                  table_name: "users_central",
+                  IndexName: "phone_number",
+                  KeyConditionExpression: "phone_number = :val1",
+                  ExpressionAttributeValues: {
+                    ":val1": req.phone,
+                  },
+                })
+                  .then((userData) => {
+                    if (userData !== undefined && userData.length > 0) {
+                      //!Another user has the same number
+                      resolve({
+                        response: { status: "already_linked_toAnother" },
+                      });
+                    } //Unregistered user
+                    else {
+                      //Get the user details
+                      dynamo_find_query({
+                        table_name: "users_central",
+                        IndexName: "user_identifier",
+                        KeyConditionExpression: "user_identifier = :val1",
+                        ExpressionAttributeValues: {
+                          ":val1": req.user_identifier,
+                        },
+                      })
+                        .then((ownerUserData) => {
+                          if (
+                            ownerUserData !== undefined &&
+                            ownerUserData.length > 0
+                          ) {
+                            //valid user
+                            req["_id"] = ownerUserData[0]._id;
+
+                            new Promise((resCompute) => {
+                              shouldSendNewSMS({
+                                req: req,
+                                hasAccount: true,
+                                user_identifier: req.user_identifier,
+                                resolve: resCompute,
+                              });
+                            })
+                              .then((didSendOTP) => {
+                                resolve({
+                                  response: {
+                                    status: "success",
+                                    didSendOTP: didSendOTP,
+                                    hasAccount: true, //!Has account
+                                    user_identifier: req.user_identifier,
+                                  },
+                                });
+                              })
+                              .catch((error) => {
+                                logger.error(error);
+                                resolve({ response: { status: "error" } });
+                              });
+                          } //Invalid user
+                          else {
+                            resolve({ response: { status: "error" } });
+                          }
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          resolve({ response: { status: "error" } });
+                        });
+                    }
+                  })
+                  .catch((error) => {
+                    logger.error(error);
+                    resolve({ response: { status: "error" } });
+                  });
+              } //Invalid data
+              else {
+                resolve({ response: { status: "error" } });
+              }
+            })
+              .then((result) => {
+                // logger.info(result);
+                res.send(result);
+              })
+              .catch((error) => {
+                logger.error(error);
+                res.send({ response: { status: "error" } });
+              });
+          }
+        );
+
+        //?20. Validate user OTP
+        //? * FOR CHANGING USERS PHONE NUMBERS
+        app.post("/validateUserOTP_changeNumber", function (req, res) {
+          new Promise((resolve) => {
+            resolveDate();
+            req = req.body;
+
+            if (
+              req.phone !== undefined &&
+              req.phone !== null &&
+              req.hasAccount !== undefined &&
+              req.hasAccount !== null &&
+              req.otp !== undefined &&
+              req.otp !== null &&
+              req.user_identifier !== undefined &&
+              req.user_identifier !== null &&
+              req.user_identifier !== "false"
+            ) {
+              req.hasAccount =
+                req.hasAccount === true || req.hasAccount === "true"
+                  ? true
+                  : false;
+              req.otp = parseInt(req.otp);
+              //...
+              dynamo_find_query({
+                table_name: "users_central",
+                IndexName: "user_identifier",
+                KeyConditionExpression: "user_identifier = :val1",
+                FilterExpression: "phone_number = :val2 and #a.#p.#o = :val3",
+                ExpressionAttributeValues: {
+                  ":val1": req.user_identifier,
+                  ":val2": req.phone,
+                  ":val3": parseInt(req.otp),
+                },
+                ExpressionAttributeNames: {
+                  "#a": "account_verifications",
+                  "#p": "phone_verification_secrets",
+                  "#o": "otp",
+                },
+              })
+                .then((userData) => {
+                  if (userData !== undefined && userData.length > 0) {
+                    //?Found the account
+                    let url = `http://localhost:${process.env.SERVER_MOTHER_PORT}/getGenericUserData`;
+                    requestAPI.post(
+                      {
+                        url,
+                        form: req,
+                      },
+                      function (error, response, body) {
+                        // console.log(error, body);
+                        if (error === null) {
+                          //Success
+                          try {
+                            body = JSON.parse(body);
+                            //? Change the phone details
+                            dynamo_update({
+                              table_name: "users_central",
+                              _idKey: userData[0]._id,
+                              UpdateExpression:
+                                "set phone_number = :val1, last_updated = :val2",
+                              ExpressionAttributeValues: {
+                                ":val1": req.phone,
+                                ":val2": new Date(chaineDateUTC).toISOString(),
+                              },
+                            })
+                              .then((result) => {
+                                if (result) {
+                                  //Success
+                                  //! Delete the user profile cache
+                                  let redisKey = `${req.user_identifier}-cachedProfile-data`;
+                                  redisCluster.del(redisKey);
+                                  //DONE
+                                  resolve({
+                                    response: { status: "success" },
+                                  });
+                                } //failed
+                                else {
+                                  resolve({ response: { status: "error" } });
+                                }
+                              })
+                              .catch((error) => {
+                                logger.error(error);
+                                resolve({ response: { status: "error" } });
+                              });
+                          } catch (error) {
+                            logger.error(error);
+                            resolve({ response: { status: "error" } });
+                          }
+                        } //Failed
+                        else {
+                          resolve({ response: { status: "error" } });
+                        }
+                      }
+                    );
+                  } //No account found?
+                  else {
+                    resolve({ response: { status: "wrong_otp" } });
+                  }
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resolve({ response: { status: "error" } });
+                });
+            } //Invalid data
+            else {
+              resolve({ response: { status: "error" } });
+            }
+          })
+            .then((result) => {
+              // logger.info(result);
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send({ response: { status: "error" } });
+            });
+        });
       }
     }
   );
