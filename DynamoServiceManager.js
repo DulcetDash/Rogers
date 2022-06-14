@@ -150,6 +150,8 @@ async function delete_r(table_name, _idKey) {
         _id: _idKey,
       },
     };
+
+    // logger.warn(params);
     //...
     dynamoClient.delete(params, function (err, resultDel) {
       if (err) {

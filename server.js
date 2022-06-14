@@ -2636,6 +2636,26 @@ redisCluster.on("connect", function () {
                     //Has some data
                     try {
                       //Rehydrate
+                      new Promise((resCompute) => {
+                        getRequestDataClient(req, resCompute);
+                      })
+                        .then((result) => {
+                          //!Cache
+                          redisCluster.setex(
+                            redisKey,
+                            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
+                            JSON.stringify(result)
+                          );
+                          //...
+                          // resolve(result);
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          // resolve(false);
+                        });
+
+                      console.log(resp);
+
                       resp = JSON.parse(resp);
                       resolve(resp);
                     } catch (error) {
@@ -2895,8 +2915,9 @@ redisCluster.on("connect", function () {
                 .then((requestData) => {
                   if (requestData !== undefined && requestData.length > 0) {
                     requestData = requestData[0];
+                    // logger.error(requestData);
                     //!...Delete and save in the cancelled
-                    dynamo_delete("cancelled_requests_central", requestData._id)
+                    dynamo_delete("requests_central", requestData._id)
                       .then((result) => {
                         //! Delete previous cache
                         let redisKey = `${req.user_identifier}-shoppings`;
