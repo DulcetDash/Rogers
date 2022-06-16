@@ -1622,16 +1622,17 @@ function shouldSendNewSMS({ req, hasAccount, resolve }) {
           let message = otp + ` is your NEJ Verification Code.`;
 
           let urlSMS = `http://localhost:9393/?message=${message}&number=${onlyDigitsPhone}&subject=TEST`;
-          requestAPI(urlSMS, function (error, response, body) {
-            if (error === null) {
-              //Success
-              console.log(body);
-              res0(true);
-            } //Unable to send SMS
-            else {
-              res0(true);
-            }
-          });
+          // requestAPI(urlSMS, function (error, response, body) {
+          //   if (error === null) {
+          //     //Success
+          //     console.log(body);
+          //     res0(true);
+          //   } //Unable to send SMS
+          //   else {
+          //     res0(true);
+          //   }
+          // });
+          res0(true);
         }).then(
           () => {
             //1. Update the records for the OTP MAP for registered or non registered users
@@ -2636,25 +2637,25 @@ redisCluster.on("connect", function () {
                     //Has some data
                     try {
                       //Rehydrate
-                      new Promise((resCompute) => {
-                        getRequestDataClient(req, resCompute);
-                      })
-                        .then((result) => {
-                          //!Cache
-                          redisCluster.setex(
-                            redisKey,
-                            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
-                            JSON.stringify(result)
-                          );
-                          //...
-                          // resolve(result);
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          // resolve(false);
-                        });
+                      // new Promise((resCompute) => {
+                      //   getRequestDataClient(req, resCompute);
+                      // })
+                      //   .then((result) => {
+                      //     //!Cache
+                      //     redisCluster.setex(
+                      //       redisKey,
+                      //       parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
+                      //       JSON.stringify(result)
+                      //     );
+                      //     //...
+                      //     // resolve(result);
+                      //   })
+                      //   .catch((error) => {
+                      //     logger.error(error);
+                      //     // resolve(false);
+                      //   });
 
-                      console.log(resp);
+                      // console.log(resp);
 
                       resp = JSON.parse(resp);
                       resolve(resp);
@@ -3090,173 +3091,33 @@ redisCluster.on("connect", function () {
               req.data_value !== undefined &&
               req.data_value !== null
             ) {
-              //!Check the user
-              switch (req.data_type) {
-                case "name":
-                  //Update the name
-                  dynamo_update({
-                    table_name: "users_central",
-                    _idKey: { user_identifier: req.user_identifier },
-                    UpdateExpression: "set name = :val1",
-                    ExpressionAttributeValues: {
-                      ":val1": req.data_value,
-                    },
-                  })
-                    .then((result) => {
-                      if (result === false) {
-                        logger.error(err);
-                        resolve({ response: "error" });
-                      }
-                      //...Success
-                      resolve({ response: "success" });
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve({ response: "error" });
-                    });
-                  break;
-                case "surname":
-                  //Update the surname
-                  dynamo_update({
-                    table_name: "users_central",
-                    _idKey: { user_identifier: req.user_identifier },
-                    UpdateExpression: "set surname = :val1",
-                    ExpressionAttributeValues: {
-                      ":val1": req.data_value,
-                    },
-                  })
-                    .then((result) => {
-                      if (result === false) {
-                        logger.error(err);
-                        resolve({ response: "error" });
-                      }
-                      //...Success
-                      resolve({ response: "success" });
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve({ response: "error" });
-                    });
-                  break;
-                case "email":
-                  //Update the email
-                  dynamo_update({
-                    table_name: "users_central",
-                    _idKey: { user_identifier: req.user_identifier },
-                    UpdateExpression: "set email = :val1",
-                    ExpressionAttributeValues: {
-                      ":val1": req.data_value,
-                    },
-                  })
-                    .then((result) => {
-                      if (result === false) {
-                        logger.error(err);
-                        resolve({ response: "error" });
-                      }
-                      //...Success
-                      resolve({ response: "success" });
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve({ response: "error" });
-                    });
-                case "gender":
-                  //Update the gender
-                  dynamo_update({
-                    table_name: "users_central",
-                    _idKey: { user_identifier: req.user_identifier },
-                    UpdateExpression: "set gender = :val1",
-                    ExpressionAttributeValues: {
-                      ":val1": req.data_value,
-                    },
-                  })
-                    .then((result) => {
-                      if (result === false) {
-                        logger.error(err);
-                        resolve({ response: "error" });
-                      }
-                      //...Success
-                      resolve({ response: "success" });
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve({ response: "error" });
-                    });
-                  break;
-                case "phone":
-                  //Update the phone
-                  dynamo_update({
-                    table_name: "users_central",
-                    _idKey: { user_identifier: req.user_identifier },
-                    UpdateExpression: "set phone_number = :val1",
-                    ExpressionAttributeValues: {
-                      ":val1": req.data_value,
-                    },
-                  })
-                    .then((result) => {
-                      if (result === false) {
-                        logger.error(err);
-                        resolve({ response: "error" });
-                      }
-                      //...Success
-                      resolve({ response: "success" });
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve({ response: "error" });
-                    });
-                  break;
-
-                case "profile_picture":
-                  let localFileName = `.profile_photo${req.user_identifier}.${req.extension}`;
-                  //? Write the file locally
-                  fs.writeFile(
-                    localFileName,
-                    String(req.data_value),
-                    "base64",
-                    function (err) {
-                      if (err) {
-                        logger.error(err);
-                        resolve({ response: "error" });
-                      }
-                      //...success
-                      // Read content from the file
-                      const fileContentUploaded_locally =
-                        fs.readFileSync(localFileName);
-
-                      // Setting up S3 upload parameters
-                      let fileUploadName = `profile_${req.user_identifier}.${req.extension}`;
-                      const params = {
-                        Bucket: `${process.env.AWS_S3_CLIENTS_PROFILES_BUCKET_NAME}/clients_profiles`,
-                        Key: fileUploadName, // File name you want to save as in S3
-                        Body: fileContentUploaded_locally,
-                      };
-
-                      // Uploading files to the bucket
-                      s3.upload(params, function (err, data) {
-                        if (err) {
-                          logger.info(err);
-                          resolve({ response: "error" });
-                        }
-                        logger.info(
-                          `[USER]${localFileName} -> Successfully uploaded.`
-                        );
-                        //! Update the database
+              dynamo_find_query({
+                table_name: "users_central",
+                IndexName: "user_identifier",
+                KeyConditionExpression: "user_identifier = :val1",
+                ExpressionAttributeValues: {
+                  ":val1": req.user_identifier,
+                },
+              })
+                .then((userData) => {
+                  if (userData !== undefined && userData.length > 0) {
+                    //!Check the user
+                    switch (req.data_type) {
+                      case "name":
+                        //Update the name
                         dynamo_update({
                           table_name: "users_central",
-                          _idKey: { user_identifier: req.user_identifier },
-                          UpdateExpression: "set #m.#p = :val1",
+                          _idKey: userData[0]._id,
+                          UpdateExpression: "set #name_word = :val1",
                           ExpressionAttributeValues: {
-                            ":val1": fileUploadName,
+                            ":val1": req.data_value,
                           },
                           ExpressionAttributeNames: {
-                            "#m": "media",
-                            "#p": "profile_picture",
+                            "#name_word": "name",
                           },
                         })
                           .then((result) => {
                             if (result === false) {
-                              logger.error(err);
                               resolve({ response: "error" });
                             }
                             //...Success
@@ -3266,14 +3127,171 @@ redisCluster.on("connect", function () {
                             logger.error(error);
                             resolve({ response: "error" });
                           });
-                      });
+                        break;
+                      case "surname":
+                        //Update the surname
+                        dynamo_update({
+                          table_name: "users_central",
+                          _idKey: userData[0]._id,
+                          UpdateExpression: "set surname = :val1",
+                          ExpressionAttributeValues: {
+                            ":val1": req.data_value,
+                          },
+                        })
+                          .then((result) => {
+                            if (result === false) {
+                              resolve({ response: "error" });
+                            }
+                            //...Success
+                            resolve({ response: "success" });
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            resolve({ response: "error" });
+                          });
+                        break;
+                      case "email":
+                        //Update the email
+                        dynamo_update({
+                          table_name: "users_central",
+                          _idKey: userData[0]._id,
+                          UpdateExpression: "set email = :val1",
+                          ExpressionAttributeValues: {
+                            ":val1": req.data_value,
+                          },
+                        })
+                          .then((result) => {
+                            if (result === false) {
+                              resolve({ response: "error" });
+                            }
+                            //...Success
+                            resolve({ response: "success" });
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            resolve({ response: "error" });
+                          });
+                      case "gender":
+                        //Update the gender
+                        dynamo_update({
+                          table_name: "users_central",
+                          _idKey: userData[0]._id,
+                          UpdateExpression: "set gender = :val1",
+                          ExpressionAttributeValues: {
+                            ":val1": req.data_value,
+                          },
+                        })
+                          .then((result) => {
+                            if (result === false) {
+                              resolve({ response: "error" });
+                            }
+                            //...Success
+                            resolve({ response: "success" });
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            resolve({ response: "error" });
+                          });
+                        break;
+                      case "phone":
+                        //Update the phone
+                        dynamo_update({
+                          table_name: "users_central",
+                          _idKey: userData[0]._id,
+                          UpdateExpression: "set phone_number = :val1",
+                          ExpressionAttributeValues: {
+                            ":val1": req.data_value,
+                          },
+                        })
+                          .then((result) => {
+                            if (result === false) {
+                              resolve({ response: "error" });
+                            }
+                            //...Success
+                            resolve({ response: "success" });
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            resolve({ response: "error" });
+                          });
+                        break;
+
+                      case "profile_picture":
+                        let localFileName = `.profile_photo${req.user_identifier}.${req.extension}`;
+                        //? Write the file locally
+                        fs.writeFile(
+                          localFileName,
+                          String(req.data_value),
+                          "base64",
+                          function (err) {
+                            if (err) {
+                              logger.error(err);
+                              resolve({ response: "error" });
+                            }
+                            //...success
+                            // Read content from the file
+                            const fileContentUploaded_locally =
+                              fs.readFileSync(localFileName);
+
+                            // Setting up S3 upload parameters
+                            let fileUploadName = `profile_${req.user_identifier}.${req.extension}`;
+                            const params = {
+                              Bucket: `${process.env.AWS_S3_CLIENTS_PROFILES_BUCKET_NAME}/clients_profiles`,
+                              Key: fileUploadName, // File name you want to save as in S3
+                              Body: fileContentUploaded_locally,
+                            };
+
+                            // Uploading files to the bucket
+                            s3.upload(params, function (err, data) {
+                              if (err) {
+                                logger.info(err);
+                                resolve({ response: "error" });
+                              }
+                              logger.info(
+                                `[USER]${localFileName} -> Successfully uploaded.`
+                              );
+                              //! Update the database
+                              dynamo_update({
+                                table_name: "users_central",
+                                _idKey: userData[0]._id,
+                                UpdateExpression: "set #m.#p = :val1",
+                                ExpressionAttributeValues: {
+                                  ":val1": fileUploadName,
+                                },
+                                ExpressionAttributeNames: {
+                                  "#m": "media",
+                                  "#p": "profile_picture",
+                                },
+                              })
+                                .then((result) => {
+                                  if (result === false) {
+                                    logger.error(err);
+                                    resolve({ response: "error" });
+                                  }
+                                  //...Success
+                                  resolve({ response: "success" });
+                                })
+                                .catch((error) => {
+                                  logger.error(error);
+                                  resolve({ response: "error" });
+                                });
+                            });
+                          }
+                        );
+                        break;
+                      default:
+                        resolve({ response: "error" });
+                        break;
                     }
-                  );
-                  break;
-                default:
-                  resolve({ response: "error" });
-                  break;
-              }
+                  } //No valid user
+                  else {
+                    res.send({ response: "error" });
+                  }
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  res.send({ response: "error" });
+                });
             } //Invalid data
             else {
               resolve({ response: "error" });
@@ -3285,9 +3303,35 @@ redisCluster.on("connect", function () {
                 //- update the cached data
                 let redisKey = `${req.user_identifier}-cachedProfile-data`;
                 //! Delete previous cache
-                redisCluster.del(redisKey);
+                // redisCluster.del(redisKey);
                 //...
-                res.send({ response: "success" });
+                dynamo_find_query({
+                  table_name: "users_central",
+                  IndexName: "user_identifier",
+                  KeyConditionExpression: "user_identifier = :val1",
+                  ExpressionAttributeValues: {
+                    ":val1": req.user_identifier,
+                  },
+                })
+                  .then((userData) => {
+                    if (userData !== undefined && userData.length > 0) {
+                      //Valid info
+                      redisCluster.setex(
+                        redisKey,
+                        parseInt(process.env.REDIS_EXPIRATION_5MIN) * 404,
+                        JSON.stringify(userData)
+                      );
+                      //...
+                      res.send({ response: "success" });
+                    } //No valid user
+                    else {
+                      res.send({ response: "error" });
+                    }
+                  })
+                  .catch((error) => {
+                    logger.error(error);
+                    res.send({ response: "error" });
+                  });
               } //!error
               else {
                 res.send({ response: "error" });
@@ -3786,7 +3830,7 @@ redisCluster.on("connect", function () {
               req.user_identifier !== undefined &&
               req.user_identifier !== null
             ) {
-              let redisKey = `${req.user_fingerprint}-cachedRecentlyVisited_shops`;
+              let redisKey = `${req.user_identifier}-cachedRecentlyVisited_shops`;
 
               redisGet(redisKey)
                 .then((resp) => {
