@@ -1935,6 +1935,65 @@ function getRequestListDataUsers(req, redisKey, resolve) {
     });
 }
 
+/**
+ * @func updateRidersPushNotifToken
+ * Responsible for updating the push notification token for the riders only
+ * @param req: request data
+ * @param redisKey: the key to cache the  data  to
+ * @param resolve
+ */
+function updateRidersPushNotifToken(req, redisKey, resolve) {
+  resolveDate();
+  //Get the user data first
+  dynamo_find_query({
+    table_name: "users_central",
+    IndexName: "user_identifier",
+    KeyConditionExpression: "user_identifier = :val1",
+    ExpressionAttributeValues: {
+      ":val1": req.user_identifier,
+    },
+  })
+    .then((userData) => {
+      if (userData !== undefined && userData.length > 0) {
+        //Valid user
+        userData = userData[0];
+
+        //?Update the records
+        dynamo_update({
+          table_name: "users_central",
+          _idKey: userData._id,
+          UpdateExpression: "set pushnotif_token = :val1, last_updated = :val2",
+          ExpressionAttributeValues: {
+            ":val1": req.pushnotif_token,
+            ":val2": new Date(chaineDateUTC).toISOString(),
+          },
+        }).then((result) => {
+          if (result) {
+            //Success
+            //! Cache
+            redisCluster.setex(
+              redisKey,
+              parseInt(process.env.REDIS_EXPIRATION_5MIN) * 405,
+              JSON.stringify(req.pushnotif_token)
+            );
+            //...
+            resolve({ response: "success" });
+          } //failed
+          else {
+            resolve({ response: "error" });
+          }
+        });
+      } //Not a user?
+      else {
+        resolve({ response: "error" });
+      }
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve({ response: "error" });
+    });
+}
+
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
 
@@ -3081,7 +3140,7 @@ redisCluster.on("connect", function () {
         app.post("/updateUsersInformation", function (req, res) {
           new Promise((resolve) => {
             req = req.body;
-            logger.info(`${req.data_type}: profile update requested`);
+            logger.info(req);
 
             if (
               req.user_identifier !== undefined &&
@@ -4105,6 +4164,87 @@ redisCluster.on("connect", function () {
             .catch((error) => {
               logger.error(error);
               res.send({ response: { status: "error" } });
+            });
+        });
+
+        //?21. Upload the riders' pushnotif_token
+        app.post("/receivePushNotification_token", function (req, res) {
+          new Promise((resolve) => {
+            req = req.body;
+
+            if (
+              req.user_identifier !== undefined &&
+              req.user_identifier !== null &&
+              req.pushnotif_token !== undefined &&
+              req.pushnotif_token !== null
+            ) {
+              let redisKey = `${req.user_identifier}-pushnotif_tokenDataCached`;
+              req.pushnotif_token = JSON.parse(req.pushnotif_token);
+              //! Get the cached and compare, only update the database if not the same as the cached
+              redisGet(redisKey)
+                .then((resp) => {
+                  console.log(resp);
+                  if (resp !== null) {
+                    //Has data
+                    try {
+                      resp = JSON.parse(resp);
+
+                      if (`${req.pushnotif_token}` !== `${resp}`) {
+                        //Update
+                        new Promise((resCompute) => {
+                          updateRidersPushNotifToken(req, redisKey, resCompute);
+                        })
+                          .then((result) => {
+                            resolve(result);
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            resolve({ response: "error" });
+                          });
+                      }
+                    } catch (error) {
+                      logger.error(error);
+                      new Promise((resCompute) => {
+                        updateRidersPushNotifToken(req, redisKey, resCompute);
+                      })
+                        .then((result) => {
+                          resolve(result);
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          resolve({ response: "error" });
+                        });
+                    }
+                  } //No data - update  the db and cache
+                  else {
+                    new Promise((resCompute) => {
+                      updateRidersPushNotifToken(req, redisKey, resCompute);
+                    })
+                      .then((result) => {
+                        resolve(result);
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        resolve({ response: "error" });
+                      });
+                  }
+                })
+                .catch((error) => {
+                  logger.error(error);
+                  resolve({ response: "error" });
+                });
+            } //invalid data
+            else {
+              resolve({ response: "error" });
+            }
+          })
+            .then((result) => {
+              // logger.info(result);
+              res.send(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              res.send({ response: "error" });
             });
         });
       }
