@@ -1622,17 +1622,17 @@ function shouldSendNewSMS({ req, hasAccount, resolve }) {
           let message = otp + ` is your NEJ Verification Code.`;
 
           let urlSMS = `http://localhost:9393/?message=${message}&number=${onlyDigitsPhone}&subject=TEST`;
-          // requestAPI(urlSMS, function (error, response, body) {
-          //   if (error === null) {
-          //     //Success
-          //     console.log(body);
-          //     res0(true);
-          //   } //Unable to send SMS
-          //   else {
-          //     res0(true);
-          //   }
-          // });
-          res0(true);
+          requestAPI(urlSMS, function (error, response, body) {
+            if (error === null) {
+              //Success
+              console.log(body);
+              res0(true);
+            } //Unable to send SMS
+            else {
+              res0(true);
+            }
+          });
+          // res0(true);
         }).then(
           () => {
             //1. Update the records for the OTP MAP for registered or non registered users
@@ -4246,6 +4246,980 @@ redisCluster.on("connect", function () {
               logger.error(error);
               res.send({ response: "error" });
             });
+        });
+
+        //? REST equivalent for common websockets.
+        /**
+         * For the courier driver resgistration
+         */
+        app.post("/registerCourier_ppline", function (req, res) {
+          logger.info(String(req.body).length);
+          let url =
+            `${
+              /production/i.test(process.env.EVIRONMENT)
+                ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                : process.env.LOCAL_URL
+            }` +
+            ":" +
+            process.env.ACCOUNTS_SERVICE_PORT +
+            "/processCourierDrivers_application";
+
+          requestAPI.post(
+            { url, form: req.body },
+            function (error, response, body) {
+              logger.info(url);
+              logger.info(body, error);
+              if (error === null) {
+                try {
+                  body = JSON.parse(body);
+                  res.send(body);
+                } catch (error) {
+                  res.send({ response: "error" });
+                }
+              } else {
+                res.send({ response: "error" });
+              }
+            }
+          );
+        });
+
+        /**
+         * For the rides driver registration
+         */
+
+        app.post("/registerDriver_ppline", function (req, res) {
+          logger.info(String(req.body).length);
+          let url =
+            `${
+              /production/i.test(process.env.EVIRONMENT)
+                ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                : process.env.LOCAL_URL
+            }` +
+            ":" +
+            process.env.ACCOUNTS_SERVICE_PORT +
+            "/processRidesDrivers_application";
+
+          requestAPI.post(
+            { url, form: req.body },
+            function (error, response, body) {
+              logger.info(url);
+              logger.info(body, error);
+              if (error === null) {
+                try {
+                  body = JSON.parse(body);
+                  res.send(body);
+                } catch (error) {
+                  res.send({ response: "error" });
+                }
+              } else {
+                res.send({ response: "error" });
+              }
+            }
+          );
+        });
+
+        app.post("/update_requestsGraph", function (req, res) {
+          logger.info(req);
+          req = req.body;
+
+          if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.DISPATCH_SERVICE_PORT +
+              "/getRequests_graphNumbers?driver_fingerprint=" +
+              req.driver_fingerprint;
+
+            requestAPI(url, function (error, response, body) {
+              //logger.info(body);
+              if (error === null) {
+                try {
+                  body = JSON.parse(body);
+                  res.send(body);
+                } catch (error) {
+                  res.send({
+                    rides: 0,
+                    deliveries: 0,
+                    scheduled: 0,
+                  });
+                }
+              } else {
+                res.send({
+                  rides: 0,
+                  deliveries: 0,
+                  scheduled: 0,
+                });
+              }
+            });
+          } else {
+            res.send({
+              rides: 0,
+              deliveries: 0,
+              scheduled: 0,
+            });
+          }
+        });
+
+        //?2
+        /**
+         * MAP SERVICE
+         * Get user location (reverse geocoding)
+         */
+        app.post("/geocode_this_point", function (req, res) {
+          req = req.body;
+
+          if (
+            req.latitude !== undefined &&
+            req.latitude !== null &&
+            req.longitude !== undefined &&
+            req.longitude !== null &&
+            req.user_fingerprint !== null &&
+            req.user_fingerprint !== undefined
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.MAP_SERVICE_PORT +
+              "/getUserLocationInfos";
+
+            requestAPI.post(
+              { url, form: req },
+              function (error, response, body) {
+                logger.info(url);
+                logger.info(body, error);
+                if (error === null) {
+                  try {
+                    body = JSON.parse(body);
+                    res.send(body);
+                  } catch (error) {
+                    res.send(false);
+                  }
+                } else {
+                  res.send(false);
+                }
+              }
+            );
+          } //Invalid params
+          else {
+            res.send(false);
+          }
+        });
+
+        /**
+         * MAP SERVICE, port 9090
+         * Route: updatePassengerLocation
+         * Event: update-passenger-location
+         * Update the passenger's location in the system and prefetch the navigation data if any.
+         */
+        app.post("/update_passenger_location", function (req, res) {
+          req = req.body;
+
+          if (
+            req !== undefined &&
+            req.latitude !== undefined &&
+            req.latitude !== null &&
+            req.longitude !== undefined &&
+            req.longitude !== null &&
+            req.user_fingerprint !== null &&
+            req.user_fingerprint !== undefined
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.MAP_SERVICE_PORT +
+              "/updatePassengerLocation";
+            //Supplement or not the request string based on if the user is a driver or rider
+            if (req.user_nature !== undefined && req.user_nature !== null) {
+              req.user_nature =
+                req.user_nature !== undefined && req.user_nature !== null
+                  ? req.user_nature
+                  : "rider";
+              req.requestType =
+                req.requestType !== undefined && req.requestType !== null
+                  ? req.requestType
+                  : "rides";
+            }
+            //...
+
+            requestAPI.post(
+              { url, form: req },
+              function (error, response, body) {
+                if (error === null) {
+                  try {
+                    body = JSON.parse(body);
+                    //logger.info(body);
+                    res.send(body);
+                  } catch (error) {
+                    res.send(false);
+                  }
+                } else {
+                  res.send(false);
+                }
+              }
+            );
+          } //Invalid params
+          else {
+            res.send(false);
+          }
+        });
+
+        /**
+         * DISPATCH SERVICE, port 9094
+         * Route: accept_request
+         * event: accept_request_io
+         * Accept any request from the driver's side.
+         */
+        app.post("/accept_request_io", function (req, res) {
+          //logger.info(req);
+          req = req.body;
+          if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.DISPATCH_SERVICE_PORT +
+              "/accept_request";
+
+            requestAPI.post(
+              { url, form: req },
+              function (error, response, body) {
+                //logger.info(body);
+                if (error === null) {
+                  try {
+                    body = JSON.parse(body);
+                    res.send(body);
+                  } catch (error) {
+                    res.send({
+                      response: "unable_to_accept_request_error",
+                    });
+                  }
+                } else {
+                  res.send({
+                    response: "unable_to_accept_request_error",
+                  });
+                }
+              }
+            );
+          } else {
+            res.send({
+              response: "unable_to_accept_request_error",
+            });
+          }
+        });
+
+        /**
+         * DISPATCH SERVICE, port 9094
+         * Route: cancel_request_driver
+         * event: cancel_request_driver_io
+         * Cancel any request from the driver's side.
+         */
+        app.post("/cancel_request_driver_io", function (req, res) {
+          req = req.body;
+          //logger.info(req);
+          if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.DISPATCH_SERVICE_PORT +
+              "/cancel_request_driver";
+
+            requestAPI.post(
+              { url, form: req },
+              function (error, response, body) {
+                //logger.info(body);
+                if (error === null) {
+                  try {
+                    body = JSON.parse(body);
+                    res.send(body);
+                  } catch (error) {
+                    res.send({
+                      response: "unable_to_cancel_request_error",
+                    });
+                  }
+                } else {
+                  res.send({
+                    response: "unable_to_cancel_request_error",
+                  });
+                }
+              }
+            );
+          } else {
+            res.send({
+              response: "unable_to_cancel_request_error",
+            });
+          }
+        });
+
+        /**
+         * DISPATCH SERVICE, port 9094
+         * Route: confirm_pickup_request_driver
+         * event: confirm_pickup_request_driver_io
+         * Confirm pickup for any request from the driver's side.
+         */
+        app.post("/confirm_pickup_request_driver_io", function (req, res) {
+          //logger.info(req);
+          req = req.body;
+
+          if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.DISPATCH_SERVICE_PORT +
+              "/confirm_pickup_request_driver";
+
+            requestAPI.post(
+              { url, form: req },
+              function (error, response, body) {
+                //logger.info(body);
+                if (error === null) {
+                  try {
+                    body = JSON.parse(body);
+                    res.send(body);
+                  } catch (error) {
+                    res.send({
+                      response: "unable_to_confirm_pickup_request_error",
+                    });
+                  }
+                } else {
+                  res.send({
+                    response: "unable_to_confirm_pickup_request_error",
+                  });
+                }
+              }
+            );
+          } else {
+            res.send({
+              response: "unable_to_confirm_pickup_request_error",
+            });
+          }
+        });
+
+        /**
+         * DISPATCH SERVICE, port 9094
+         * Route: decline_request
+         * event: declineRequest_driver
+         * Decline any request from the driver's side.
+         */
+        app.post("/declineRequest_driver", function (req, res) {
+          //logger.info(req);
+          req = req.body;
+          if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.DISPATCH_SERVICE_PORT +
+              "/decline_request";
+
+            requestAPI.post(
+              { url, form: req },
+              function (error, response, body) {
+                //logger.info(body);
+                if (error === null) {
+                  try {
+                    body = JSON.parse(body);
+                    res.send(body);
+                  } catch (error) {
+                    res.send({
+                      response: "unable_to_decline_request_error",
+                    });
+                  }
+                } else {
+                  res.send({
+                    response: "unable_to_decline_request_error",
+                  });
+                }
+              }
+            );
+          } else {
+            res.send({
+              response: "unable_to_decline_request_error",
+            });
+          }
+        });
+
+        /**
+         * DISPATCH SERVICE, port 9094
+         * Route: confirm_dropoff_request_driver
+         * event: confirm_dropoff_request_driver_io
+         * Confirm dropoff for any request from the driver's side.
+         */
+        app.post("/confirm_dropoff_request_driver_io", function (req, res) {
+          //logger.info(req);
+          req = req.body;
+          if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.DISPATCH_SERVICE_PORT +
+              "/confirm_dropoff_request_driver";
+
+            requestAPI.post(
+              { url, form: req },
+              function (error, response, body) {
+                //logger.info(body);
+                if (error === null) {
+                  try {
+                    body = JSON.parse(body);
+                    res.send(body);
+                  } catch (error) {
+                    res.send({
+                      response: "unable_to_confirm_dropoff_request_error",
+                    });
+                  }
+                } else {
+                  res.send({
+                    response: "unable_to_confirm_dropoff_request_error",
+                  });
+                }
+              }
+            );
+          } else {
+            res.send({
+              response: "unable_to_confirm_dropoff_request_error",
+            });
+          }
+        });
+
+        /**
+         * DISPATCH SERVICE, port 9094
+         * Route: getRequests_graphNumbers
+         * event: update_requestsGraph
+         * Update the general requests numbers for ease of access
+         */
+        app.post("/update_requestsGraph", function (req, res) {
+          //logger.info(req);
+          req = req.body;
+          if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.DISPATCH_SERVICE_PORT +
+              "/getRequests_graphNumbers?driver_fingerprint=" +
+              req.driver_fingerprint;
+
+            requestAPI(url, function (error, response, body) {
+              //logger.info(body);
+              if (error === null) {
+                try {
+                  body = JSON.parse(body);
+                  res.send(body);
+                } catch (error) {
+                  res.send({
+                    rides: 0,
+                    deliveries: 0,
+                    scheduled: 0,
+                    accepted: 0,
+                  });
+                }
+              } else {
+                res.send({
+                  rides: 0,
+                  deliveries: 0,
+                  scheduled: 0,
+                  accepted: 0,
+                });
+              }
+            });
+          } else {
+            res.send({
+              rides: 0,
+              deliveries: 0,
+              scheduled: 0,
+              accepted: 0,
+            });
+          }
+        });
+
+        /**
+         * ACCOUNTS SERVICE, port 9696
+         * Route: getDrivers_walletInfosDeep
+         * event: getDrivers_walletInfosDeep_io
+         * Responsible for computing the wallet deep summary for the drivers
+         */
+        app.post("/getDrivers_walletInfosDeep_io", function (req, res) {
+          //logger.info(req);
+          req = req.body;
+
+          if (
+            req.user_fingerprint !== undefined &&
+            req.user_fingerprint !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.ACCOUNTS_SERVICE_PORT +
+              "/getDrivers_walletInfosDeep?user_fingerprint=" +
+              req.user_fingerprint;
+
+            requestAPI(url, function (error, response, body) {
+              if (error === null) {
+                try {
+                  body = JSON.parse(body);
+                  res.send(body);
+                } catch (error) {
+                  res.send({
+                    header: null,
+                    weeks_view: null,
+                    response: "error",
+                  });
+                }
+              } else {
+                res.send({
+                  header: null,
+                  weeks_view: null,
+                  response: "error",
+                });
+              }
+            });
+          } else {
+            res.send({
+              header: null,
+              weeks_view: null,
+              response: "error",
+            });
+          }
+        });
+
+        /**
+         * ACCOUNTS SERVICE, port 9696
+         * Route: getRiders_walletInfos
+         * event: getRiders_walletInfos_io
+         * Responsible for computing the wallet summary (total and details) for the riders.
+         * ! TO BE RESTORED WITH THE WALLET AND OPTIMAL APP UPDATE.
+         */
+        app.post("/getRiders_walletInfos_io", function (req, res) {
+          //logger.info(req);
+          req = req.body;
+          if (
+            req.user_fingerprint !== undefined &&
+            req.user_fingerprint !== null &&
+            req.mode !== undefined &&
+            req.mode !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.ACCOUNTS_SERVICE_PORT +
+              "/getRiders_walletInfos?user_fingerprint=" +
+              req.user_fingerprint +
+              "&mode=" +
+              req.mode +
+              "&avoidCached_data=true";
+
+            requestAPI(url, function (error, response, body) {
+              if (error === null) {
+                try {
+                  body = JSON.parse(body);
+                  res.send(body);
+                } catch (error) {
+                  res.send({
+                    total: 0,
+                    response: "error",
+                    tag: "invalid_parameters",
+                  });
+                }
+              } else {
+                res.send({
+                  total: 0,
+                  response: "error",
+                  tag: "invalid_parameters",
+                });
+              }
+            });
+          } else {
+            res.send({
+              total: 0,
+              response: "error",
+              tag: "invalid_parameters",
+            });
+          }
+        });
+
+        /**
+         * ACCOUNTS SERVICE, port 9696
+         * Route: computeDaily_amountMadeSoFar
+         * event: computeDaily_amountMadeSoFar_io
+         * Responsible for getting the daily amount made so far by the driver for exactly all the completed requests.
+         */
+        app.post("/computeDaily_amountMadeSoFar_io", function (req, res) {
+          //logger.info(req);
+          req = req.body;
+
+          if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.ACCOUNTS_SERVICE_PORT +
+              "/computeDaily_amountMadeSoFar?driver_fingerprint=" +
+              req.driver_fingerprint;
+
+            requestAPI(url, function (error, response, body) {
+              //logger.info(body);
+              if (error === null) {
+                try {
+                  body = JSON.parse(body);
+                  res.send(body);
+                } catch (error) {
+                  res.send({
+                    amount: 0,
+                    currency: "NAD",
+                    currency_symbol: "N$",
+                    response: "error",
+                  });
+                }
+              } else {
+                res.send({
+                  amount: 0,
+                  currency: "NAD",
+                  currency_symbol: "N$",
+                  response: "error",
+                });
+              }
+            });
+          } else {
+            res.send({
+              amount: 0,
+              currency: "NAD",
+              currency_symbol: "N$",
+              response: "error",
+            });
+          }
+        });
+
+        app.post("/sendOtpAndCheckerUserStatusTc", function (req, res) {
+          logger.info(req);
+          req = req.body;
+          //...
+          if (req.phone_number !== undefined && req.phone_number !== null) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.ACCOUNTS_SERVICE_PORT +
+              "/sendOTPAndCheckUserStatus?phone_number=" +
+              req.phone_number;
+
+            if (req.smsHashLinker !== undefined && req.smsHashLinker !== null) {
+              //Attach an hash linker for auto verification
+              url += `&smsHashLinker=${encodeURIComponent(req.smsHashLinker)}`;
+            }
+            //Attach user nature
+            if (req.user_nature !== undefined && req.user_nature !== null) {
+              url += `&user_nature=${req.user_nature}`;
+            }
+
+            requestAPI(url, function (error, response, body) {
+              //logger.info(body, error);
+              if (error === null) {
+                try {
+                  body = JSON.parse(body);
+                  //logger.info("HERE");
+                  res.send(body);
+                } catch (error) {
+                  res.send({
+                    response: "error_checking_user",
+                  });
+                }
+              } else {
+                res.send({
+                  response: "error_checking_user",
+                });
+              }
+            });
+          } else {
+            res.send({
+              response: "error_checking_user",
+            });
+          }
+        });
+
+        app.post("/checkThisOTP_SMS", function (req, res) {
+          req = req.body;
+          logger.info(req);
+          if (
+            req.phone_number !== undefined &&
+            req.phone_number !== null &&
+            req.otp !== undefined &&
+            req.otp !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.ACCOUNTS_SERVICE_PORT +
+              "/checkSMSOTPTruly?phone_number=" +
+              req.phone_number +
+              "&otp=" +
+              req.otp;
+
+            //Add the user nature : passengers (undefined) or drivers
+            if (req.user_nature !== undefined && req.user_nature !== null) {
+              url += `&user_nature=${req.user_nature}`;
+            }
+
+            requestAPI(url, function (error, response, body) {
+              //logger.info(body);
+              if (error === null) {
+                try {
+                  body = JSON.parse(body);
+                  res.send(body);
+                } catch (error) {
+                  res.send({
+                    response: "error_checking_otp",
+                  });
+                }
+              } else {
+                res.send({
+                  response: "error_checking_otp",
+                });
+              }
+            });
+          } else {
+            res.send({
+              response: "error_checking_otp",
+            });
+          }
+        });
+
+        app.post("/goOnline_offlineDrivers_io", function (req, res) {
+          req = req.body;
+          //logger.info(req);
+          if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null &&
+            req.action !== undefined &&
+            req.action !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.ACCOUNTS_SERVICE_PORT +
+              "/goOnline_offlineDrivers?driver_fingerprint=" +
+              req.driver_fingerprint +
+              "&action=" +
+              req.action;
+
+            //Add the state if found
+            if (req.state !== undefined && req.state !== null) {
+              url += "&state=" + req.state;
+            } else {
+              url += "&state=false";
+            }
+
+            requestAPI(url, function (error, response, body) {
+              if (error === null) {
+                try {
+                  body = JSON.parse(body);
+                  res.send(body);
+                } catch (error) {
+                  res.send({
+                    response: "error_invalid_request",
+                  });
+                }
+              } else {
+                res.send({
+                  response: "error_invalid_request",
+                });
+              }
+            });
+          } else {
+            res.send({
+              response: "error_invalid_request",
+            });
+          }
+        });
+
+        app.post("/driversOverallNumbers", function (req, res) {
+          logger.info(req);
+          req = req.body;
+          if (
+            req.user_fingerprint !== undefined &&
+            req.user_fingerprint !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.ACCOUNTS_SERVICE_PORT +
+              "/getDriversGeneralAccountNumber?user_fingerprint=" +
+              req.user_fingerprint;
+
+            requestAPI(url, function (error, response, body) {
+              // logger.info(body);
+              if (error === null) {
+                try {
+                  body = JSON.parse(body);
+                  res.send(body);
+                } catch (error) {
+                  res.send({
+                    response: "error",
+                  });
+                }
+              } else {
+                res.send({
+                  response: "error",
+                });
+              }
+            });
+          } else {
+            res.send({
+              response: "error",
+            });
+          }
+        });
+
+        app.post("/getRides_historyRiders_batchOrNot", function (req, res) {
+          req = req.body;
+          //logger.info(req);
+          if (
+            req.user_fingerprint !== undefined &&
+            req.user_fingerprint !== null
+          ) {
+            let url =
+              `${
+                /production/i.test(process.env.EVIRONMENT)
+                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                  : process.env.LOCAL_URL
+              }` +
+              ":" +
+              process.env.ACCOUNTS_SERVICE_PORT +
+              "/getRides_historyRiders?user_fingerprint=" +
+              req.user_fingerprint;
+            //Add a ride_type if any
+            if (req.ride_type !== undefined && req.ride_type !== null) {
+              url += "&ride_type=" + req.ride_type;
+            }
+            //Add a request fp and targeted flag or any
+            if (
+              req.target !== undefined &&
+              req.target !== null &&
+              req.request_fp !== undefined &&
+              req.request_fp !== null
+            ) {
+              //Targeted request (target flags: single, multiple)
+              url += "&target=" + req.target + "&request_fp=" + req.request_fp;
+            }
+            //? Add the user nature for drivers if any
+            if (req.user_nature !== undefined && req.user_nature !== null) {
+              url += `&user_nature=${req.user_nature}`;
+            }
+            //...
+            requestAPI(url, function (error, response, body) {
+              //logger.info(error, body);
+              if (error === null) {
+                try {
+                  body = JSON.parse(body);
+                  res.send(body);
+                } catch (error) {
+                  res.send({
+                    response: "error_authentication_failed",
+                  });
+                }
+              } else {
+                res.send({
+                  response: "error_authentication_failed",
+                });
+              }
+            });
+          } else {
+            res.send({
+              response: "error_authentication_failed",
+            });
+          }
         });
       }
     }
