@@ -4381,7 +4381,7 @@ redisCluster.on("connect", function () {
                   : process.env.LOCAL_URL
               }` +
               ":" +
-              process.env.MAP_SERVICE_PORT +
+              process.env.SEARCH_SERVICE_PORT +
               "/getUserLocationInfos";
 
             requestAPI.post(
