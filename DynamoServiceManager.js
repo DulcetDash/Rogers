@@ -13,7 +13,18 @@ var AWS = require("aws-sdk");
 const { v4: uuidv4 } = require("uuid");
 const { Console } = require("winston/lib/winston/transports");
 // Set the region
-AWS.config.update({ region: "us-east-1", endpoint: "http://localhost:8000" });
+AWS.config.update(
+  process.env.EVIRONMENT === "development"
+    ? {
+        region: process.env.AWS_REGION,
+        endpoint: process.env.DYNAMODB_ENDPOINT,
+      }
+    : {
+        region: process.env.AWS_REGION,
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      }
+);
 
 // Create DynamoDB document client
 var dynamoClient = new AWS.DynamoDB.DocumentClient({

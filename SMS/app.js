@@ -32,6 +32,4 @@ app.get("/", (req, res) => {
     });
 });
 
-app.listen(process.env.SMS_PROVIDER_PORT, () =>
-  console.log(`SMS Service Listening on PORT ${process.env.SMS_PROVIDER_PORT}`)
-);
+app.listen(9393, () => console.log(`SMS Service Listening on PORT 9393`));

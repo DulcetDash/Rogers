@@ -1,0 +1,15 @@
+version: "3"
+
+services:
+  rogers:
+    build: .
+    ports:
+      - "9697:9697"
+      - "9595:9595"
+      - "9898:9898"
+      - "9696:9696"
+      - "9393:9393"
+    restart: always
+    environment:
+      - INSTANCE_PRIVATE_IP=${INSTANCE_PRIVATE_IP}
+      - INSTANCE_PUBLIC_IP=${INSTANCE_PUBLIC_IP}

@@ -23,15 +23,6 @@ var app = express();
 var server = http.createServer(app);
 var cors = require("cors");
 var helmet = require("helmet");
-const io = require("socket.io")(server, {
-  cors: {
-    origin: /production/i.test(process.env.EVIRONMENT)
-      ? process.env.LEAD_DOMAIN_URL
-      : `http://${process.env.INSTANCE_PRIVATE_IP}`,
-    methods: ["GET", "POST"],
-    credentials: true,
-  },
-});
 const requestAPI = require("request");
 
 //! Attach DynamoDB helper
@@ -71,7 +62,7 @@ var redisCluster = /production/i.test(String(process.env.EVIRONMENT))
 const redisGet = promisify(redisCluster.get).bind(redisCluster);
 
 var ElasticSearch_client = new elasticsearch.Client({
-  hosts: ["http://localhost:9205"],
+  hosts: [process.env.ELASTICSEARCH_ENDPOINT],
 });
 
 var chaineDateUTC = null;
