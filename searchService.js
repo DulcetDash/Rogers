@@ -1726,250 +1726,250 @@ function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
   });
 }
 
-/**
- * @func reverseGeocodeUserLocation
- * @param resolve
- * @param req: user coordinates, and fingerprint
- * Responsible for finding out the current user (passenger, driver, etc) location details
- * REDIS propertiy
- * user_fingerprint+reverseGeocodeKey -> currentLocationInfos: {...}
- */
-function reverseGeocodeUserLocation(resolve, req) {
-  //Form the redis key
-  let redisKey = req.user_fingerprint + "-reverseGeocodeKey";
-  //Check if redis has some informations already
-  redisGet(redisKey).then(
-    (resp) => {
-      if (resp !== null) {
-        //Do a fresh request to update the cache
-        //Make a new reseach
-        new Promise((res) => {
-          //logger.info("Fresh geocpding launched");
-          reverseGeocoderExec(res, req, JSON.parse(resp), redisKey);
-        }).then(
-          (result) => {},
-          (error) => {
-            logger.error(error);
-          }
-        );
+// /**
+//  * @func r/everseGeocodeUserLocation
+//  * @param resolve
+//  * @param req: user coordinates, and fingerprint
+//  * Responsible for finding out the current user (passenger, driver, etc) location details
+//  * REDIS propertiy
+//  * user_fingerprint+reverseGeocodeKey -> currentLocationInfos: {...}
+//  */
+// function r/everseGeocodeUserLocation(resolve, req) {
+//   //Form the redis key
+//   let redisKey = req.user_fingerprint + "-reverseGeocodeKey";
+//   //Check if redis has some informations already
+//   redisGet(redisKey).then(
+//     (resp) => {
+//       if (resp !== null) {
+//         //Do a fresh request to update the cache
+//         //Make a new reseach
+//         new Promise((res) => {
+//           //logger.info("Fresh geocpding launched");
+//           rev/erseGeocoderExec(res, req, JSON.parse(resp), redisKey);
+//         }).then(
+//           (result) => {},
+//           (error) => {
+//             logger.error(error);
+//           }
+//         );
 
-        //Has already a cache entry
-        //Check if an old current location is present
-        resp = JSON.parse(resp);
-        if (resp.currentLocationInfos !== undefined) {
-          //Make a rehydration request
-          new Promise((res) => {
-            reverseGeocoderExec(res, req, false, redisKey);
-          }).then(
-            (result) => {
-              //Updating cache and replying to the main thread
-              let currentLocationEntry = { currentLocationInfos: result };
-              redisCluster.setex(
-                redisKey,
-                process.env.REDIS_EXPIRATION_5MIN,
-                JSON.stringify(currentLocationEntry)
-              );
-            },
-            (error) => {
-              logger.error(error);
-            }
-          );
-          //Send
-          resolve(resp.currentLocationInfos);
-        } //No previously cached current location
-        else {
-          //Make a new reseach
-          new Promise((res) => {
-            reverseGeocoderExec(res, req, false, redisKey);
-          }).then(
-            (result) => {
-              //Updating cache and replying to the main thread
-              let currentLocationEntry = { currentLocationInfos: result };
-              redisCluster.setex(
-                redisKey,
-                process.env.REDIS_EXPIRATION_5MIN,
-                JSON.stringify(currentLocationEntry)
-              );
-              resolve(result);
-            },
-            (error) => {
-              logger.error(error);
-              resolve(false);
-            }
-          );
-        }
-      } //No cache entry, create a new one
-      else {
-        //Make a new reseach
-        new Promise((res) => {
-          reverseGeocoderExec(res, req, false, redisKey);
-        }).then(
-          (result) => {
-            //Updating cache and replying to the main thread
-            let currentLocationEntry = { currentLocationInfos: result };
-            redisCluster.setex(
-              redisKey,
-              process.env.REDIS_EXPIRATION_5MIN,
-              JSON.stringify(currentLocationEntry)
-            );
-            resolve(result);
-          },
-          (error) => {
-            logger.error(error);
-            resolve(false);
-          }
-        );
-      }
-    },
-    (error) => {
-      logger.error(error);
-      resolve(false);
-    }
-  );
-}
-/**
- * @func reverseGeocoderExec
- * @param updateCache: to known whether to update the cache or not if yes, will have the value of the hold cache.
- * @param req: the user basic data (fingerprint, etc)
- * @param redisKey: the redis key to cache the data to
- * Responsible for executing the geocoding new fresh requests
- */
-function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
-  //! APPLY BLUE OCEAN BUG FIX FOR THE PICKUP LOCATION COORDINATES
-  //? 1. Destination
-  //? Get temporary vars
-  let pickLatitude1 = parseFloat(req.latitude);
-  let pickLongitude1 = parseFloat(req.longitude);
-  //! Coordinates order fix - major bug fix for ocean bug
-  if (
-    pickLatitude1 !== undefined &&
-    pickLatitude1 !== null &&
-    pickLatitude1 !== 0 &&
-    pickLongitude1 !== undefined &&
-    pickLongitude1 !== null &&
-    pickLongitude1 !== 0
-  ) {
-    //? Switch latitude and longitude - check the negative sign
-    if (parseFloat(pickLongitude1) < 0) {
-      //Negative - switch
-      req.latitude = pickLongitude1;
-      req.longitude = pickLatitude1;
-    }
-  }
-  //! -------
-  let url =
-    process.env.URL_SEARCH_SERVICES +
-    "reverse?lon=" +
-    req.longitude +
-    "&lat=" +
-    req.latitude;
+//         //Has already a cache entry
+//         //Check if an old current location is present
+//         resp = JSON.parse(resp);
+//         if (resp.currentLocationInfos !== undefined) {
+//           //Make a rehydration request
+//           new Promise((res) => {
+//             reve/rseGeocoderExec(res, req, false, redisKey);
+//           }).then(
+//             (result) => {
+//               //Updating cache and replying to the main thread
+//               let currentLocationEntry = { currentLocationInfos: result };
+//               redisCluster.setex(
+//                 redisKey,
+//                 process.env.REDIS_EXPIRATION_5MIN,
+//                 JSON.stringify(currentLocationEntry)
+//               );
+//             },
+//             (error) => {
+//               logger.error(error);
+//             }
+//           );
+//           //Send
+//           resolve(resp.currentLocationInfos);
+//         } //No previously cached current location
+//         else {
+//           //Make a new reseach
+//           new Promise((res) => {
+//             reverseGe/ocoderExec(res, req, false, redisKey);
+//           }).then(
+//             (result) => {
+//               //Updating cache and replying to the main thread
+//               let currentLocationEntry = { currentLocationInfos: result };
+//               redisCluster.setex(
+//                 redisKey,
+//                 process.env.REDIS_EXPIRATION_5MIN,
+//                 JSON.stringify(currentLocationEntry)
+//               );
+//               resolve(result);
+//             },
+//             (error) => {
+//               logger.error(error);
+//               resolve(false);
+//             }
+//           );
+//         }
+//       } //No cache entry, create a new one
+//       else {
+//         //Make a new reseach
+//         new Promise((res) => {
+//           reverseGeoco/derExec(res, req, false, redisKey);
+//         }).then(
+//           (result) => {
+//             //Updating cache and replying to the main thread
+//             let currentLocationEntry = { currentLocationInfos: result };
+//             redisCluster.setex(
+//               redisKey,
+//               process.env.REDIS_EXPIRATION_5MIN,
+//               JSON.stringify(currentLocationEntry)
+//             );
+//             resolve(result);
+//           },
+//           (error) => {
+//             logger.error(error);
+//             resolve(false);
+//           }
+//         );
+//       }
+//     },
+//     (error) => {
+//       logger.error(error);
+//       resolve(false);
+//     }
+//   );
+// }
+// /**
+//  * @func revers/eGeocoderExec
+//  * @param updateCache: to known whether to update the cache or not if yes, will have the value of the hold cache.
+//  * @param req: the user basic data (fingerprint, etc)
+//  * @param redisKey: the redis key to cache the data to
+//  * Responsible for executing the geocoding new fresh requests
+//  */
+// function rever/seGeocoderExec(resolve, req, updateCache = false, redisKey) {
+//   //! APPLY BLUE OCEAN BUG FIX FOR THE PICKUP LOCATION COORDINATES
+//   //? 1. Destination
+//   //? Get temporary vars
+//   let pickLatitude1 = parseFloat(req.latitude);
+//   let pickLongitude1 = parseFloat(req.longitude);
+//   //! Coordinates order fix - major bug fix for ocean bug
+//   if (
+//     pickLatitude1 !== undefined &&
+//     pickLatitude1 !== null &&
+//     pickLatitude1 !== 0 &&
+//     pickLongitude1 !== undefined &&
+//     pickLongitude1 !== null &&
+//     pickLongitude1 !== 0
+//   ) {
+//     //? Switch latitude and longitude - check the negative sign
+//     if (parseFloat(pickLongitude1) < 0) {
+//       //Negative - switch
+//       req.latitude = pickLongitude1;
+//       req.longitude = pickLatitude1;
+//     }
+//   }
+//   //! -------
+//   let url =
+//     process.env.URL_SEARCH_SERVICES +
+//     "reverse?lon=" +
+//     req.longitude +
+//     "&lat=" +
+//     req.latitude;
 
-  logger.info(url);
+//   logger.info(url);
 
-  requestAPI(url, function (error, response, body) {
-    try {
-      body = JSON.parse(body);
-      if (body != undefined) {
-        if (body.features[0].properties != undefined) {
-          //Check if a city was already assigned
-          //? Deduct consistently the town
-          let urlNominatim = `${process.env.URL_NOMINATIM_SERVICES}/reverse?lat=${req.latitude}&lon=${req.longitude}&zoom=10&format=json`;
+//   requestAPI(url, function (error, response, body) {
+//     try {
+//       body = JSON.parse(body);
+//       if (body != undefined) {
+//         if (body.features[0].properties != undefined) {
+//           //Check if a city was already assigned
+//           //? Deduct consistently the town
+//           let urlNominatim = `${process.env.URL_NOMINATIM_SERVICES}/reverse?lat=${req.latitude}&lon=${req.longitude}&zoom=10&format=json`;
 
-          requestAPI(urlNominatim, function (error2, response2, body2) {
-            // logger.error(body2);
-            try {
-              body2 = JSON.parse(body2);
-              // logger.warn(body2.address.city);
-              if (body.features[0].properties.street != undefined) {
-                //? Update the city
-                body.features[0].properties["city"] =
-                  body2.address.city !== undefined
-                    ? body2.address.city
-                    : body.features[0].properties["city"];
-                //? -----
-                if (updateCache !== false) {
-                  //Update cache
-                  updateCache.currentLocationInfos =
-                    body.features[0].properties;
-                  redisCluster.setex(
-                    redisKey,
-                    process.env.REDIS_EXPIRATION_5MIN,
-                    JSON.stringify(updateCache)
-                  );
-                }
-                //...
-                resolve(body.features[0].properties);
-              } else if (body.features[0].properties.name != undefined) {
-                //? Update the city
-                body.features[0].properties["city"] =
-                  body2.address.city !== undefined
-                    ? body2.address.city
-                    : body.features[0].properties["city"];
-                //? -----
-                body.features[0].properties.street =
-                  body.features[0].properties.name;
-                if (updateCache !== false) {
-                  //Update cache
-                  updateCache.currentLocationInfos =
-                    body.features[0].properties;
-                  redisCluster.setex(
-                    redisKey,
-                    process.env.REDIS_EXPIRATION_5MIN,
-                    JSON.stringify(updateCache)
-                  );
-                }
-                //...
-                resolve(body.features[0].properties);
-              } else {
-                resolve(false);
-              }
-            } catch (error) {
-              logger.error(error);
-              if (body.features[0].properties.street != undefined) {
-                if (updateCache !== false) {
-                  //Update cache
-                  updateCache.currentLocationInfos =
-                    body.features[0].properties;
-                  redisCluster.setex(
-                    redisKey,
-                    process.env.REDIS_EXPIRATION_5MIN,
-                    JSON.stringify(updateCache)
-                  );
-                }
-                //...
-                resolve(body.features[0].properties);
-              } else if (body.features[0].properties.name != undefined) {
-                body.features[0].properties.street =
-                  body.features[0].properties.name;
-                if (updateCache !== false) {
-                  //Update cache
-                  updateCache.currentLocationInfos =
-                    body.features[0].properties;
-                  redisCluster.setex(
-                    redisKey,
-                    process.env.REDIS_EXPIRATION_5MIN,
-                    JSON.stringify(updateCache)
-                  );
-                }
-                //...
-                resolve(body.features[0].properties);
-              } else {
-                resolve(false);
-              }
-            }
-          });
-        } else {
-          resolve(false);
-        }
-      } else {
-        resolve(false);
-      }
-    } catch (error) {
-      logger.warn(error);
-      resolve(false);
-    }
-  });
-}
+//           requestAPI(urlNominatim, function (error2, response2, body2) {
+//             // logger.error(body2);
+//             try {
+//               body2 = JSON.parse(body2);
+//               // logger.warn(body2.address.city);
+//               if (body.features[0].properties.street != undefined) {
+//                 //? Update the city
+//                 body.features[0].properties["city"] =
+//                   body2.address.city !== undefined
+//                     ? body2.address.city
+//                     : body.features[0].properties["city"];
+//                 //? -----
+//                 if (updateCache !== false) {
+//                   //Update cache
+//                   updateCache.currentLocationInfos =
+//                     body.features[0].properties;
+//                   redisCluster.setex(
+//                     redisKey,
+//                     process.env.REDIS_EXPIRATION_5MIN,
+//                     JSON.stringify(updateCache)
+//                   );
+//                 }
+//                 //...
+//                 resolve(body.features[0].properties);
+//               } else if (body.features[0].properties.name != undefined) {
+//                 //? Update the city
+//                 body.features[0].properties["city"] =
+//                   body2.address.city !== undefined
+//                     ? body2.address.city
+//                     : body.features[0].properties["city"];
+//                 //? -----
+//                 body.features[0].properties.street =
+//                   body.features[0].properties.name;
+//                 if (updateCache !== false) {
+//                   //Update cache
+//                   updateCache.currentLocationInfos =
+//                     body.features[0].properties;
+//                   redisCluster.setex(
+//                     redisKey,
+//                     process.env.REDIS_EXPIRATION_5MIN,
+//                     JSON.stringify(updateCache)
+//                   );
+//                 }
+//                 //...
+//                 resolve(body.features[0].properties);
+//               } else {
+//                 resolve(false);
+//               }
+//             } catch (error) {
+//               logger.error(error);
+//               if (body.features[0].properties.street != undefined) {
+//                 if (updateCache !== false) {
+//                   //Update cache
+//                   updateCache.currentLocationInfos =
+//                     body.features[0].properties;
+//                   redisCluster.setex(
+//                     redisKey,
+//                     process.env.REDIS_EXPIRATION_5MIN,
+//                     JSON.stringify(updateCache)
+//                   );
+//                 }
+//                 //...
+//                 resolve(body.features[0].properties);
+//               } else if (body.features[0].properties.name != undefined) {
+//                 body.features[0].properties.street =
+//                   body.features[0].properties.name;
+//                 if (updateCache !== false) {
+//                   //Update cache
+//                   updateCache.currentLocationInfos =
+//                     body.features[0].properties;
+//                   redisCluster.setex(
+//                     redisKey,
+//                     process.env.REDIS_EXPIRATION_5MIN,
+//                     JSON.stringify(updateCache)
+//                   );
+//                 }
+//                 //...
+//                 resolve(body.features[0].properties);
+//               } else {
+//                 resolve(false);
+//               }
+//             }
+//           });
+//         } else {
+//           resolve(false);
+//         }
+//       } else {
+//         resolve(false);
+//       }
+//     } catch (error) {
+//       logger.warn(error);
+//       resolve(false);
+//     }
+//   });
+// }
 
 /**
  * @func findDestinationPathPreview
