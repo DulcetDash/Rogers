@@ -1623,6 +1623,8 @@ function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
 
   requestAPI(url, function (error, response, body) {
     try {
+      console.log(body);
+      console.log(typeof body);
       body = JSON.parse(body);
       if (body != undefined) {
         if (body.features[0].properties != undefined) {
