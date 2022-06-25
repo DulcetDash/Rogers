@@ -1631,9 +1631,10 @@ function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
           //Check if a city was already assigned
           //? Deduct consistently the town
           let urlNominatim = `${process.env.URL_NOMINATIM_SERVICES}/reverse?lat=${req.latitude}&lon=${req.longitude}&zoom=10&format=json`;
+          logger.warn(urlNominatim);
 
           requestAPI(urlNominatim, function (error2, response2, body2) {
-            // logger.error(body2);
+            logger.error(body2);
             try {
               body2 = JSON.parse(body2);
               // logger.warn(body2.address.city);
