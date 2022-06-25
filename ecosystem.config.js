@@ -3,10 +3,10 @@ module.exports = {
     {
       name: "Events gateway",
       script: "server.js",
-      instances: 1,
+      instances: 2,
       autorestart: true,
       watch: false,
-      // max_memory_restart: "4G",
+      max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
       },
@@ -14,10 +14,10 @@ module.exports = {
     {
       name: "Pricing service",
       script: "pricingService.js",
-      instances: 1,
+      instances: 2,
       autorestart: true,
       watch: false,
-      // max_memory_restart: "4G",
+      max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
       },
@@ -25,10 +25,10 @@ module.exports = {
     {
       name: "Search service",
       script: "searchService.js",
-      instances: 1,
+      instances: 2,
       autorestart: true,
       watch: false,
-      // max_memory_restart: "4G",
+      max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
       },
@@ -36,10 +36,10 @@ module.exports = {
     {
       name: "SMS service",
       script: "SMS/app.js",
-      instances: 1,
+      instances: 2,
       autorestart: true,
       watch: false,
-      // max_memory_restart: "4G",
+      max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
       },
