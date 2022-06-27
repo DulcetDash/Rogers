@@ -1610,7 +1610,7 @@ function shouldSendNewSMS({ req, hasAccount, resolve }) {
         //let otp = 55576;
         otp = String(otp).length < 5 ? parseInt(otp) * 10 : otp;
         new Promise((res0) => {
-          let message = otp + ` is your NEJ Verification Code.`;
+          let message = `Your Nej code is ${otp}. Never share this code.`;
 
           let urlSMS = `http://localhost:9393/?message=${message}&number=${onlyDigitsPhone}&subject=TEST`;
           requestAPI(urlSMS, function (error, response, body) {
@@ -4959,7 +4959,7 @@ redisCluster.on("connect", function () {
         });
 
         app.post("/sendOtpAndCheckerUserStatusTc", function (req, res) {
-          logger.info(req);
+          // logger.info(req);
           req = req.body;
           //...
           if (req.phone_number !== undefined && req.phone_number !== null) {
@@ -4971,36 +4971,38 @@ redisCluster.on("connect", function () {
               }` +
               ":" +
               process.env.ACCOUNTS_SERVICE_PORT +
-              "/sendOTPAndCheckUserStatus?phone_number=" +
-              req.phone_number;
+              "/sendOTPAndCheckUserStatus";
 
-            if (req.smsHashLinker !== undefined && req.smsHashLinker !== null) {
-              //Attach an hash linker for auto verification
-              url += `&smsHashLinker=${encodeURIComponent(req.smsHashLinker)}`;
-            }
-            //Attach user nature
-            if (req.user_nature !== undefined && req.user_nature !== null) {
-              url += `&user_nature=${req.user_nature}`;
-            }
+            // if (req.smsHashLinker !== undefined && req.smsHashLinker !== null) {
+            //   //Attach an hash linker for auto verification
+            //   url += `&smsHashLinker=${encodeURIComponent(req.smsHashLinker)}`;
+            // }
+            // //Attach user nature
+            // if (req.user_nature !== undefined && req.user_nature !== null) {
+            //   url += `&user_nature=${req.user_nature}`;
+            // }
 
-            requestAPI(url, function (error, response, body) {
-              //logger.info(body, error);
-              if (error === null) {
-                try {
-                  body = JSON.parse(body);
-                  //logger.info("HERE");
-                  res.send(body);
-                } catch (error) {
+            requestAPI.post(
+              { url, form: req },
+              function (error, response, body) {
+                //logger.info(body, error);
+                if (error === null) {
+                  try {
+                    body = JSON.parse(body);
+                    //logger.info("HERE");
+                    res.send(body);
+                  } catch (error) {
+                    res.send({
+                      response: "error_checking_user",
+                    });
+                  }
+                } else {
                   res.send({
                     response: "error_checking_user",
                   });
                 }
-              } else {
-                res.send({
-                  response: "error_checking_user",
-                });
               }
-            });
+            );
           } else {
             res.send({
               response: "error_checking_user",
@@ -5035,23 +5037,26 @@ redisCluster.on("connect", function () {
               url += `&user_nature=${req.user_nature}`;
             }
 
-            requestAPI(url, function (error, response, body) {
-              //logger.info(body);
-              if (error === null) {
-                try {
-                  body = JSON.parse(body);
-                  res.send(body);
-                } catch (error) {
+            requestAPI.post(
+              { url, form: req },
+              function (error, response, body) {
+                //logger.info(body);
+                if (error === null) {
+                  try {
+                    body = JSON.parse(body);
+                    res.send(body);
+                  } catch (error) {
+                    res.send({
+                      response: "error_checking_otp",
+                    });
+                  }
+                } else {
                   res.send({
                     response: "error_checking_otp",
                   });
                 }
-              } else {
-                res.send({
-                  response: "error_checking_otp",
-                });
               }
-            });
+            );
           } else {
             res.send({
               response: "error_checking_otp",
