@@ -2,6 +2,8 @@ const OS = require("os");
 process.env.UV_THREADPOOL_SIZE = OS.cpus().length;
 //---
 const winston = require("winston");
+const { combine, timestamp, prettyPrint, colorize, errors } = winston.format;
+
 const exceptionToLog = new RegExp(
   /(AWS_S3_ID|AWS_S3_SECRET|URL_MONGODB_PROD)/,
   "i"
@@ -27,13 +29,20 @@ module.exports = {
       winston.format.colorize({
         message: true,
       }),
+      errors({ stack: true }),
       winston.format.timestamp({
         format: "YY-MM-DD HH:MM:SS",
       }),
       winston.format.printf(
         (info) =>
           ` ${info.timestamp}  ${info.level} : ${
-            exceptionToLog.test(info.message) ? "*" : info.message
+            exceptionToLog.test(info.message)
+              ? "*"
+              : info.level === "error"
+              ? info.stack !== undefined && info.stack !== null
+                ? info.stack
+                : info.message
+              : info.message
           }`
       )
     ),

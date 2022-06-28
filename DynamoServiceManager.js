@@ -283,7 +283,7 @@ async function find_query({
 
     if (ScanIndexForward === null) delete params["ScanIndexForward"];
 
-    logger.warn(params);
+    // logger.warn(params);
     //...
     dynamoClient.query(params, function (err, resultFindget) {
       if (err) {
@@ -292,7 +292,7 @@ async function find_query({
         resolve([]);
       }
       //...
-      logger.info(resultFindget.Items.length);
+      // logger.info(resultFindget.Items.length);
       // return Promise.resolve(resultFindget.Items);
       resolve(resultFindget.Items);
     });

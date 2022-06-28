@@ -1928,37 +1928,66 @@ function getRequestListDataUsers(req, redisKey, resolve) {
 
 /**
  * @func updateRidersPushNotifToken
- * Responsible for updating the push notification token for the riders only
+ * Responsible for updating the push notification token for the riders or drivers
  * @param req: request data
  * @param redisKey: the key to cache the  data  to
  * @param resolve
  */
 function updateRidersPushNotifToken(req, redisKey, resolve) {
   resolveDate();
+  //Assemble the get expression based on the user nature
+  let getExpression =
+    req.user_nature === "rider"
+      ? {
+          table_name: "users_central",
+          IndexName: "user_identifier",
+          KeyConditionExpression: "user_identifier = :val1",
+          ExpressionAttributeValues: {
+            ":val1": req.user_identifier,
+          },
+        }
+      : {
+          table_name: "drivers_shoppers_central",
+          IndexName: "driver_fingerprint",
+          KeyConditionExpression: "driver_fingerprint = :val1",
+          ExpressionAttributeValues: {
+            ":val1": req.user_identifier,
+          },
+        };
+
   //Get the user data first
-  dynamo_find_query({
-    table_name: "users_central",
-    IndexName: "user_identifier",
-    KeyConditionExpression: "user_identifier = :val1",
-    ExpressionAttributeValues: {
-      ":val1": req.user_identifier,
-    },
-  })
+  dynamo_find_query(getExpression)
     .then((userData) => {
       if (userData !== undefined && userData.length > 0) {
         //Valid user
         userData = userData[0];
 
+        //Assemble the update expression
+        let updateExpressionRequest =
+          req.user_nature === "rider"
+            ? {
+                table_name: "users_central",
+                _idKey: userData._id,
+                UpdateExpression:
+                  "set pushnotif_token = :val1, last_updated = :val2",
+                ExpressionAttributeValues: {
+                  ":val1": req.pushnotif_token,
+                  ":val2": new Date(chaineDateUTC).toISOString(),
+                },
+              }
+            : {
+                table_name: "drivers_shoppers_central",
+                _idKey: userData._id,
+                UpdateExpression:
+                  "set operational_state.pushnotif_token = :val1, date_updated = :val2",
+                ExpressionAttributeValues: {
+                  ":val1": req.pushnotif_token,
+                  ":val2": new Date(chaineDateUTC).toISOString(),
+                },
+              };
+
         //?Update the records
-        dynamo_update({
-          table_name: "users_central",
-          _idKey: userData._id,
-          UpdateExpression: "set pushnotif_token = :val1, last_updated = :val2",
-          ExpressionAttributeValues: {
-            ":val1": req.pushnotif_token,
-            ":val2": new Date(chaineDateUTC).toISOString(),
-          },
-        }).then((result) => {
+        dynamo_update(updateExpressionRequest).then((result) => {
           if (result) {
             //Success
             //! Cache
@@ -4158,7 +4187,7 @@ redisCluster.on("connect", function () {
             });
         });
 
-        //?21. Upload the riders' pushnotif_token
+        //?21. Upload the riders' or drivers pushnotif_token
         app.post("/receivePushNotification_token", function (req, res) {
           new Promise((resolve) => {
             req = req.body;
@@ -4169,6 +4198,12 @@ redisCluster.on("connect", function () {
               req.pushnotif_token !== undefined &&
               req.pushnotif_token !== null
             ) {
+              //Attach the user nature: rider/driver
+              req["user_nature"] =
+                req.user_nature !== undefined && req.user_nature !== null
+                  ? req.user_nature
+                  : "rider";
+
               let redisKey = `${req.user_identifier}-pushnotif_tokenDataCached`;
               req.pushnotif_token = JSON.parse(req.pushnotif_token);
               //! Get the cached and compare, only update the database if not the same as the cached
