@@ -283,7 +283,7 @@ async function find_query({
 
     if (ScanIndexForward === null) delete params["ScanIndexForward"];
 
-    // logger.warn(params);
+    logger.warn(params);
     //...
     dynamoClient.query(params, function (err, resultFindget) {
       if (err) {
@@ -293,7 +293,6 @@ async function find_query({
       }
       //...
       // logger.info(resultFindget.Items.length);
-      // return Promise.resolve(resultFindget.Items);
       resolve(resultFindget.Items);
     });
   });
@@ -330,11 +329,29 @@ async function find_get(table_name, _idKey) {
  * @param table_name: the name of the table from which the record(s) will be retrived
  */
 
-async function get_all(table_name) {
+async function get_all({
+  table_name,
+  FilterExpression = {},
+  ExpressionAttributeValues = {},
+  ExpressionAttributeNames = {},
+}) {
   return new Promise((resolve) => {
     let params = {
       TableName: table_name,
+      FilterExpression: FilterExpression,
+      ExpressionAttributeValues: ExpressionAttributeValues,
+      ExpressionAttributeNames: ExpressionAttributeNames,
     };
+
+    //! Remove ExpressionAttributeNames or FilterExpression if not set
+    if (Object.keys(ExpressionAttributeNames).length === 0)
+      delete params["ExpressionAttributeNames"];
+
+    if (Object.keys(ExpressionAttributeValues).length === 0)
+      delete params["ExpressionAttributeValues"];
+
+    if (Object.keys(FilterExpression).length === 0)
+      delete params["FilterExpression"];
     //...
     dynamoClient.scan(params, function (err, resultFindget) {
       if (err) {
@@ -342,7 +359,7 @@ async function get_all(table_name) {
         resolve([]);
       }
       //...
-      logger.info(resultFindget);
+      logger.warn(params);
       resolve(resultFindget.Items);
     });
   });

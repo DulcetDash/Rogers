@@ -1220,7 +1220,7 @@ function execTripChecker_Dispatcher(
               resolve(resultFinal);
             },
             (error) => {
-              //logger.info(error);
+              logger.error(error);
               resolve(false);
             }
           );
@@ -1413,7 +1413,7 @@ function execGetDrivers_requests_and_provide(
               resolve(resultFinal);
             },
             (error) => {
-              //logger.info(error);
+              logger.info(error);
               resolve(false);
             }
           );
@@ -1651,7 +1651,7 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
   let res = resolve;
   let parsedRequestsArray = {
     request_fp: null,
-    request_type: null, //! RIDE, DELIVERY OR SCHEDULED
+    request_type: null, //! RIDE, DELIVERY OR SHOPPING
     isIntercity_trip: null,
     passenger_infos: {
       name: null,
@@ -4840,12 +4840,7 @@ function exec_getDriversProfile(req, redisKey, resolve) {
  */
 var collectionRidesDeliveries_data = null;
 var collectionRelativeDistances = null;
-var collectionRidersLocation_log = null;
 var collectionDrivers_profiles = null;
-var collectionGlobalEvents = null;
-var collectionWalletTransactions_logs = null;
-var collectionDedicatedServices_accounts = null;
-var collectionHistoricalGPS = null;
 
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
@@ -4937,7 +4932,7 @@ redisCluster.on("connect", function () {
                   : "rider",
                 req.requestType !== undefined && req.requestType !== null
                   ? req.requestType
-                  : "rides",
+                  : "RIDE",
                 res
               );
             }).then(
