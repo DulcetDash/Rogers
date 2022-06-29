@@ -4460,27 +4460,35 @@ redisCluster.on("connect", function () {
             req.user_fingerprint !== null &&
             req.user_fingerprint !== undefined
           ) {
-            let url =
-              `${
-                /production/i.test(process.env.EVIRONMENT)
-                  ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                  : process.env.LOCAL_URL
-              }` +
-              ":" +
-              process.env.MAP_SERVICE_PORT +
-              "/updatePassengerLocation";
             //Supplement or not the request string based on if the user is a driver or rider
-            if (req.user_nature !== undefined && req.user_nature !== null) {
-              req.user_nature =
-                req.user_nature !== undefined && req.user_nature !== null
-                  ? req.user_nature
-                  : "rider";
-              req.requestType =
-                req.requestType !== undefined && req.requestType !== null
-                  ? req.requestType
-                  : "rides";
-            }
+            req["user_nature"] =
+              req.user_nature !== undefined && req.user_nature !== null
+                ? req.user_nature
+                : "rider";
+            req["requestType"] =
+              req.requestType !== undefined && req.requestType !== null
+                ? req.requestType
+                : "rides";
             //...
+
+            //? Dynamically generate the correct route link based on the requestType
+            let url = `${
+              /production/i.test(process.env.EVIRONMENT)
+                ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                : process.env.LOCAL_URL
+            }:${
+              /RIDE/i.test(req.requestType)
+                ? process.env.MAP_SERVICE_PORT
+                : /DELIVERY/i.test(req.requestType)
+                ? process.env.MAP_SERVICE_DELIVERY
+                : process.env.MAP_SERVICE_SHOPPING
+            }/${
+              /RIDE/i.test(req.requestType)
+                ? "updatePassengerLocation"
+                : /DELIVERY/i.test(req.requestType)
+                ? "updatePassengerLocation_delivery"
+                : "updatePassengerLocation_shopping"
+            }`;
 
             requestAPI.post(
               { url, form: req },

@@ -4876,7 +4876,7 @@ redisCluster.on("connect", function () {
    * Responsible for updating in the databse and other caches new passenger's/rider's locations received.
    * Update CACHE -> MONGODB (-> TRIP CHECKER DISPATCHER)
    */
-  app.post("/updatePassengerLocation", function (req, res) {
+  app.post("/updatePassengerLocation_shopping", function (req, res) {
     new Promise((resMAIN) => {
       //DEBUG
       /*let testData = {
@@ -5962,5 +5962,5 @@ redisCluster.on("connect", function () {
     };
     });*/
 });
-server.listen(process.env.MAP_SERVICE_PORT);
+server.listen(process.env.MAP_SERVICE_SHOPPING);
 //dash.monitor({ server: server });

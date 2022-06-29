@@ -6165,9 +6165,12 @@ function sendSMSAny({ req, resolve, service }) {
 function getDriversProfile(req, resolve) {
   let redisKey = `${req.user_fingerprint}-driverProfile-cached`;
 
+  // logger.info(redisKey);
+
   //Check from the cache first
   redisGet(redisKey)
     .then((resp) => {
+      // console.log(resp);
       if (resp !== null) {
         //Has some data
         try {
@@ -7190,6 +7193,7 @@ redisCluster.on("connect", function () {
             getDriversProfile(req, resGetDriverProfile);
           })
             .then((driverProfile) => {
+              // logger.info(driverProfile);
               //! Only  if the driver is online
               if (driverProfile !== false && driverProfile !== undefined) {
                 //?Has some data
