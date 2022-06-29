@@ -123,8 +123,8 @@ function SendSMSTo(phone_number, message) {
         console.error(err, err.stack);
       });
   }
-  // let username = "taxiconnect";
-  // let password = "Taxiconnect*1";
+  // let username = "Nej";
+  // let password = "Nej*1";
 
   // let postData = JSON.stringify({
   //   to: phone_number,
@@ -2702,17 +2702,17 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
                               <div id="u_content_html_1" class="u_content_html" style="overflow-wrap: break-word;padding: 10px;">
                               <div class="u-col u_column style="display: flex;flex-direction: column;align-items: flex-start;justify-content: center;padding:20px;padding-left:5%;padding-right:5%;font-family:Arial, Helvetica, sans-serif;font-size: 15px;flex:1">
                               <div style="width: 100px;height:100px;bottom:20px;position: relative;margin:auto">
-                                  <img alt="TaxiConnect" src="https://ads-central-tc.s3.us-west-1.amazonaws.com/logo_ios.png" style="width: 100%;height: 100%;object-fit: contain;" />
+                                  <img alt="Nej" src="https://ads-central-tc.s3.us-west-1.amazonaws.com/logo_ios.png" style="width: 100%;height: 100%;object-fit: contain;" />
                               </div>
                               <div style="border-bottom:1px solid #d0d0d0;display: flex;flex-direction: row;justify-content: space-between;margin-bottom: 15px;width: 100%;">
                                   <div style="display: flex;flex-direction: row;">
                                       <div style="margin-left: 2%;">
-                                          <div style="font-weight: bold;font-size: 17px;">Posterity TaxiConnect Technologies CC</div>
+                                          <div style="font-weight: bold;font-size: 17px;">Nej Technologies CC</div>
                                           <div style="font-size: 14px;margin-top: 5px;color:#272626bb">
                                           <div>17 Schinz street</div>
                                           <div>Windhoek</div>
                                           <div>+264814400089</div>
-                                          <div>support@taxiconnectna.com</div>
+                                          <div>support@nejtechnologies.com</div>
                                           </div>
                                       </div>
                                   </div>
@@ -2800,7 +2800,7 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
                                 .replace(/,/g, "")}
                           
                               <div style="display: flex;flex-direction: row;justify-content: space-between;margin-top: 30px;align-items: center;width:100%">
-                                  <div style="flex:1;color:#272626bb;font-size: 12px;padding-right: 30px;min-width:150px;">Thank you for choosing TaxiConnect for all your business delivery needs.</div>
+                                  <div style="flex:1;color:#272626bb;font-size: 12px;padding-right: 30px;min-width:150px;">Thank you for choosing Nej for all your business delivery needs.</div>
                                   
                                   <di class="u-col u_column" style="flex:2;display:flex;flex-direction:column;width:70%;">
                                     <table style="width:100%;">
@@ -3836,40 +3836,36 @@ function cancelRequest_driver(bundleWorkingData, resolve) {
 /**
  * @func confirmPickupRequest_driver
  * Responsible for confirming pickup for any request from the driver app, If and only if the request was accepted by the driver who's requesting for the the pickup confirmation.
- * @param collectionRidesDeliveries_data: list of all the requests made.
- * @param collectionGlobalEvents: hold all the random events that happened somewhere.
  * @param bundleWorkingData: contains the driver_fp and the request_fp.
  * @param resolve
  */
-function confirmPickupRequest_driver(
-  bundleWorkingData,
-  collectionRidesDeliveries_data,
-  collectionGlobalEvents,
-  collectionDrivers_profiles,
-  resolve
-) {
+function confirmPickupRequest_driver(bundleWorkingData, resolve) {
   resolveDate();
 
-  let dynRequestFetcher =
-    bundleWorkingData.driver_fingerprint !== undefined &&
-    bundleWorkingData.driver_fingerprint !== null
-      ? {
-          request_fp: bundleWorkingData.request_fp,
-          taxi_id: bundleWorkingData.driver_fingerprint,
-        }
-      : {
-          request_fp: bundleWorkingData.request_fp,
-          client_id: bundleWorkingData.rider_fingerprint,
-        };
+  // let dynRequestFetcher =
+  //   bundleWorkingData.driver_fingerprint !== undefined &&
+  //   bundleWorkingData.driver_fingerprint !== null
+  //     ? {
+  //         request_fp: bundleWorkingData.request_fp,
+  //         taxi_id: bundleWorkingData.driver_fingerprint,
+  //       }
+  //     : {
+  //         request_fp: bundleWorkingData.request_fp,
+  //         client_id: bundleWorkingData.rider_fingerprint,
+  //       };
   //Only confirm pickup if not yet accepted by the driver
-  collectionRidesDeliveries_data
-    .find(dynRequestFetcher)
-    .toArray(function (err, requestGlobalData) {
-      if (err) {
-        resolve({ response: "unable_to_confirm_pickup_request_error" });
-      }
-      //...
-      if (requestGlobalData.length > 0) {
+  dynamo_find_query({
+    table_name: "requests_central",
+    IndexName: "shopper_id",
+    KeyConditionExpression: "shopper_id = :val1",
+    FilterExpression: "request_fp = :val2",
+    ExpressionAttributeValues: {
+      ":val1": bundleWorkingData.driver_fingerprint,
+      ":val2": bundleWorkingData.request_fp,
+    },
+  })
+    .then((requestGlobalData) => {
+      if (requestGlobalData !== undefined && requestGlobalData.length > 0) {
         requestGlobalData = requestGlobalData[0];
         //The driver requesting for the confirm pickup is the one who's currently associated to the request - proceed to the pickup confirmation.
         //Save the pickup confirmation event
@@ -3890,96 +3886,38 @@ function confirmPickupRequest_driver(
           () => {}
         );
         //Update the true request
-        dynamo_update(
-          "rides_deliveries_requests",
-          {
-            request_fp: requestGlobalData.request_fp,
-          },
-          "set taxi_id = :val1, date_pickup = :val2, #r.#i = :val3, #r.#in = :val4",
-          {
-            ":val1": requestGlobalData.taxi_id,
+        dynamo_update({
+          table_name: "requests_central",
+          _idKey: requestGlobalData._id,
+          UpdateExpression:
+            "set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#in = :val4",
+          ExpressionAttributeValues: {
+            ":val1": requestGlobalData.shopper_id,
             ":val2": new Date(chaineDateUTC).toISOString(),
             ":val3": true,
             ":val4": true,
           },
-          {
-            "#r": "ride_state_vars",
+          ExpressionAttributeNames: {
+            "#r": "request_state_vars",
             "#i": "isAccepted",
-            "#in": "inRideToDestination",
-          }
-        )
+            "#in": "inRouteToDropoff",
+          },
+        })
           .then((result) => {
             if (result === false) {
               resolve({ response: "unable_to_confirm_pickup_request_error" });
             }
 
-            //? If corporate delivery, notify the receiver by SMS
-            //! Send SMS just for corporate globality
-            let parsedRequest = requestGlobalData;
-            if (
-              parsedRequest.request_globality !== undefined &&
-              /corporate/i.test(parsedRequest.request_globality) &&
-              /DELIVERY/i.test(parsedRequest.ride_mode)
-            ) {
-              logger.warn("CORPORATE DELIVERY");
-              new Promise((resSub) => {
-                collectionDedicatedServices_accounts
-                  .find({
-                    company_fp: parsedRequest.client_id,
-                  })
-                  .toArray(function (err, companyData) {
-                    if (err) {
-                      logger.error(err);
-                      resSub(false);
-                    }
-                    //...
-                    if (companyData !== undefined && companyData.length > 0) {
-                      parsedRequest = parsedRequest.destinationData.map(
-                        (el) => {
-                          return {
-                            receiver_infos: el.receiver_infos,
-                          };
-                        }
-                      );
-                      parsedRequest = [
-                        ...new Set(parsedRequest.map(JSON.stringify)),
-                      ].map(JSON.parse);
-                      logger.info(parsedRequest);
-                      //Valid company
-                      parsedRequest.map((destination) => {
-                        if (
-                          destination.receiver_infos.receiver_name !== false &&
-                          destination.receiver_infos.receiver_name !==
-                            undefined &&
-                          destination.receiver_infos.receiver_phone !== false &&
-                          destination.receiver_infos.receiver_phone !==
-                            undefined &&
-                          destination.receiver_infos.receiver_phone !== null &&
-                          destination.receiver_infos.receiver_phone.length > 0
-                        ) {
-                          logger.error(destination);
-                          SendSMSTo(
-                            destination.receiver_infos.receiver_phone.replace(
-                              "+",
-                              ""
-                            ),
-                            `Hi ${
-                              destination.receiver_infos.receiver_name
-                            }, you have an incoming delivery from ${companyData[0].company_name.toUpperCase()}. You can track it using the TaxiConnect app. Thanks.`
-                          );
-                        }
-                      });
-                      //...
-                      resSub(true);
-                    } //Unknown company?
-                    else {
-                      resSub(false);
-                    }
-                  });
-              })
-                .then()
-                .catch();
-            }
+            //! Clear the request cached list for all the drivers in the same city
+            new Promise((resClearRedis) => {
+              clearCityDriversCacheLists({
+                city: requestGlobalData.locations.pickup.city,
+                requestType: requestGlobalData.ride_mode,
+                resolve: resClearRedis,
+              });
+            })
+              .then()
+              .catch((error) => logger.error(error));
 
             //DONE
             resolve({
@@ -3995,40 +3933,35 @@ function confirmPickupRequest_driver(
       else {
         resolve({ response: "unable_to_confirm_pickup_request_not_owned" });
       }
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve({ response: "unable_to_confirm_pickup_request_not_owned" });
     });
 }
 
 /**
  * @func confirmDropoffRequest_driver
  * Responsible for confirming dropoff for any request from the driver app, If and only if the request was accepted by the driver who's requesting for the the dropoff confirmation.
- * @param collectionRidesDeliveries_data: list of all the requests made.
- * @param collectionGlobalEvents: hold all the random events that happened somewhere.
  * @param bundleWorkingData: contains the driver_fp and the request_fp.
- * @param collectionPassengers_profiles: list of all the passengers.
- * @param collectionDrivers_profiles: the list of all the drivers.
  * @param resolve
  */
-function confirmDropoffRequest_driver(
-  bundleWorkingData,
-  collectionRidesDeliveries_data,
-  collectionGlobalEvents,
-  collectionPassengers_profiles,
-  collectionDrivers_profiles,
-  resolve
-) {
+function confirmDropoffRequest_driver(bundleWorkingData, resolve) {
   resolveDate();
   //Only confirm pickup if not yet accepted by the driver
-  collectionRidesDeliveries_data
-    .find({
-      request_fp: bundleWorkingData.request_fp,
-      taxi_id: bundleWorkingData.driver_fingerprint,
-    })
-    .toArray(function (err, result) {
-      if (err) {
-        resolve({ response: "unable_to_confirm_dropoff_request_error" });
-      }
-      //...
-      if (result.length > 0) {
+  dynamo_find_query({
+    table_name: "requests_central",
+    IndexName: "shopper_id",
+    KeyConditionExpression: "shopper_id = :val1",
+    FilterExpression: "request_fp = :val2",
+    ExpressionAttributeValues: {
+      ":val1": bundleWorkingData.driver_fingerprint,
+      ":val2": bundleWorkingData.request_fp,
+    },
+  })
+    .then((result) => {
+      if (result !== undefined && result.length > 0) {
+        let requestData = result[0];
         //The driver requesting for the confirm dropoff is the one who's currently associated to the request - proceed to the dropoff confirmation.
         //Save the dropoff confirmation event
         new Promise((res) => {
@@ -4046,194 +3979,45 @@ function confirmDropoffRequest_driver(
           .then(() => {})
           .catch();
         //Update the true request
-        dynamo_update(
-          "rides_deliveries_requests",
-          {
-            request_fp: bundleWorkingData.request_fp,
-          },
-          "set taxi_id = :val1, date_dropoff = :val2, #r.#i = :val3, #r.#in = :val4, #r.#is = :val5",
-          {
+        dynamo_update({
+          table_name: "requests_central",
+          _idKey: requestData._id,
+          UpdateExpression:
+            "set shopper_id = :val1, date_completedDropoff = :val2, #r.#i = :val3, #r.#in = :val4, #r.#is = :val5",
+          ExpressionAttributeValues: {
             ":val1": bundleWorkingData.driver_fingerprint,
             ":val2": new Date(chaineDateUTC).toISOString(),
             ":val3": true,
             ":val4": true,
             ":val5": true,
           },
-          {
-            "#r": "ride_state_vars",
+          ExpressionAttributeNames: {
+            "#r": "request_state_vars",
             "#i": "isAccepted",
-            "#in": "inRideToDestination",
-            "#is": "isRideCompleted_driverSide",
-          }
-        )
+            "#in": "inRouteToDropoff",
+            "#is": "completedDropoff",
+          },
+        })
           .then((result) => {
             if (result === false) {
               resolve({ response: "unable_to_confirm_dropoff_request_error" });
             }
 
-            //? Update the accepted rides brief list in the driver's profile
-            new Promise((resUpdateDriverProfile) => {
-              //! Get the driver's details - to fetch the car's fingerprint
-              collectionDrivers_profiles
-                .find({
-                  driver_fingerprint: bundleWorkingData.driver_fingerprint,
-                })
-                .toArray(function (err, driverData) {
-                  if (err) {
-                    resUpdateDriverProfile(false);
-                  }
-                  //...
-                  if (driverData.length > 0) {
-                    //Get request infos
-                    collectionRidesDeliveries_data
-                      .find({ request_fp: bundleWorkingData.request_fp })
-                      .toArray(function (err, requestPrevData) {
-                        if (err) {
-                          resUpdateDriverProfile(false);
-                        }
-                        //...
-                        if (
-                          requestPrevData !== undefined &&
-                          requestPrevData.length > 0 &&
-                          requestPrevData[0].request_fp !== undefined &&
-                          requestPrevData[0].request_fp !== null
-                        ) {
-                          //?Get the previous data or initialize it if empty
-                          let prevAcceptedData =
-                            driverData.accepted_requests_infos !== undefined &&
-                            driverData.accepted_requests_infos
-                              .total_passengers_number !== undefined &&
-                            driverData.accepted_requests_infos
-                              .total_passengers_number !== null &&
-                            driverData.accepted_requests_infos
-                              .total_passengers_number !== undefined &&
-                            driverData.accepted_requests_infos
-                              .total_passengers_number !== null
-                              ? driverData.accepted_requests_infos
-                              : {
-                                  total_passengers_number: 0,
-                                  requests_fingerprints: [],
-                                };
-                          //...
-                          //? Update with new request - remove current request data
-                          prevAcceptedData.total_passengers_number -= parseInt(
-                            driverData.accepted_requests_infos !== undefined &&
-                              driverData.accepted_requests_infos !== null &&
-                              driverData.accepted_requests_infos
-                                .total_passengers_number !== undefined &&
-                              driverData.accepted_requests_infos
-                                .total_passengers_number > 0
-                              ? requestPrevData[0].passengers_number
-                              : 0
-                          ); //! DO not remove if the total number of passengers was zero already.
-                          prevAcceptedData.requests_fingerprints =
-                            prevAcceptedData.requests_fingerprints.length > 0
-                              ? prevAcceptedData.requests_fingerprints.filter(
-                                  (fps) => fps !== bundleWorkingData.request_fp
-                                )
-                              : {}; //! Do not filter out the current request_fp if it was already empty.
-                          //...
-                          dynamo_update(
-                            "drivers_profiles",
-                            {
-                              driver_fingerprint:
-                                bundleWorkingData.driver_fingerprint,
-                            },
-                            "set #o.#a = :val1, date_updated = :val2",
-                            {
-                              ":val1": prevAcceptedData,
-                              ":val2": new Date(chaineDateUTC).toISOString(),
-                            },
-                            {
-                              "#o": "operational_state",
-                              "#a": "accepted_requests_infos",
-                            }
-                          )
-                            .then((result) => {
-                              if (result === false) {
-                                resUpdateDriverProfile(false);
-                              }
-                              //...
-                              resUpdateDriverProfile(true);
-                            })
-                            .catch((error) => {
-                              logger.error(error);
-                              resUpdateDriverProfile(false);
-                            });
-
-                          //?Notify the cllient
-                          //Send the push notifications - FOR Passengers
-                          new Promise((resSendNotif) => {
-                            //? Get the rider's details
-                            collectionPassengers_profiles
-                              .find({
-                                user_fingerprint: requestPrevData[0].client_id,
-                              })
-                              .toArray(function (err, ridersDetails) {
-                                if (err) {
-                                  resSendNotif(false);
-                                }
-                                //...
-                                if (
-                                  ridersDetails.length > 0 &&
-                                  ridersDetails[0].user_fingerprint !==
-                                    undefined &&
-                                  ridersDetails[0].pushnotif_token !== null &&
-                                  ridersDetails[0].pushnotif_token !==
-                                    undefined &&
-                                  ridersDetails[0].pushnotif_token.userId !==
-                                    undefined
-                                ) {
-                                  let message = {
-                                    app_id: process.env.RIDERS_APP_ID_ONESIGNAL,
-                                    android_channel_id:
-                                      process.env
-                                        .RIDERS_ONESIGNAL_CHANNEL_ACCEPTTEDD_REQUEST, //Ride or delivery channel
-                                    priority: 10,
-                                    contents: {
-                                      en: "Don't forget to confirm your drop off and rate your driver. Click here to do so.",
-                                    },
-                                    headings: { en: "Your trip is completed" },
-                                    content_available: true,
-                                    include_player_ids: [
-                                      String(
-                                        ridersDetails[0].pushnotif_token.userId
-                                      ),
-                                    ],
-                                  };
-                                  //Send
-                                  sendPushUPNotification(message);
-                                  resSendNotif(false);
-                                } else {
-                                  resSendNotif(false);
-                                }
-                              });
-                          }).then(
-                            () => {},
-                            () => {}
-                          );
-                        } //Strange - no request found
-                        else {
-                          resUpdateDriverProfile(true);
-                        }
-                      });
-                  } //No driver
-                  else {
-                    resUpdateDriverProfile(false);
-                  }
-                });
-            })
-              .then(
-                () => {},
-                () => {}
-              )
-              .catch((error) => {
-                //logger.info(error);
+            //! Clear the request cached list for all the drivers in the same city
+            new Promise((resClearRedis) => {
+              clearCityDriversCacheLists({
+                city: requestData.locations.pickup.city,
+                requestType: requestData.ride_mode,
+                resolve: resClearRedis,
               });
+            })
+              .then()
+              .catch((error) => logger.error(error));
+
             //DONE
             resolve({
               response: "successfully_confirmed_dropoff",
-              rider_fp: result[0].client_id,
+              rider_fp: requestData.client_id,
             });
           })
           .catch((error) => {
@@ -4244,6 +4028,10 @@ function confirmDropoffRequest_driver(
       else {
         resolve({ response: "unable_to_confirm_dropoff_request_not_owned" });
       }
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve({ response: "unable_to_confirm_dropoff_request_not_owned" });
     });
 }
 
@@ -5278,7 +5066,7 @@ redisCluster.on("connect", function () {
                                         let receiverName = ucFirst(
                                           parsedRequest.delivery_infos.receiverName_delivery.trim()
                                         );
-                                        let message = `Hello ${receiverName}, a package is being delivered to you via TaxiConnect, you can track it by creating a TaxiConnect account with your current number.\n\nThe TaxiConnect teams.`;
+                                        let message = `Hello ${receiverName}, a package is being delivered to you via Nej, you can track it by creating a Nej account with your current number.\n\nThe Nej teams.`;
                                         //!Check if the receiver is a current user
                                         collectionPassengers_profiles
                                           .find({
@@ -5297,7 +5085,7 @@ redisCluster.on("connect", function () {
                                               userReceiverData !== undefined &&
                                               userReceiverData.length > 0
                                             ) {
-                                              //Is a TaxiConnect user, check for how long the app has not been used.
+                                              //Is a Nej user, check for how long the app has not been used.
                                               resolveDate();
                                               if (
                                                 userReceiverData.last_updated !==
@@ -5370,7 +5158,7 @@ redisCluster.on("connect", function () {
                                                 );
                                                 resNotifyReceiver(true);
                                               }
-                                            } //Not a TaxiConnect user, Send an SMS
+                                            } //Not a Nej user, Send an SMS
                                             else {
                                               SendSMSTo(
                                                 receiversPhone,
@@ -5666,15 +5454,14 @@ redisCluster.on("connect", function () {
       // res.send({ response: "unable_to_cancel_request_error" });
       new Promise((res0) => {
         cancelRequest_driver(req, res0);
-      }).then(
-        (result) => {
+      })
+        .then((result) => {
           res.send(result);
-        },
-        (error) => {
-          logger.info(error);
+        })
+        .catch((error) => {
+          logger.error(error);
           res.send({ response: "unable_to_cancel_request_error" });
-        }
-      );
+        });
     }
   });
 
@@ -5703,24 +5490,17 @@ redisCluster.on("connect", function () {
     ) {
       //...
       new Promise((res0) => {
-        confirmPickupRequest_driver(
-          req,
-          collectionRidesDeliveries_data,
-          collectionGlobalEvents,
-          collectionDrivers_profiles,
-          res0
-        );
-      }).then(
-        (result) => {
+        confirmPickupRequest_driver(req, res0);
+      })
+        .then((result) => {
           res.send(result);
-        },
-        (error) => {
-          //logger.info(error);
+        })
+        .catch((error) => {
+          logger.error(error);
           res.send({
             response: "unable_to_confirm_pickup_request_error",
           });
-        }
-      );
+        });
     }
   });
 
@@ -5749,25 +5529,17 @@ redisCluster.on("connect", function () {
     ) {
       //...
       new Promise((res0) => {
-        confirmDropoffRequest_driver(
-          req,
-          collectionRidesDeliveries_data,
-          collectionGlobalEvents,
-          collectionPassengers_profiles,
-          collectionDrivers_profiles,
-          res0
-        );
-      }).then(
-        (result) => {
+        confirmDropoffRequest_driver(req, res0);
+      })
+        .then((result) => {
           res.send(result);
-        },
-        (error) => {
-          //logger.info(error);
+        })
+        .catch((error) => {
+          logger.error(error);
           res.send({
             response: "unable_to_confirm_dropoff_request_error",
           });
-        }
-      );
+        });
     }
   });
 });

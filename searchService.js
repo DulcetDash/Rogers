@@ -2089,7 +2089,7 @@ function findDestinationPathPreview(resolve, pointData) {
  * @param resolve
  * @param pointData: containing
  * Responsible to manage the requests of getting the polylines from the ROUTING engine
- * of TaxiConnect.
+ * of Nej.
  */
 function findRouteSnapshotExec(resolve, pointData) {
   let org_latitude = pointData.origin.latitude;

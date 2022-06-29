@@ -1080,7 +1080,9 @@ function tripChecker_Dispatcher(
             resCompute(true);
           })
             .then(() => {})
-            .catch((error) => {});
+            .catch((error) => {
+              logger.error(error);
+            });
         }
       } //No record
       else {
@@ -1099,7 +1101,9 @@ function tripChecker_Dispatcher(
           resCompute(true);
         })
           .then(() => {})
-          .catch((error) => {});
+          .catch((error) => {
+            logger.error(error);
+          });
       }
     })
     .catch((error) => {
@@ -1118,7 +1122,9 @@ function tripChecker_Dispatcher(
         resCompute(true);
       })
         .then(() => {})
-        .catch((error) => {});
+        .catch((error) => {
+          logger.error(error);
+        });
     });
 }
 
@@ -3853,7 +3859,7 @@ function findDestinationPathPreview(resolve, pointData) {
  * @param resolve
  * @param pointData: containing
  * Responsible to manage the requests of getting the polylines from the ROUTING engine
- * of TaxiConnect.
+ * of Nej.
  */
 function findRouteSnapshotExec(resolve, pointData) {
   let org_latitude = pointData.origin.latitude;
@@ -4918,7 +4924,12 @@ redisCluster.on("connect", function () {
         getDriversProfile(req, resGetDriverProfile);
       })
         .then((driverProfile) => {
-          if (driverProfile !== false) {
+          //! Only  if the driver is online
+          if (
+            driverProfile !== false &&
+            driverProfile !== undefined &&
+            driverProfile.operational_state.status === "online"
+          ) {
             //?Has some data
             //? 3. Get the rides, deliveries or shopping requests
             //Check for any existing ride

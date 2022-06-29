@@ -91,8 +91,8 @@ function SendSMSTo(phone_number, message) {
     .catch(function (err) {
       console.error(err, err.stack);
     });
-  // let username = "taxiconnect";
-  // let password = "Taxiconnect*1";
+  // let username = "Nej";
+  // let password = "Nej*1";
 
   // let postData = JSON.stringify({
   //   to: phone_number,
@@ -3202,7 +3202,7 @@ function execGet_driversDeepInsights_fromWalletData(
                           data !== false &&
                           data !== null
                       );
-                    //? Compute the global remaining comission for TaxiConnect
+                    //? Compute the global remaining comission for Nej
                     let totalEarnings = 0;
                     let totalDues = 0;
                     let totalDues_wallet = 0;
@@ -4351,7 +4351,7 @@ function getDriver_onlineOffline_status(req, resolve) {
                       driverData[0].suspension_infos.length - 1
                     ].reason
                   )
-                  ? `Your account has been suspended to an overdue TaxiConnect commission.`
+                  ? `Your account has been suspended to an overdue Nej commission.`
                   : false
                 : false,
           };
@@ -6152,6 +6152,112 @@ function sendSMSAny({ req, resolve, service }) {
 }
 
 /**
+ * @function getDriversProfile
+ * Responsible for getting very efficiently the drivers profile, first checking from the cache.
+ * @param req: the request data which MUST contain the user_fingerprint
+ * @param resolve
+ */
+function getDriversProfile(req, resolve) {
+  let redisKey = `${req.user_fingerprint}-driverProfile-cached`;
+
+  //Check from the cache first
+  redisGet(redisKey)
+    .then((resp) => {
+      if (resp !== null) {
+        //Has some data
+        try {
+          resp = JSON.parse(resp);
+          //...
+          resolve(resp);
+        } catch (error) {
+          logger.error(error);
+          new Promise((resCompute) => {
+            exec_getDriversProfile(req, redisKey, resCompute);
+          })
+            .then((result) => {
+              resolve(result);
+            })
+            .catch((error) => {
+              logger.error(error);
+              resolve(false);
+            });
+        }
+      } //No cached data
+      else {
+        //Make fresh request
+        new Promise((resCompute) => {
+          exec_getDriversProfile(req, redisKey, resCompute);
+        })
+          .then((result) => {
+            resolve(result);
+          })
+          .catch((error) => {
+            logger.error(error);
+            resolve(false);
+          });
+      }
+    })
+    .catch((error) => {
+      //Make fresh request
+      logger.error(error);
+      new Promise((resCompute) => {
+        exec_getDriversProfile(req, redisKey, resCompute);
+      })
+        .then((result) => {
+          resolve(result);
+        })
+        .catch((error) => {
+          logger.error(error);
+          resolve(false);
+        });
+    });
+}
+
+function exec_getDriversProfile(req, redisKey, resolve) {
+  dynamo_find_query({
+    table_name: "drivers_shoppers_central",
+    IndexName: "driver_fingerprint",
+    KeyConditionExpression: "driver_fingerprint = :val1",
+    ExpressionAttributeValues: {
+      ":val1": req.user_fingerprint,
+    },
+  })
+    .then((driverData) => {
+      if (driverData !== undefined && driverData.length > 0) {
+        //Found user data
+        //!Cache for 5min*1440 - > 5 days
+        redisCluster.setex(
+          redisKey,
+          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 1440,
+          JSON.stringify(driverData[0])
+        );
+        //...
+        resolve(driverData[0]);
+      } //No user data?
+      else {
+        resolve(false);
+      }
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve(false);
+    });
+}
+
+/**
+ * @func clearDriverProfileCache
+ * Responsible for clearing the drivers' profile cache
+ * @param driver_fingerprint: the id of the driver
+ * @param resolve
+ */
+function clearDriverProfileCache({ driver_fingerprint = "none", resolve }) {
+  let redisKey = `${driver_fingerprint}-driverProfile-cached`;
+  redisCluster.del(redisKey, function () {
+    resolve(true);
+  });
+}
+
+/**
  * MAIN
  */
 var collectionPassengers_profiles = null;
@@ -6160,9 +6266,6 @@ var collection_OTP_dispatch_map = null;
 var collectiondrivers_shoppers_central = null;
 var collectionGlobalEvents = null;
 var collectionWalletTransactions_logs = null;
-var collectionAdsCompanies_central = null;
-var collectionDedicatedServices_accounts = null;
-var collectionNotificationsComm_central = null;
 
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
@@ -6848,13 +6951,6 @@ redisCluster.on("connect", function () {
       ) {
         if (/make/i.test(req.action)) {
           //Found a driver
-          let updateData = {
-            $set: {
-              "operational_state.status": /online/i.test(req.state)
-                ? "online"
-                : "offline",
-            },
-          };
           //Make a modification
           //Valid data received
           new Promise((res0) => {
@@ -6868,7 +6964,7 @@ redisCluster.on("connect", function () {
               },
             })
               .then((driverData) => {
-                if (driverData.length > 0) {
+                if (driverData !== undefined && driverData.length > 0) {
                   //! GET THE SUSPENSION INFOS
                   let suspensionInfos = {
                     is_suspended:
@@ -6884,7 +6980,7 @@ redisCluster.on("connect", function () {
                               driverData[0].suspension_infos.length - 1
                             ].reason
                           )
-                          ? `Your account has been suspended to an overdue TaxiConnect commission.`
+                          ? `Your account has been suspended to an overdue Nej commission.`
                           : false
                         : false,
                   };
@@ -6897,40 +6993,43 @@ redisCluster.on("connect", function () {
                   };
                   //check
                   dynamo_find_query({
-                    table_name: "rides_deliveries_requests",
-                    IndexName: "taxi_id",
-                    KeyConditionExpression:
-                      "taxi_id = :val1, #r.#ia = :val2, #r.#isCDriver = :val3",
+                    table_name: "requests_central",
+                    IndexName: "shopper_id",
+                    KeyConditionExpression: "shopper_id = :val1",
+                    FilterExpression: "#r.#ia = :val2 AND #r.#iCo = :val3",
                     ExpressionAttributeValues: {
                       ":val1": req.driver_fingerprint,
                       ":val2": true,
                       ":val3": false,
                     },
                     ExpressionAttributeNames: {
-                      "#r": "ride_state_vars",
+                      "#r": "request_state_vars",
                       "#ia": "isAccepted",
-                      "#isCDriver": "isRideCompleted_driverSide",
+                      "#iCo": "completedDropoff",
                     },
                   })
                     .then((currentActiveRequests) => {
                       if (/offline/i.test(req.state)) {
                         //Only if the driver wants to go out
-                        if (currentActiveRequests.length <= 0) {
+                        if (
+                          currentActiveRequests !== undefined &&
+                          currentActiveRequests.length <= 0
+                        ) {
                           //No active requests - proceed
-                          dynamo_update(
-                            "drivers_shoppers_central",
-                            driverData[0]._id,
-                            "set #o.#s = :val1",
-                            {
+                          dynamo_update({
+                            table_name: "drivers_shoppers_central",
+                            _idKey: driverData[0]._id,
+                            UpdateExpression: "set #o.#s = :val1",
+                            ExpressionAttributeValues: {
                               ":val1": /online/i.test(req.state)
                                 ? "online"
                                 : "offline",
                             },
-                            {
+                            ExpressionAttributeNames: {
                               "#o": "operational_state",
                               "#s": "status",
-                            }
-                          )
+                            },
+                          })
                             .then((result) => {
                               if (result === false) {
                                 res0({
@@ -6946,7 +7045,7 @@ redisCluster.on("connect", function () {
                                     ? "online"
                                     : "offline",
                                   driver_fingerprint: req.driver_fingerprint,
-                                  date: new Date(chaineDateUTC),
+                                  date: new Date(chaineDateUTC).toISOString(),
                                 })
                                   .then()
                                   .catch((error) => {
@@ -6958,27 +7057,17 @@ redisCluster.on("connect", function () {
                                 () => {},
                                 () => {}
                               );
-                              //? Update the cache
-                              new Promise((resGetStatus) => {
-                                getDriver_onlineOffline_status(
-                                  req,
-                                  resGetStatus
-                                );
+
+                              //! clear tthe driver profiles cache
+                              new Promise((clear) => {
+                                clearDriverProfileCache({
+                                  driver_fingerprint: req.driver_fingerprint,
+                                  resolve: clear,
+                                });
                               })
-                                .then(
-                                  (result) => {
-                                    //!Cache the result
-                                    redisCluster.setex(
-                                      redisKey,
-                                      parseInt(
-                                        process.env.REDIS_EXPIRATION_5MIN
-                                      ) * 9,
-                                      JSON.stringify(result)
-                                    );
-                                  },
-                                  (error) => {}
-                                )
-                                .catch();
+                                .then()
+                                .catch((error) => logger.error(error));
+
                               //Done
                               res0({
                                 response: "successfully_done",
@@ -6986,6 +7075,8 @@ redisCluster.on("connect", function () {
                                   ? "online"
                                   : "offline",
                                 suspension_infos: suspensionInfos,
+                                operation_clearance:
+                                  driverData[0].operation_clearances,
                               });
                             })
                             .catch((error) => {
@@ -7003,20 +7094,20 @@ redisCluster.on("connect", function () {
                         }
                       } //If the driver want to go online - proceed
                       else {
-                        dynamo_update(
-                          "drivers_shoppers_central",
-                          driverData[0]._id,
-                          "set #o.#s = :val1",
-                          {
+                        dynamo_update({
+                          table_name: "drivers_shoppers_central",
+                          _idKey: driverData[0]._id,
+                          UpdateExpression: "set #o.#s = :val1",
+                          ExpressionAttributeValues: {
                             ":val1": /online/i.test(req.state)
                               ? "online"
                               : "offline",
                           },
-                          {
+                          ExpressionAttributeNames: {
                             "#o": "operational_state",
                             "#s": "status",
-                          }
-                        )
+                          },
+                        })
                           .then((result) => {
                             if (result === false) {
                               res0({
@@ -7042,24 +7133,17 @@ redisCluster.on("connect", function () {
                               () => {},
                               () => {}
                             );
-                            //? Update the cache
-                            new Promise((resGetStatus) => {
-                              getDriver_onlineOffline_status(req, resGetStatus);
+
+                            //! clear tthe driver profiles cache
+                            new Promise((clear) => {
+                              clearDriverProfileCache({
+                                driver_fingerprint: req.driver_fingerprint,
+                                resolve: clear,
+                              });
                             })
-                              .then(
-                                (result) => {
-                                  //!Cache the result
-                                  redisCluster.setex(
-                                    redisKey,
-                                    parseInt(
-                                      process.env.REDIS_EXPIRATION_5MIN
-                                    ) * 9,
-                                    JSON.stringify(result)
-                                  );
-                                },
-                                (error) => {}
-                              )
-                              .catch();
+                              .then()
+                              .catch((error) => logger.error(error));
+
                             //Done
                             res0({
                               response: "successfully_done",
@@ -7067,6 +7151,8 @@ redisCluster.on("connect", function () {
                                 ? "online"
                                 : "offline",
                               suspension_infos: suspensionInfos,
+                              operation_clearance:
+                                driverData[0].operation_clearances,
                             });
                           })
                           .catch((error) => {
@@ -7100,126 +7186,45 @@ redisCluster.on("connect", function () {
             }
           );
         } else if (/get/i.test(req.action)) {
-          /*resMAIN({
+          //? 2. Get the driver's profile
+          //Augment
+          req["user_fingerprint"] = req.driver_fingerprint;
+          new Promise((resGetDriverProfile) => {
+            getDriversProfile(req, resGetDriverProfile);
+          })
+            .then((driverProfile) => {
+              //! Only  if the driver is online
+              if (driverProfile !== false && driverProfile !== undefined) {
+                //?Has some data
+                resMAIN({
                   response: "successfully_got",
-                  flag: "online",
-                  //suspension_infos: { is_suspended: false },
-                });*/
-          //Check the cache first
-          redisGet(redisKey).then(
-            (resp) => {
-              if (resp !== null) {
-                try {
-                  new Promise((resGetStatus) => {
-                    getDriver_onlineOffline_status(req, resGetStatus);
-                  })
-                    .then(
-                      (result) => {
-                        //!Cache the result
-                        redisCluster.setex(
-                          redisKey,
-                          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 9,
-                          JSON.stringify(result)
-                        );
-                      },
-                      (error) => {
-                        logger.info(error);
-                      }
-                    )
-                    .catch((error) => {
-                      logger.info(error);
-                    });
-                  //Quickly return result
-                  resMAIN(JSON.parse(resp));
-                } catch (error) {
-                  new Promise((resGetStatus) => {
-                    getDriver_onlineOffline_status(req, resGetStatus);
-                  })
-                    .then(
-                      (result) => {
-                        //!Cache the result
-                        redisCluster.setex(
-                          redisKey,
-                          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 9,
-                          JSON.stringify(result)
-                        );
-                        //...
-                        resMAIN(result);
-                      },
-                      (error) => {
-                        logger.info(error);
-                        resMAIN({ response: "error_invalid_request" });
-                      }
-                    )
-                    .catch((error) => {
-                      logger.info(error);
-                      resMAIN({ response: "error_invalid_request" });
-                    });
-                }
-              } //Make a fresh request
-              else {
-                new Promise((resGetStatus) => {
-                  getDriver_onlineOffline_status(req, resGetStatus);
-                })
-                  .then(
-                    (result) => {
-                      //!Cache the result
-                      redisCluster.setex(
-                        redisKey,
-                        parseInt(process.env.REDIS_EXPIRATION_5MIN) * 9,
-                        JSON.stringify(result)
-                      );
-                      //...
-                      resMAIN(result);
-                    },
-                    (error) => {
-                      logger.info(error);
-                      resMAIN({ response: "error_invalid_request" });
-                    }
-                  )
-                  .catch((error) => {
-                    logger.info(error);
-                    resMAIN({ response: "error_invalid_request" });
-                  });
-              }
-            },
-            (error) => {
-              //Make a fresh request
-              logger.info(error);
-              new Promise((resGetStatus) => {
-                getDriver_onlineOffline_status(req, resGetStatus);
-              })
-                .then(
-                  (result) => {
-                    //!Cache the result
-                    redisCluster.setex(
-                      redisKey,
-                      parseInt(process.env.REDIS_EXPIRATION_5MIN) * 9,
-                      JSON.stringify(result)
-                    );
-                    //...
-                    resMAIN(result);
-                  },
-                  (error) => {
-                    logger.info(error);
-                    resMAIN({ response: "error_invalid_request" });
-                  }
-                )
-                .catch((error) => {
-                  logger.info(error);
-                  resMAIN({ response: "error_invalid_request" });
+                  flag: driverProfile.operational_state.status,
+                  suspension_infos: { is_suspended: false },
+                  operation_clearance: driverProfile.operation_clearances,
                 });
-            }
-          );
+              } //No driver profile data found
+              else {
+                resMAIN({
+                  response: "successfully_got",
+                  flag: "offline",
+                  suspension_infos: { is_suspended: false },
+                  operation_clearance: "NONE",
+                });
+              }
+            })
+            .catch((error) => {
+              logger.error(error);
+              resMAIN({
+                response: "successfully_got",
+                flag: "offline",
+                suspension_infos: { is_suspended: false },
+                operation_clearance: "NONE",
+              });
+            });
         }
       } //Invalid data
       else {
-        resMAIN({
-          response: "successfully_got",
-          flag: "online",
-          suspension_infos: { is_suspended: false },
-        });
-        //resMAIN({ response: "error_invalid_request" });
+        resMAIN({ response: "error_invalid_request" });
       }
     })
       .then((result) => {
@@ -7227,11 +7232,11 @@ redisCluster.on("connect", function () {
       })
       .catch((error) => {
         logger.info(error);
-        //res.send({ response: "error_invalid_request" });
         res.send({
           response: "successfully_got",
-          flag: "online",
+          flag: "offline",
           suspension_infos: { is_suspended: false },
+          operation_clearance: "NONE",
         });
       });
   });
