@@ -1215,45 +1215,41 @@ function proceedTargeted_requestHistory_fetcher(
 }
 
 /**
+ * @func clearDailyRequestAmountCached
+ * Responsible for clearing the cached data about the daily amount.
+ * @param driver_fingerprint: the driver's id
+ * @param resolve
+ */
+function clearDailyRequestAmountCached(driver_fingerprint, resolve) {
+  resolveDate();
+  //Form the redis key
+  let refDate = new Date(chaineDateUTC);
+  let redisKey = `dailyAmount-${refDate.getDay()}-${refDate.getMonth()}-${refDate.getFullYear()}-${driver_fingerprint}`;
+  //...
+  redisCluster.del(redisKey, function () {
+    resolve(true);
+  });
+}
+
+/**
  * @func getDaily_requestAmount_driver
  * Responsible for getting the daily amount made so far for the driver at any given time.
  * CACHED.
- * @param collectionRidesDeliveries_data: the list of all the rides/deliveries
- * @param collectiondrivers_shoppers_central: the list of all the drivers profiles
- * @param avoidCached_data: to avoid the cached data
+ * @param driver_fingerprint: the driver id
  * @param resolve
  */
-function getDaily_requestAmount_driver(
-  collectionRidesDeliveries_data,
-  collectiondrivers_shoppers_central,
-  driver_fingerprint,
-  avoidCached_data = false,
-  resolve
-) {
+function getDaily_requestAmount_driver(driver_fingerprint, resolve) {
   resolveDate();
   //Form the redis key
-  let redisKey = "dailyAmount-" + driver_fingerprint;
+  let refDate = new Date(chaineDateUTC);
+  let redisKey = `dailyAmount-${refDate.getDay()}-${refDate.getMonth()}-${refDate.getFullYear()}-${driver_fingerprint}`;
   //..
   redisGet(redisKey).then(
     (resp) => {
-      if (resp !== null && avoidCached_data == false) {
+      // logger.info(resp);
+      if (resp !== null) {
         //Has a previous record
         try {
-          //? Rehydrate
-          new Promise((res) => {
-            exec_computeDaily_amountMade(
-              collectionRidesDeliveries_data,
-              collectiondrivers_shoppers_central,
-              driver_fingerprint,
-              res
-            );
-          }).then(
-            (result) => {
-              redisCluster.set(redisKey, JSON.stringify(result));
-            },
-            (error) => {}
-          );
-          //...
           resp = JSON.parse(resp);
           //...
           resolve(resp);
@@ -1261,17 +1257,16 @@ function getDaily_requestAmount_driver(
           logger.info(error);
           //Errror - make a fresh request
           new Promise((res) => {
-            exec_computeDaily_amountMade(
-              collectionRidesDeliveries_data,
-              collectiondrivers_shoppers_central,
-              driver_fingerprint,
-              res
-            );
+            exec_computeDaily_amountMade(driver_fingerprint, res);
           }).then(
             (result) => {
               logger.info(result);
               //Cache as well
-              redisCluster.set(redisKey, JSON.stringify(result));
+              redisCluster.setex(
+                redisKey,
+                parseInt(process.env.REDIS_EXPIRATION_5MIN) * 405,
+                JSON.stringify(result)
+              );
               resolve(result);
             },
             (error) => {
@@ -1288,17 +1283,16 @@ function getDaily_requestAmount_driver(
       } //No computed amount yet - make a fresh request
       else {
         new Promise((res) => {
-          exec_computeDaily_amountMade(
-            collectionRidesDeliveries_data,
-            collectiondrivers_shoppers_central,
-            driver_fingerprint,
-            res
-          );
+          exec_computeDaily_amountMade(driver_fingerprint, res);
         }).then(
           (result) => {
             logger.info(result);
             //Cache as well
-            redisCluster.set(redisKey, JSON.stringify(result));
+            redisCluster.setex(
+              redisKey,
+              parseInt(process.env.REDIS_EXPIRATION_5MIN) * 405,
+              JSON.stringify(result)
+            );
             resolve(result);
           },
           (error) => {
@@ -1317,17 +1311,16 @@ function getDaily_requestAmount_driver(
       logger.info(error);
       //Errror - make a fresh request
       new Promise((res) => {
-        exec_computeDaily_amountMade(
-          collectionRidesDeliveries_data,
-          collectiondrivers_shoppers_central,
-          driver_fingerprint,
-          res
-        );
+        exec_computeDaily_amountMade(driver_fingerprint, res);
       }).then(
         (result) => {
           logger.info(result);
           //Cache as well
-          redisCluster.set(redisKey, JSON.stringify(result));
+          redisCluster.setex(
+            redisKey,
+            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 405,
+            JSON.stringify(result)
+          );
           resolve(result);
         },
         (error) => {
@@ -1362,16 +1355,10 @@ function checkIfSameDay(date1, date2) {
 /**
  * @func exec_computeDaily_amountMade
  * Responsible for executing all the operations related to the computation of the driver's daily amount.
- * @param collectionRidesDeliveries_data: the list of all the rides/deliveries
- * @param collectiondrivers_shoppers_central: the list of all the drivers profiles.
+ * @param driver_fingerprint: the driver id
  * @param resolve
  */
-function exec_computeDaily_amountMade(
-  collectionRidesDeliveries_data,
-  collectiondrivers_shoppers_central,
-  driver_fingerprint,
-  resolve
-) {
+function exec_computeDaily_amountMade(driver_fingerprint, resolve) {
   resolveDate();
   //...
   //Get the driver's requests operation clearances
@@ -1386,27 +1373,37 @@ function exec_computeDaily_amountMade(
     .then((driverProfile) => {
       if (driverProfile !== undefined && driverProfile.length > 0) {
         driverProfile = driverProfile[0];
-        //...
-        let filterRequest = {
-          taxi_id: driver_fingerprint,
-          "ride_state_vars.isRideCompleted_driverSide": true,
-          "ride_state_vars.isRideCompleted_riderSide": true,
-        };
+
+        let refDate = new Date(chaineDateUTC);
+        let today_beginning = `${refDate.getFullYear()}-${
+          refDate.getMonth() + 1 > 10
+            ? refDate.getMonth() + 1
+            : `0${refDate.getMonth() + 1}`
+        }-${refDate.getDate()}T00:00:00.000Z`;
+        let today_end = `${refDate.getFullYear()}-${
+          refDate.getMonth() + 1 > 10
+            ? refDate.getMonth() + 1
+            : `0${refDate.getMonth() + 1}`
+        }-${refDate.getDate()}T21:59:59.000Z`;
 
         dynamo_find_query({
-          table_name: "rides_deliveries_requests",
-          IndexName: "taxi_id",
+          table_name: "requests_central",
+          IndexName: "shopper_id",
           KeyConditionExpression:
-            "taxi_id = :val1, #r.#isCDriver = :val2, #r.#isCRider = :val3",
+            "shopper_id = :val1 AND date_requested BETWEEN :start_date AND :end_date",
+          FilterExpression: "#r.#isCodrop = :val2 AND #r.#icoRate = :val3",
+          ScanIndexForward: false,
           ExpressionAttributeValues: {
             ":val1": driver_fingerprint,
             ":val2": true,
             ":val3": true,
+            ":start_date": today_beginning,
+            ":end_date": today_end,
           },
           ExpressionAttributeNames: {
-            "#r": "ride_state_vars",
-            "#isCDriver": "isRideCompleted_driverSide",
-            "#isCRider": "isRideCompleted_riderSide",
+            "#r": "request_state_vars",
+            "#isCodrop": "completedDropoff",
+            "#icoRate": "completedRatingClient",
           },
         })
           .then((requestsArray) => {
@@ -1417,25 +1414,19 @@ function exec_computeDaily_amountMade(
               requestsArray.length > 0
             ) {
               requestsArray.map((request) => {
-                if (
-                  checkIfSameDay(
-                    new Date(chaineDateUTC),
-                    new Date(request.date_requested)
-                  )
-                ) {
-                  //Same day
-                  let tmpFare = parseFloat(request.fare);
-                  amount += tmpFare;
-                }
+                //Sum it all up
+                let tmpFare = parseFloat(request.fare);
+                amount += tmpFare;
               });
+              //...
               resolve({
                 amount: amount,
                 currency: "NAD",
                 currency_symbol: "N$",
                 supported_requests_types:
                   driverProfile !== undefined && driverProfile !== null
-                    ? driverProfile.operation_clearances.join("-")
-                    : "Ride",
+                    ? driverProfile.operation_clearances
+                    : "none",
                 response: "success",
               });
             } //No infos
@@ -1446,9 +1437,9 @@ function exec_computeDaily_amountMade(
                 currency_symbol: "N$",
                 supported_requests_types:
                   driverProfile !== undefined && driverProfile !== null
-                    ? driverProfile.operation_clearances.join("-")
-                    : "Ride",
-                response: "error",
+                    ? driverProfile.operation_clearances
+                    : "none",
+                response: "success",
               });
             }
           })
@@ -1460,8 +1451,8 @@ function exec_computeDaily_amountMade(
               currency_symbol: "N$",
               supported_requests_types:
                 driverProfile !== undefined && driverProfile !== null
-                  ? driverProfile.operation_clearances.join("-")
-                  : "Ride",
+                  ? driverProfile.operation_clearances
+                  : "none",
               response: "error",
             });
           });
@@ -4773,6 +4764,22 @@ function getReferredDrivers_list(
 }
 
 /**
+ * @func clearDriversGlobalAccountNumbersCache
+ * Responsible for clearing the drivers global account number cache
+ * @param driver_fingerprint: the driver id
+ * @param resolve
+ */
+function clearDriversGlobalAccountNumbersCache({
+  driver_fingerprint,
+  resolve,
+}) {
+  let redisKey = `${driver_fingerprint}-globalAccountNumbers`;
+  redisCluster.del(redisKey, function () {
+    resolve(true);
+  });
+}
+
+/**
  * @func getDriversGlobalAccountNumbers
  * Responsible for getting the global numbers from a drivers account like:
  * ?1. Total rides
@@ -4787,20 +4794,6 @@ function getDriversGlobalAccountNumbers(driver_fingerprint, resolve) {
   redisGet(redisKey).then((resp) => {
     if (resp !== null) {
       try {
-        //Rehydrate
-        new Promise((resCompute) => {
-          ExecgetDriversGlobalAccountNumbers(
-            driver_fingerprint,
-            redisKey,
-            resCompute
-          );
-        })
-          .then((result) => {})
-          .catch((error) => {
-            logger.error(error);
-          });
-        //...
-        logger.warn("Cached data");
         resp = JSON.parse(resp);
         resolve(resp);
       } catch (error) {
@@ -4865,12 +4858,17 @@ function ExecgetDriversGlobalAccountNumbers(
   resolve
 ) {
   dynamo_find_query({
-    table_name: "rides_deliveries_requests",
-    IndexName: "taxi_id",
-    KeyConditionExpression: "taxi_id = :val1, isArrivedToDestination = :val2",
+    table_name: "requests_central",
+    IndexName: "shopper_id",
+    KeyConditionExpression: "shopper_id = :val1",
+    FilterExpression: "#r.#icoRating = :val2",
     ExpressionAttributeValues: {
       ":val1": driver_fingerprint,
       ":val2": true,
+    },
+    ExpressionAttributeNames: {
+      "#r": "request_state_vars",
+      "#icoRating": "completedRatingClient",
     },
   })
     .then((tripsData) => {
@@ -4886,18 +4884,25 @@ function ExecgetDriversGlobalAccountNumbers(
 
         //Has some historical data
         tripsData.map((trip) => {
-          let tmpFare = parseFloat(trip.fare); //basic trip fare
-          tmpFare -= 0.1 * tmpFare; //TODO: should probably link the removal of the fare to the historical commission actually taken from it, because if the commission changes it will yield an inaccurate number.
+          // logger.info(trip);
+          let tmpFare = /RIDE/i.test(trip.ride_mode)
+            ? parseFloat(trip.totals_request.fare)
+            : /SHOPPING/i.test(trip.ride_mode)
+            ? parseFloat(trip.totals_request.service_fee.replace("N$", "")) +
+              parseFloat(trip.totals_request.cash_pickup_fee.replace("N$", ""))
+            : parseFloat(trip.totals_request.service_fee.replace("N$", "")) +
+              parseFloat(trip.totals_request.delivery_fee.replace("N$", "")); //basic trip fare
+          // tmpFare -= 0.1 * tmpFare; //TODO: should probably link the removal of the fare to the historical commission actually taken from it, because if the commission changes it will yield an inaccurate number.
           revenue += tmpFare;
           //...
           rides += /RIDE/i.test(trip.ride_mode) ? 1 : 0;
           deliveries += /DELIVERY/i.test(trip.ride_mode) ? 1 : 0;
           //...
           rating +=
-            trip.ride_state_vars.rider_driverRating !== undefined &&
-            trip.ride_state_vars.rider_driverRating !== null &&
-            /yet/i.test(trip.ride_state_vars.rider_driverRating) == false
-              ? parseFloat(trip.ride_state_vars.rider_driverRating)
+            trip.request_state_vars.rating_data.rating !== undefined &&
+            trip.request_state_vars.rating_data.rating !== null &&
+            /yet/i.test(trip.request_state_vars.rating_data.rating) == false
+              ? parseFloat(trip.request_state_vars.rating_data.rating)
               : 0;
         });
         //Find the final rating - average
@@ -6865,15 +6870,7 @@ redisCluster.on("connect", function () {
         req.driver_fingerprint !== null
       ) {
         new Promise((res0) => {
-          getDaily_requestAmount_driver(
-            collectionRidesDeliveries_data,
-            collectiondrivers_shoppers_central,
-            req.driver_fingerprint,
-            req.avoidCached_data !== undefined && req.avoidCached_data !== null
-              ? true
-              : false,
-            res0
-          );
+          getDaily_requestAmount_driver(req.driver_fingerprint, res0);
         }).then(
           (result) => {
             resMAIN(result);

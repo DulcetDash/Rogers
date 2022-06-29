@@ -2906,6 +2906,23 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
 }
 
 /**
+ * @func clearDailyRequestAmountCached
+ * Responsible for clearing the cached data about the daily amount.
+ * @param driver_fingerprint: the driver's id
+ * @param resolve
+ */
+function clearDailyRequestAmountCached(driver_fingerprint, resolve) {
+  resolveDate();
+  //Form the redis key
+  let refDate = new Date(chaineDateUTC);
+  let redisKey = `dailyAmount-${refDate.getDay()}-${refDate.getMonth()}-${refDate.getFullYear()}-${driver_fingerprint}`;
+  //...
+  redisCluster.del(redisKey, function () {
+    resolve(true);
+  });
+}
+
+/**
  * @func cancelRider_request
  * @param resolve
  * @param collectionRidesDeliveries_data: list of all the rides/delivery requests
@@ -3126,6 +3143,27 @@ function declineRequest_driver(bundleWorkingData, resolve) {
                   })
                     .then()
                     .catch((error) => logger.error(error));
+
+                  //! Clear the cached daily amount for THIS driver
+                  new Promise((resClearDaily) => {
+                    clearDailyRequestAmountCached(
+                      bundleWorkingData.driver_fingerprint,
+                      resClearDaily
+                    );
+                  })
+                    .then()
+                    .catch((error) => logger.error(error));
+
+                  //! Clear the cached global numbers for THIS driver
+                  new Promise((resClearDaily) => {
+                    clearDriversGlobalAccountNumbersCache({
+                      driver_fingerprint: bundleWorkingData.driver_fingerprint,
+                      resolve: resClearDaily,
+                    });
+                  })
+                    .then()
+                    .catch((error) => logger.error(error));
+
                   //DONE
                   resolve({ response: "successfully_declined" });
                 })
@@ -3302,6 +3340,26 @@ function acceptRequest_driver(bundleWorkingData, resolve) {
                       city: requestData.locations.pickup.city,
                       requestType: requestData.ride_mode,
                       resolve: resClearRedis,
+                    });
+                  })
+                    .then()
+                    .catch((error) => logger.error(error));
+
+                  //! Clear the cached daily amount for THIS driver
+                  new Promise((resClearDaily) => {
+                    clearDailyRequestAmountCached(
+                      bundleWorkingData.driver_fingerprint,
+                      resClearDaily
+                    );
+                  })
+                    .then()
+                    .catch((error) => logger.error(error));
+
+                  //! Clear the cached global numbers for THIS driver
+                  new Promise((resClearDaily) => {
+                    clearDriversGlobalAccountNumbersCache({
+                      driver_fingerprint: bundleWorkingData.driver_fingerprint,
+                      resolve: resClearDaily,
                     });
                   })
                     .then()
@@ -3799,6 +3857,26 @@ function cancelRequest_driver(bundleWorkingData, resolve) {
                   .then()
                   .catch((error) => logger.error(error));
 
+                //! Clear the cached daily amount for THIS driver
+                new Promise((resClearDaily) => {
+                  clearDailyRequestAmountCached(
+                    bundleWorkingData.driver_fingerprint,
+                    resClearDaily
+                  );
+                })
+                  .then()
+                  .catch((error) => logger.error(error));
+
+                //! Clear the cached global numbers for THIS driver
+                new Promise((resClearDaily) => {
+                  clearDriversGlobalAccountNumbersCache({
+                    driver_fingerprint: bundleWorkingData.driver_fingerprint,
+                    resolve: resClearDaily,
+                  });
+                })
+                  .then()
+                  .catch((error) => logger.error(error));
+
                 //DONE
                 resolve({
                   response: "successfully_cancelled",
@@ -3919,6 +3997,26 @@ function confirmPickupRequest_driver(bundleWorkingData, resolve) {
               .then()
               .catch((error) => logger.error(error));
 
+            //! Clear the cached daily amount for THIS driver
+            new Promise((resClearDaily) => {
+              clearDailyRequestAmountCached(
+                driverData[0].driver_fingerprint,
+                resClearDaily
+              );
+            })
+              .then()
+              .catch((error) => logger.error(error));
+
+            //! Clear the cached global numbers for THIS driver
+            new Promise((resClearDaily) => {
+              clearDriversGlobalAccountNumbersCache({
+                driver_fingerprint: driverData[0].driver_fingerprint,
+                resolve: resClearDaily,
+              });
+            })
+              .then()
+              .catch((error) => logger.error(error));
+
             //DONE
             resolve({
               response: "successfully_confirmed_pickup",
@@ -3938,6 +4036,22 @@ function confirmPickupRequest_driver(bundleWorkingData, resolve) {
       logger.error(error);
       resolve({ response: "unable_to_confirm_pickup_request_not_owned" });
     });
+}
+
+/**
+ * @func clearDriversGlobalAccountNumbersCache
+ * Responsible for clearing the drivers global account number cache
+ * @param driver_fingerprint: the driver id
+ * @param resolve
+ */
+function clearDriversGlobalAccountNumbersCache({
+  driver_fingerprint,
+  resolve,
+}) {
+  let redisKey = `${driver_fingerprint}-globalAccountNumbers`;
+  redisCluster.del(redisKey, function () {
+    resolve(true);
+  });
 }
 
 /**
@@ -4009,6 +4123,26 @@ function confirmDropoffRequest_driver(bundleWorkingData, resolve) {
                 city: requestData.locations.pickup.city,
                 requestType: requestData.ride_mode,
                 resolve: resClearRedis,
+              });
+            })
+              .then()
+              .catch((error) => logger.error(error));
+
+            //! Clear the cached daily amount for THIS driver
+            new Promise((resClearDaily) => {
+              clearDailyRequestAmountCached(
+                bundleWorkingData.driver_fingerprint,
+                resClearDaily
+              );
+            })
+              .then()
+              .catch((error) => logger.error(error));
+
+            //! Clear the cached global numbers for THIS driver
+            new Promise((resClearDaily) => {
+              clearDriversGlobalAccountNumbersCache({
+                driver_fingerprint: bundleWorkingData.driver_fingerprint,
+                resolve: resClearDaily,
               });
             })
               .then()
