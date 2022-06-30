@@ -4021,6 +4021,13 @@ function cancelRequest_driver(bundleWorkingData, resolve) {
  * @param resolve
  */
 function confirmPickupRequest_driver(bundleWorkingData, resolve) {
+  //? Resolve the requestType situation
+  bundleWorkingData["requestType"] =
+    bundleWorkingData.requestType !== undefined &&
+    bundleWorkingData.requestType !== null
+      ? bundleWorkingData.requestType
+      : "RIDE";
+
   resolveDate();
 
   // let dynRequestFetcher =
@@ -4067,23 +4074,48 @@ function confirmPickupRequest_driver(bundleWorkingData, resolve) {
           () => {}
         );
         //Update the true request
-        dynamo_update({
-          table_name: "requests_central",
-          _idKey: requestGlobalData._id,
-          UpdateExpression:
-            "set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#in = :val4",
-          ExpressionAttributeValues: {
-            ":val1": requestGlobalData.shopper_id,
-            ":val2": new Date(chaineDateUTC).toISOString(),
-            ":val3": true,
-            ":val4": true,
-          },
-          ExpressionAttributeNames: {
-            "#r": "request_state_vars",
-            "#i": "isAccepted",
-            "#in": "inRouteToDropoff",
-          },
-        })
+        //? Dynamically generate the update expression
+        let dynamicUpdateExpression = /RIDE/i.test(
+          bundleWorkingData.requestType
+        )
+          ? {
+              table_name: "requests_central",
+              _idKey: requestGlobalData._id,
+              UpdateExpression:
+                "set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#in = :val4",
+              ExpressionAttributeValues: {
+                ":val1": requestGlobalData.shopper_id,
+                ":val2": new Date(chaineDateUTC).toISOString(),
+                ":val3": true,
+                ":val4": true,
+              },
+              ExpressionAttributeNames: {
+                "#r": "request_state_vars",
+                "#i": "isAccepted",
+                "#in": "inRouteToDropoff",
+              },
+            }
+          : {
+              table_name: "requests_central",
+              _idKey: requestGlobalData._id,
+              UpdateExpression:
+                "set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#in = :val4, #r.#didPCash = :val5",
+              ExpressionAttributeValues: {
+                ":val1": requestGlobalData.shopper_id,
+                ":val2": new Date(chaineDateUTC).toISOString(),
+                ":val3": true,
+                ":val4": true,
+                ":val5": true,
+              },
+              ExpressionAttributeNames: {
+                "#r": "request_state_vars",
+                "#i": "isAccepted",
+                "#in": "inRouteToDropoff",
+                "#didPCash": "didPickupCash",
+              },
+            };
+
+        dynamo_update(dynamicUpdateExpression)
           .then((result) => {
             if (result === false) {
               resolve({ response: "unable_to_confirm_pickup_request_error" });
@@ -4103,7 +4135,7 @@ function confirmPickupRequest_driver(bundleWorkingData, resolve) {
             //! Clear the cached daily amount for THIS driver
             new Promise((resClearDaily) => {
               clearDailyRequestAmountCached(
-                driverData[0].driver_fingerprint,
+                bundleWorkingData.driver_fingerprint,
                 resClearDaily
               );
             })
@@ -4113,7 +4145,7 @@ function confirmPickupRequest_driver(bundleWorkingData, resolve) {
             //! Clear the cached global numbers for THIS driver
             new Promise((resClearDaily) => {
               clearDriversGlobalAccountNumbersCache({
-                driver_fingerprint: driverData[0].driver_fingerprint,
+                driver_fingerprint: bundleWorkingData.driver_fingerprint,
                 resolve: resClearDaily,
               });
             })
@@ -4162,8 +4194,22 @@ function clearDriversGlobalAccountNumbersCache({
  * Responsible for confirming dropoff for any request from the driver app, If and only if the request was accepted by the driver who's requesting for the the dropoff confirmation.
  * @param bundleWorkingData: contains the driver_fp and the request_fp.
  * @param resolve
+ * ! For the delivery this is only used to confirm the drop off of packages, not the overall delivery drop off state.
  */
 function confirmDropoffRequest_driver(bundleWorkingData, resolve) {
+  //? Resolve the requestType situation
+  bundleWorkingData["requestType"] =
+    bundleWorkingData.requestType !== undefined &&
+    bundleWorkingData.requestType !== null
+      ? bundleWorkingData.requestType
+      : "NONE";
+  //? Resolve the selected package index if any
+  bundleWorkingData["selectedPackageIndex"] =
+    bundleWorkingData.selectedPackageIndex !== undefined &&
+    bundleWorkingData.selectedPackageIndex !== null
+      ? parseInt(bundleWorkingData.selectedPackageIndex)
+      : 0;
+
   resolveDate();
   //Only confirm pickup if not yet accepted by the driver
   dynamo_find_query({
@@ -4196,25 +4242,72 @@ function confirmDropoffRequest_driver(bundleWorkingData, resolve) {
           .then(() => {})
           .catch();
         //Update the true request
-        dynamo_update({
-          table_name: "requests_central",
-          _idKey: requestData._id,
-          UpdateExpression:
-            "set shopper_id = :val1, date_completedDropoff = :val2, #r.#i = :val3, #r.#in = :val4, #r.#is = :val5",
-          ExpressionAttributeValues: {
-            ":val1": bundleWorkingData.driver_fingerprint,
-            ":val2": new Date(chaineDateUTC).toISOString(),
-            ":val3": true,
-            ":val4": true,
-            ":val5": true,
-          },
-          ExpressionAttributeNames: {
-            "#r": "request_state_vars",
-            "#i": "isAccepted",
-            "#in": "inRouteToDropoff",
-            "#is": "completedDropoff",
-          },
-        })
+        //! Update the drop off locations if delivery
+        let refreshedDropoff = /SHOPPING/i.test(bundleWorkingData.requestType)
+          ? requestData["shopping_list"]
+          : requestData["locations"]["dropoff"];
+        //Update
+        refreshedDropoff[bundleWorkingData.selectedPackageIndex][
+          "isDroped"
+        ] = true;
+        //Add the date
+        refreshedDropoff[bundleWorkingData.selectedPackageIndex][
+          "date_dropoff"
+        ] = new Date(chaineDateUTC).toISOString();
+
+        //? Dynamically generate the update expression
+        let dynamicUpdateExpression = /RIDE/i.test(
+          bundleWorkingData.requestType
+        )
+          ? {
+              table_name: "requests_central",
+              _idKey: requestData._id,
+              UpdateExpression:
+                "set shopper_id = :val1, date_completedDropoff = :val2, #r.#i = :val3, #r.#in = :val4, #r.#is = :val5",
+              ExpressionAttributeValues: {
+                ":val1": bundleWorkingData.driver_fingerprint,
+                ":val2": new Date(chaineDateUTC).toISOString(),
+                ":val3": true,
+                ":val4": true,
+                ":val5": true,
+              },
+              ExpressionAttributeNames: {
+                "#r": "request_state_vars",
+                "#i": "isAccepted",
+                "#in": "inRouteToDropoff",
+                "#is": "completedDropoff",
+              },
+            }
+          : /DELIVERY/i.test(bundleWorkingData.requestType)
+          ? {
+              table_name: "requests_central",
+              _idKey: requestData._id,
+              UpdateExpression: "set shopper_id = :val1, #locs.#drop = :val2",
+              ExpressionAttributeValues: {
+                ":val1": bundleWorkingData.driver_fingerprint,
+                ":val2": refreshedDropoff, //! The update locations
+              },
+              ExpressionAttributeNames: {
+                "#locs": "locations",
+                "#drop": "dropoff",
+              },
+            }
+          : //SHOPPING
+            {
+              table_name: "requests_central",
+              _idKey: requestData._id,
+              UpdateExpression: "set shopper_id = :val1, shopping_list = :val2",
+              ExpressionAttributeValues: {
+                ":val1": bundleWorkingData.driver_fingerprint,
+                ":val2": refreshedDropoff, //! The update locations
+              },
+              ExpressionAttributeNames: {
+                "#locs": "locations",
+                "#drop": "dropoff",
+              },
+            };
+
+        dynamo_update(dynamicUpdateExpression)
           .then((result) => {
             if (result === false) {
               resolve({ response: "unable_to_confirm_dropoff_request_error" });
