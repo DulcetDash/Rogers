@@ -1030,7 +1030,7 @@ function tripChecker_Dispatcher(
   driverData,
   user_fingerprint,
   user_nature,
-  requestType = "ride",
+  requestType = "SHOPPING",
   resolve
 ) {
   let RIDE_REDIS_KEY = `${user_fingerprint}-rideDeliveryMade-holder-${requestType}`;
@@ -1041,7 +1041,7 @@ function tripChecker_Dispatcher(
         logger.error("CACHED");
         //Has a record
         try {
-          //Make a rehydrate request
+          //! DEBUG - Make a rehydrate request
           new Promise((resCompute) => {
             execTripChecker_Dispatcher(
               driverData,
@@ -1061,6 +1061,7 @@ function tripChecker_Dispatcher(
             .catch((error) => {
               logger.error(error);
             });
+
           resp = JSON.parse(resp);
           //....
           resolve(resp);
@@ -1144,7 +1145,7 @@ function execTripChecker_Dispatcher(
   driverData,
   user_fingerprint,
   user_nature,
-  requestType = "ride",
+  requestType = "SHOPPING",
   RIDE_REDIS_KEY,
   resolve
 ) {
@@ -1160,16 +1161,16 @@ function execTripChecker_Dispatcher(
       ":val1": driverData.operation_clearances,
       ":val2": true,
       ":val3": false,
-      // ":val4": false,
       ":val5": user_fingerprint,
     },
     ExpressionAttributeNames: {
       "#r": "request_state_vars",
       "#isAcc": "isAccepted",
-      "#icoDrop": "completedDropoff",
+      "#icoDrop": "completedShopping",
     },
   })
     .then((acceptedRidesArray) => {
+      logger.info(acceptedRidesArray);
       if (acceptedRidesArray !== undefined && acceptedRidesArray.length > 0) {
         logger.warn("Hass some accepted rides");
         logger.warn(requestType);
@@ -1348,14 +1349,13 @@ function execGetDrivers_requests_and_provide(
       IndexName: "shopper_id",
       KeyConditionExpression: "shopper_id = :val1",
       FilterExpression:
-        "#r.#isAcc = :val2 AND #r.#icoDrop = :val3 AND NOT contains(intentional_request_decline, :val5) AND #rides.#cartp = :val6 AND #locs.#pick.#ct = :val7 AND ride_mode = :val8",
+        "#r.#isAcc = :val2 AND #r.#icoDrop = :val3 AND NOT contains(intentional_request_decline, :val5) AND #locs.#pick.#ct = :val7 AND ride_mode = :val8",
       ExpressionAttributeValues: {
         ":val1": "false",
         ":val2": false,
         ":val3": false,
         // ":val4": false,
         ":val5": driverData.driver_fingerprint,
-        ":val6": driverData.operational_state.default_selected_car.vehicle_type,
         ":val7": driverData.regional_clearances.includes(
           driverData.operational_state.last_location.city
         )
@@ -1366,12 +1366,10 @@ function execGetDrivers_requests_and_provide(
       ExpressionAttributeNames: {
         "#r": "request_state_vars",
         "#isAcc": "isAccepted",
-        "#icoDrop": "completedDropoff",
+        "#icoDrop": "completedShopping",
         "#locs": "locations",
         "#pick": "pickup",
         "#ct": "city",
-        "#rides": "ride_selected",
-        "#cartp": "car_type",
       },
     })
       .then((requestsData) => {
@@ -1438,14 +1436,13 @@ function execGetDrivers_requests_and_provide(
       IndexName: "shopper_id",
       KeyConditionExpression: "shopper_id = :val1",
       FilterExpression:
-        "#r.#isAcc = :val2 AND #r.#icoDrop = :val3 AND NOT contains(intentional_request_decline, :val5) AND #rides.#cartp = :val6 AND #locs.#pick.#ct = :val7 AND ride_mode = :val8",
+        "#r.#isAcc = :val2 AND #r.#icoDrop = :val3 AND NOT contains(intentional_request_decline, :val5) AND #locs.#pick.#ct = :val7 AND ride_mode = :val8",
       ExpressionAttributeValues: {
         ":val1": "false",
         ":val2": false,
         ":val3": false,
         // ":val4": false,
         ":val5": driverData.driver_fingerprint,
-        ":val6": driverData.operational_state.default_selected_car.vehicle_type,
         ":val7": driverData.regional_clearances.includes(
           driverData.operational_state.last_location.city
         )
@@ -1456,12 +1453,10 @@ function execGetDrivers_requests_and_provide(
       ExpressionAttributeNames: {
         "#r": "request_state_vars",
         "#isAcc": "isAccepted",
-        "#icoDrop": "completedDropoff",
+        "#icoDrop": "completedShopping",
         "#locs": "locations",
         "#pick": "pickup",
         "#ct": "city",
-        "#rides": "ride_selected",
-        "#cartp": "car_type",
       },
     })
       .then((requestsData) => {
@@ -1470,13 +1465,13 @@ function execGetDrivers_requests_and_provide(
           //Found some data
           //! 1. Filter the requests based on the clearances of the driver - ride/delivery
           let clearancesString = driverData.operation_clearances;
-          let max_passengers_capacity =
-            driverData.operational_state.default_selected_car.max_passengers !==
-              undefined &&
-            driverData.operational_state.default_selected_car.max_passengers !==
-              null
-              ? driverData.operational_state.default_selected_car.max_passengers
-              : 4;
+          // let max_passengers_capacity =
+          //   driverData.operational_state.default_selected_car.max_passengers !==
+          //     undefined &&
+          //   driverData.operational_state.default_selected_car.max_passengers !==
+          //     null
+          //     ? driverData.operational_state.default_selected_car.max_passengers
+          //     : 4;
           //...
           let refinedRequests = requestsData.filter((request) => {
             let tmpReg = new RegExp(request.ride_mode, "i");
@@ -1626,7 +1621,9 @@ function parseRequests_forDrivers_view(requestsArray, driverData, resolve) {
               (request) => request !== false
             );
             //? DONE
-            // logger.info(batchRequestsResultsFiltered);
+            // console.log(
+            //   batchRequestsResultsFiltered[0].origin_destination_infos
+            // );
             resolve(batchRequestsResultsFiltered);
           })
           .catch((error) => {
@@ -1667,21 +1664,23 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
       eta: null,
       distance: null,
     },
-    ride_basic_infos: {
+    delivery_basic_infos: {
       payment_method: null,
       wished_pickup_time: null, //Very important for scheduled requests
       date_state_wishedPickup_time: null, //To indicate "Today" or "Tomorrow" for the pickup time.
-      fare_amount: null,
-      passengers_number: null,
+      totals_delivery: null, //Holds all the fees details.
       ride_style: null,
       isAccepted: null,
-      inRideToDestination: null,
-      isRideCompleted_driverSide: null,
+
+      inRouteToDelivery: null,
+      completedShopping: null,
+      inRouteToShop: null,
+
       ride_mode: null, //ride or delivery
       request_type: null, //immediate or scheduled
       pickup_note: null, //If not set - null
-      rider_infos: null,
-      receiver_infos: null, //Receiver's infos
+
+      shopping_list: null, //The list of items to shop
     },
     origin_destination_infos: {
       pickup_infos: {
@@ -1699,6 +1698,7 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
       },
       destination_infos: null, //Array of n destination(s) - location_name, street_name, suburb, passenger_id
     },
+    security: null, //Will hold the security PIN
   };
   //...
   //Start the individual parsing
@@ -1729,14 +1729,14 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
           ? passengerData.phone_number
           : null;
         //2. Add the basic trip infos
-        parsedRequestsArray.ride_basic_infos.payment_method =
+        parsedRequestsArray.delivery_basic_infos.payment_method =
           request.payment_method;
-        parsedRequestsArray.ride_basic_infos.wished_pickup_time =
+        parsedRequestsArray.delivery_basic_infos.wished_pickup_time =
           request.date_requested;
         //? Check if Today or Tomorrow Only for scheduled requests
         if (/scheduled/i.test(request.request_type)) {
           //Scheduled request
-          parsedRequestsArray.ride_basic_infos.date_state_wishedPickup_time =
+          parsedRequestsArray.delivery_basic_infos.date_state_wishedPickup_time =
             new Date(request.wished_pickup_time).getDate() ===
             new Date(chaineDateUTC).getDate()
               ? "Today"
@@ -1746,7 +1746,7 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
               : "Yesterday";
         } //Immediate request
         else {
-          parsedRequestsArray.ride_basic_infos.date_state_wishedPickup_time =
+          parsedRequestsArray.delivery_basic_infos.date_state_wishedPickup_time =
             null;
         }
         //! Attach intercity state
@@ -1756,35 +1756,38 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
             ? request.isIntercity_trip
             : false;
         //?---
-        parsedRequestsArray.ride_basic_infos.fare_amount = parseFloat(
-          request.totals_request.fare
-        );
-        parsedRequestsArray.ride_basic_infos.passengers_number = parseInt(
-          request.passengers_number
-        );
-        parsedRequestsArray.ride_basic_infos.request_type =
+        parsedRequestsArray.delivery_basic_infos.totals_delivery =
+          request.totals_request;
+
+        parsedRequestsArray.delivery_basic_infos.request_type =
           request.request_type;
-        parsedRequestsArray.ride_basic_infos.ride_mode = request.ride_mode;
-        parsedRequestsArray.ride_basic_infos.ride_style = request.ride_style;
-        parsedRequestsArray.ride_basic_infos.isAccepted =
+        parsedRequestsArray.delivery_basic_infos.ride_mode = request.ride_mode;
+        parsedRequestsArray.delivery_basic_infos.ride_style = "shared";
+        parsedRequestsArray.delivery_basic_infos.isAccepted =
           request.request_state_vars.isAccepted;
-        parsedRequestsArray.ride_basic_infos.inRideToDestination =
-          request.request_state_vars.inRouteToDropoff;
-        parsedRequestsArray.ride_basic_infos.isRideCompleted_driverSide =
-          request.request_state_vars.completedDropoff;
+        //?
+        parsedRequestsArray.delivery_basic_infos.inRouteToDelivery =
+          request.request_state_vars.inRouteToDelivery;
+        parsedRequestsArray.delivery_basic_infos.completedShopping =
+          request.request_state_vars.completedShopping;
+        parsedRequestsArray.delivery_basic_infos.inRouteToShop =
+          request.request_state_vars.inRouteToShop;
         //...
-        parsedRequestsArray.ride_basic_infos.rider_infos =
-          "request.rider_infos";
-        parsedRequestsArray.ride_basic_infos.pickup_note =
+        parsedRequestsArray.delivery_basic_infos.pickup_note =
           /false/i.test(request.request_documentation.note) ||
           request.request_documentation.note === "false" ||
           request.request_documentation.note === false ||
           request.request_documentation.length === 0
             ? null
             : request.request_documentation.note;
+
+        //! Attach the shopping list
+        parsedRequestsArray.delivery_basic_infos.shopping_list =
+          request.shopping_list;
+
+        //! Attach the security
+        parsedRequestsArray.security = request.security;
         //...
-        parsedRequestsArray.ride_basic_infos.receiver_infos =
-          "request.delivery_infos";
         //3. Compute the ETA to passenger
         new Promise((res0) => {
           getRouteInfosDestination(
@@ -1860,10 +1863,10 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
                   {
                     destination: {
                       latitude: parseFloat(
-                        request.locations.dropoff[0].coordinates[1]
+                        request.locations.delivery.coordinates[1]
                       ),
                       longitude: parseFloat(
-                        request.locations.dropoff[0].coordinates[0]
+                        request.locations.delivery.coordinates[0]
                       ),
                     },
                     passenger: {
@@ -1890,7 +1893,7 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
                         resultETAToDestination.distance;
                       //4. Save the destination data
                       parsedRequestsArray.origin_destination_infos.destination_infos =
-                        request.locations.dropoff;
+                        [request.locations.delivery];
                       //Add the request fingerprint
                       parsedRequestsArray.request_fp = request.request_fp;
                       //DONE
@@ -1919,7 +1922,7 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
                         "Awaiting";
                       //4. Save the destination data
                       parsedRequestsArray.origin_destination_infos.destination_infos =
-                        request.locations.dropoff;
+                        [request.locations.delivery];
                       //Add the request fingerprint
                       parsedRequestsArray.request_fp = request.request_fp;
                       //DONE
@@ -1942,7 +1945,7 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
                     }
                   },
                   (error) => {
-                    //logger.warn(error);
+                    logger.error(error);
                     //! Salvage anyway
                     //Save the ETA to destination data
                     parsedRequestsArray.origin_destination_infos.eta_to_destination_infos.eta =
@@ -1951,7 +1954,7 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
                       "Awaiting";
                     //4. Save the destination data
                     parsedRequestsArray.origin_destination_infos.destination_infos =
-                      request.locations.dropoff;
+                      [request.locations.delivery];
                     //Add the request fingerprint
                     parsedRequestsArray.request_fp = request.request_fp;
                     //DONE
@@ -1974,7 +1977,7 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
                   }
                 )
                 .catch((error) => {
-                  //logger.warn(error);
+                  logger.error(error);
                   //! Salvage anyway
                   //Save the ETA to destination data
                   parsedRequestsArray.origin_destination_infos.eta_to_destination_infos.eta =
@@ -1983,7 +1986,7 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
                     "Awaiting";
                   //4. Save the destination data
                   parsedRequestsArray.origin_destination_infos.destination_infos =
-                    request.locations.dropoff;
+                    [request.locations.delivery];
                   //Add the request fingerprint
                   parsedRequestsArray.request_fp = request.request_fp;
                   //DONE
@@ -2006,12 +2009,12 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
                 });
             },
             (error) => {
-              //logger.info(error);
+              logger.error(error);
               res(false);
             }
           )
           .catch((error) => {
-            //logger.info(error);
+            logger.error(error);
             resolve(false);
           });
       } //No data found - strange
@@ -4938,17 +4941,12 @@ redisCluster.on("connect", function () {
               tripChecker_Dispatcher(
                 driverProfile,
                 req.user_fingerprint,
-                req.user_nature !== undefined && req.user_nature !== null
-                  ? req.user_nature
-                  : "rider",
-                req.requestType !== undefined && req.requestType !== null
-                  ? req.requestType
-                  : "RIDE",
+                "rider",
+                "SHOPPING",
                 res
               );
             }).then(
               (result) => {
-                logger.info("higher livel;");
                 //Update the rider
                 if (result !== false) {
                   if (result != "no_rides") {
@@ -4963,7 +4961,7 @@ redisCluster.on("connect", function () {
                 }
               },
               (error) => {
-                //logger.info(error);
+                logger.error(error);
                 resMAIN({ request_status: "no_rides" });
               }
             );

@@ -7252,7 +7252,7 @@ redisCluster.on("connect", function () {
             getDriversProfile(req, resGetDriverProfile);
           })
             .then((driverProfile) => {
-              // logger.info(driverProfile);
+              logger.info(driverProfile);
               //! Only  if the driver is online
               if (driverProfile !== false && driverProfile !== undefined) {
                 //?Has some data
@@ -7288,6 +7288,7 @@ redisCluster.on("connect", function () {
       }
     })
       .then((result) => {
+        // logger.info(result);
         res.send(result);
       })
       .catch((error) => {
