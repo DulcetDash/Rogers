@@ -6985,188 +6985,247 @@ redisCluster.on("connect", function () {
                         : false,
                   };
                   //! ------------------------
-                  //Check if the driver has an active request - NOT LOG OUT WITH AN ACTIVE REQUEST
-                  let checkActiveRequests = {
-                    taxi_id: req.driver_fingerprint,
-                    "ride_state_vars.isAccepted": true,
-                    "ride_state_vars.isRideCompleted_driverSide": false,
-                  };
-                  //check
-                  dynamo_find_query({
-                    table_name: "requests_central",
-                    IndexName: "shopper_id",
-                    KeyConditionExpression: "shopper_id = :val1",
-                    FilterExpression: "#r.#ia = :val2 AND #r.#iCo = :val3",
+                  dynamo_update({
+                    table_name: "drivers_shoppers_central",
+                    _idKey: driverData[0]._id,
+                    UpdateExpression: "set #o.#s = :val1",
                     ExpressionAttributeValues: {
-                      ":val1": req.driver_fingerprint,
-                      ":val2": true,
-                      ":val3": false,
+                      ":val1": /online/i.test(req.state) ? "online" : "offline",
                     },
                     ExpressionAttributeNames: {
-                      "#r": "request_state_vars",
-                      "#ia": "isAccepted",
-                      "#iCo": "completedDropoff",
+                      "#o": "operational_state",
+                      "#s": "status",
                     },
                   })
-                    .then((currentActiveRequests) => {
-                      if (/offline/i.test(req.state)) {
-                        //Only if the driver wants to go out
-                        if (
-                          currentActiveRequests !== undefined &&
-                          currentActiveRequests.length <= 0
-                        ) {
-                          //No active requests - proceed
-                          dynamo_update({
-                            table_name: "drivers_shoppers_central",
-                            _idKey: driverData[0]._id,
-                            UpdateExpression: "set #o.#s = :val1",
-                            ExpressionAttributeValues: {
-                              ":val1": /online/i.test(req.state)
-                                ? "online"
-                                : "offline",
-                            },
-                            ExpressionAttributeNames: {
-                              "#o": "operational_state",
-                              "#s": "status",
-                            },
-                          })
-                            .then((result) => {
-                              if (result === false) {
-                                res0({
-                                  response: "error_invalid_request",
-                                });
-                              }
-                              //...
-                              //Save the going offline event
-                              new Promise((res) => {
-                                dynamo_insert("global_events", {
-                                  event_name: "driver_switching_status_request",
-                                  status: /online/i.test(req.state)
-                                    ? "online"
-                                    : "offline",
-                                  driver_fingerprint: req.driver_fingerprint,
-                                  date: new Date(chaineDateUTC).toISOString(),
-                                })
-                                  .then()
-                                  .catch((error) => {
-                                    logger.error(error);
-                                  });
-                                //...
-                                res(true);
-                              }).then(
-                                () => {},
-                                () => {}
-                              );
-
-                              //! clear tthe driver profiles cache
-                              new Promise((clear) => {
-                                clearDriverProfileCache({
-                                  driver_fingerprint: req.driver_fingerprint,
-                                  resolve: clear,
-                                });
-                              })
-                                .then()
-                                .catch((error) => logger.error(error));
-
-                              //Done
-                              res0({
-                                response: "successfully_done",
-                                flag: /online/i.test(req.state)
-                                  ? "online"
-                                  : "offline",
-                                suspension_infos: suspensionInfos,
-                                operation_clearance:
-                                  driverData[0].operation_clearances,
-                              });
-                            })
-                            .catch((error) => {
-                              logger.error(error);
-                              res0({
-                                response: "error_invalid_request",
-                              });
-                            });
-                        } //Has an active request - abort going offline
-                        else {
-                          res0({
-                            response:
-                              "error_going_offline_activeRequest_inProgress",
-                          });
-                        }
-                      } //If the driver want to go online - proceed
-                      else {
-                        dynamo_update({
-                          table_name: "drivers_shoppers_central",
-                          _idKey: driverData[0]._id,
-                          UpdateExpression: "set #o.#s = :val1",
-                          ExpressionAttributeValues: {
-                            ":val1": /online/i.test(req.state)
-                              ? "online"
-                              : "offline",
-                          },
-                          ExpressionAttributeNames: {
-                            "#o": "operational_state",
-                            "#s": "status",
-                          },
+                    .then((result) => {
+                      if (result === false) {
+                        res0({
+                          response: "error_invalid_request",
+                        });
+                      }
+                      //...
+                      //Save the going offline event
+                      new Promise((res) => {
+                        dynamo_insert("global_events", {
+                          event_name: "driver_switching_status_request",
+                          status: /online/i.test(req.state)
+                            ? "online"
+                            : "offline",
+                          driver_fingerprint: req.driver_fingerprint,
+                          date: new Date(chaineDateUTC).toISOString(),
                         })
-                          .then((result) => {
-                            if (result === false) {
-                              res0({
-                                response: "error_invalid_request",
-                              });
-                            }
-                            //...
-                            //Save the going offline event
-                            new Promise((res) => {
-                              dynamo_insert("global_events", {
-                                event_name: "driver_switching_status_request",
-                                status: /online/i.test(req.state)
-                                  ? "online"
-                                  : "offline",
-                                driver_fingerprint: req.driver_fingerprint,
-                                date: new Date(chaineDateUTC).toISOString(),
-                              })
-                                .then()
-                                .catch((error) => logger.error(error));
-                              //...
-                              res(true);
-                            }).then(
-                              () => {},
-                              () => {}
-                            );
-
-                            //! clear tthe driver profiles cache
-                            new Promise((clear) => {
-                              clearDriverProfileCache({
-                                driver_fingerprint: req.driver_fingerprint,
-                                resolve: clear,
-                              });
-                            })
-                              .then()
-                              .catch((error) => logger.error(error));
-
-                            //Done
-                            res0({
-                              response: "successfully_done",
-                              flag: /online/i.test(req.state)
-                                ? "online"
-                                : "offline",
-                              suspension_infos: suspensionInfos,
-                              operation_clearance:
-                                driverData[0].operation_clearances,
-                            });
-                          })
+                          .then()
                           .catch((error) => {
                             logger.error(error);
-                            res0({
-                              response: "error_invalid_request",
-                            });
                           });
-                      }
+                        //...
+                        res(true);
+                      }).then(
+                        () => {},
+                        () => {}
+                      );
+
+                      //! clear tthe driver profiles cache
+                      new Promise((clear) => {
+                        clearDriverProfileCache({
+                          driver_fingerprint: req.driver_fingerprint,
+                          resolve: clear,
+                        });
+                      })
+                        .then()
+                        .catch((error) => logger.error(error));
+
+                      //Done
+                      res0({
+                        response: "successfully_done",
+                        flag: /online/i.test(req.state) ? "online" : "offline",
+                        suspension_infos: suspensionInfos,
+                        operation_clearance: driverData[0].operation_clearances,
+                      });
                     })
                     .catch((error) => {
                       logger.error(error);
-                      res0({ response: "error_invalid_request" });
+                      res0({
+                        response: "error_invalid_request",
+                      });
                     });
+                  //Check if the driver has an active request - NOT LOG OUT WITH AN ACTIVE REQUEST
+                  //check
+                  // dynamo_find_query({
+                  //   table_name: "requests_central",
+                  //   IndexName: "shopper_id",
+                  //   KeyConditionExpression: "shopper_id = :val1",
+                  //   FilterExpression: "#r.#ia = :val2 AND #r.#iCo = :val3",
+                  //   ExpressionAttributeValues: {
+                  //     ":val1": req.driver_fingerprint,
+                  //     ":val2": true,
+                  //     ":val3": false,
+                  //   },
+                  //   ExpressionAttributeNames: {
+                  //     "#r": "request_state_vars",
+                  //     "#ia": "isAccepted",
+                  //     "#iCo": "completedDropoff",
+                  //   },
+                  // })
+                  //   .then((currentActiveRequests) => {
+                  //     if (/offline/i.test(req.state)) {
+                  //       //Only if the driver wants to go out
+                  //       if (
+                  //         currentActiveRequests !== undefined &&
+                  //         currentActiveRequests.length <= 0
+                  //       ) {
+                  //         //No active requests - proceed
+                  //         dynamo_update({
+                  //           table_name: "drivers_shoppers_central",
+                  //           _idKey: driverData[0]._id,
+                  //           UpdateExpression: "set #o.#s = :val1",
+                  //           ExpressionAttributeValues: {
+                  //             ":val1": /online/i.test(req.state)
+                  //               ? "online"
+                  //               : "offline",
+                  //           },
+                  //           ExpressionAttributeNames: {
+                  //             "#o": "operational_state",
+                  //             "#s": "status",
+                  //           },
+                  //         })
+                  //           .then((result) => {
+                  //             if (result === false) {
+                  //               res0({
+                  //                 response: "error_invalid_request",
+                  //               });
+                  //             }
+                  //             //...
+                  //             //Save the going offline event
+                  //             new Promise((res) => {
+                  //               dynamo_insert("global_events", {
+                  //                 event_name: "driver_switching_status_request",
+                  //                 status: /online/i.test(req.state)
+                  //                   ? "online"
+                  //                   : "offline",
+                  //                 driver_fingerprint: req.driver_fingerprint,
+                  //                 date: new Date(chaineDateUTC).toISOString(),
+                  //               })
+                  //                 .then()
+                  //                 .catch((error) => {
+                  //                   logger.error(error);
+                  //                 });
+                  //               //...
+                  //               res(true);
+                  //             }).then(
+                  //               () => {},
+                  //               () => {}
+                  //             );
+
+                  //             //! clear tthe driver profiles cache
+                  //             new Promise((clear) => {
+                  //               clearDriverProfileCache({
+                  //                 driver_fingerprint: req.driver_fingerprint,
+                  //                 resolve: clear,
+                  //               });
+                  //             })
+                  //               .then()
+                  //               .catch((error) => logger.error(error));
+
+                  //             //Done
+                  //             res0({
+                  //               response: "successfully_done",
+                  //               flag: /online/i.test(req.state)
+                  //                 ? "online"
+                  //                 : "offline",
+                  //               suspension_infos: suspensionInfos,
+                  //               operation_clearance:
+                  //                 driverData[0].operation_clearances,
+                  //             });
+                  //           })
+                  //           .catch((error) => {
+                  //             logger.error(error);
+                  //             res0({
+                  //               response: "error_invalid_request",
+                  //             });
+                  //           });
+                  //       } //Has an active request - abort going offline
+                  //       else {
+                  //         res0({
+                  //           response:
+                  //             "error_going_offline_activeRequest_inProgress",
+                  //         });
+                  //       }
+                  //     } //If the driver want to go online - proceed
+                  //     else {
+                  //       dynamo_update({
+                  //         table_name: "drivers_shoppers_central",
+                  //         _idKey: driverData[0]._id,
+                  //         UpdateExpression: "set #o.#s = :val1",
+                  //         ExpressionAttributeValues: {
+                  //           ":val1": /online/i.test(req.state)
+                  //             ? "online"
+                  //             : "offline",
+                  //         },
+                  //         ExpressionAttributeNames: {
+                  //           "#o": "operational_state",
+                  //           "#s": "status",
+                  //         },
+                  //       })
+                  //         .then((result) => {
+                  //           if (result === false) {
+                  //             res0({
+                  //               response: "error_invalid_request",
+                  //             });
+                  //           }
+                  //           //...
+                  //           //Save the going offline event
+                  //           new Promise((res) => {
+                  //             dynamo_insert("global_events", {
+                  //               event_name: "driver_switching_status_request",
+                  //               status: /online/i.test(req.state)
+                  //                 ? "online"
+                  //                 : "offline",
+                  //               driver_fingerprint: req.driver_fingerprint,
+                  //               date: new Date(chaineDateUTC).toISOString(),
+                  //             })
+                  //               .then()
+                  //               .catch((error) => logger.error(error));
+                  //             //...
+                  //             res(true);
+                  //           }).then(
+                  //             () => {},
+                  //             () => {}
+                  //           );
+
+                  //           //! clear tthe driver profiles cache
+                  //           new Promise((clear) => {
+                  //             clearDriverProfileCache({
+                  //               driver_fingerprint: req.driver_fingerprint,
+                  //               resolve: clear,
+                  //             });
+                  //           })
+                  //             .then()
+                  //             .catch((error) => logger.error(error));
+
+                  //           //Done
+                  //           res0({
+                  //             response: "successfully_done",
+                  //             flag: /online/i.test(req.state)
+                  //               ? "online"
+                  //               : "offline",
+                  //             suspension_infos: suspensionInfos,
+                  //             operation_clearance:
+                  //               driverData[0].operation_clearances,
+                  //           });
+                  //         })
+                  //         .catch((error) => {
+                  //           logger.error(error);
+                  //           res0({
+                  //             response: "error_invalid_request",
+                  //           });
+                  //         });
+                  //     }
+                  //   })
+                  //   .catch((error) => {
+                  //     logger.error(error);
+                  //     res0({ response: "error_invalid_request" });
+                  //   });
                 } //Error - unknown driver
                 else {
                   res0({ response: "error_invalid_request" });

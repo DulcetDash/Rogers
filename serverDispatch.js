@@ -4210,6 +4210,12 @@ function confirmDropoffRequest_driver(bundleWorkingData, resolve) {
       ? parseInt(bundleWorkingData.selectedPackageIndex)
       : 0;
 
+  //? Resolve the scope - only applies to DELIVERY and SHOPPING (final or ignore else)
+  bundleWorkingData["scope"] =
+    bundleWorkingData.scope !== undefined && bundleWorkingData.scope !== null
+      ? bundleWorkingData.scope
+      : "none";
+
   resolveDate();
   //Only confirm pickup if not yet accepted by the driver
   dynamo_find_query({
@@ -4279,21 +4285,56 @@ function confirmDropoffRequest_driver(bundleWorkingData, resolve) {
               },
             }
           : /DELIVERY/i.test(bundleWorkingData.requestType)
+          ? //Last drop off confirmation
+            /final/i.test(bundleWorkingData.scope)
+            ? {
+                table_name: "requests_central",
+                _idKey: requestData._id,
+                UpdateExpression:
+                  "set shopper_id = :val1, #r.#copleted = :val2, date_completedDropoff = :val3",
+                ExpressionAttributeValues: {
+                  ":val1": bundleWorkingData.driver_fingerprint,
+                  ":val2": true,
+                  ":val3": new Date(chaineDateUTC).toISOString(),
+                },
+                ExpressionAttributeNames: {
+                  "#r": "request_state_vars",
+                  "#copleted": "completedDropoff",
+                },
+              }
+            : //Product confirmation
+              {
+                table_name: "requests_central",
+                _idKey: requestData._id,
+                UpdateExpression: "set shopper_id = :val1, #locs.#drop = :val2",
+                ExpressionAttributeValues: {
+                  ":val1": bundleWorkingData.driver_fingerprint,
+                  ":val2": refreshedDropoff, //! The update locations
+                },
+                ExpressionAttributeNames: {
+                  "#locs": "locations",
+                  "#drop": "dropoff",
+                },
+              }
+          : //SHOPPING
+          //Final drop off confirmation
+          /final/i.test(bundleWorkingData.scope)
           ? {
               table_name: "requests_central",
               _idKey: requestData._id,
-              UpdateExpression: "set shopper_id = :val1, #locs.#drop = :val2",
+              UpdateExpression:
+                "set shopper_id = :val1, #r.#copletedSh = :val2, date_completedShopping = :val3",
               ExpressionAttributeValues: {
                 ":val1": bundleWorkingData.driver_fingerprint,
-                ":val2": refreshedDropoff, //! The update locations
+                ":val2": true,
+                ":val3": new Date(chaineDateUTC).toISOString(),
               },
               ExpressionAttributeNames: {
-                "#locs": "locations",
-                "#drop": "dropoff",
+                "#r": "request_state_vars",
+                "#copletedSh": "completedShopping",
               },
             }
-          : //SHOPPING
-            {
+          : {
               table_name: "requests_central",
               _idKey: requestData._id,
               UpdateExpression: "set shopper_id = :val1, shopping_list = :val2",
@@ -4301,11 +4342,9 @@ function confirmDropoffRequest_driver(bundleWorkingData, resolve) {
                 ":val1": bundleWorkingData.driver_fingerprint,
                 ":val2": refreshedDropoff, //! The update locations
               },
-              ExpressionAttributeNames: {
-                "#locs": "locations",
-                "#drop": "dropoff",
-              },
             };
+
+        logger.error(dynamicUpdateExpression);
 
         dynamo_update(dynamicUpdateExpression)
           .then((result) => {

@@ -1622,7 +1622,9 @@ function parseRequests_forDrivers_view(requestsArray, driverData, resolve) {
               (request) => request !== false
             );
             //? DONE
-            // logger.info(batchRequestsResultsFiltered);
+            console.log(
+              batchRequestsResultsFiltered[0].origin_destination_infos
+            );
             resolve(batchRequestsResultsFiltered);
           })
           .catch((error) => {
