@@ -3200,7 +3200,13 @@ function declineRequest_driver(bundleWorkingData, resolve) {
  */
 function acceptRequest_driver(bundleWorkingData, resolve) {
   resolveDate();
-  //Only decline if not yet accepted by the driver
+  //? Autoassign a requestType
+  bundleWorkingData["requestType"] =
+    bundleWorkingData.requestType !== undefined &&
+    bundleWorkingData.requestType !== null
+      ? bundleWorkingData.requestType
+      : "UNCLEAR";
+  //Only accept if not yet accepted by the driver
   dynamo_find_query({
     table_name: "requests_central",
     IndexName: "shopper_id",
@@ -3221,6 +3227,7 @@ function acceptRequest_driver(bundleWorkingData, resolve) {
           dynamo_insert("global_events", {
             event_name: "driver_accepting_request",
             request_fp: bundleWorkingData.request_fp,
+            request_type: bundleWorkingData.requestType,
             driver_fingerprint: bundleWorkingData.driver_fingerprint,
             date: new Date(chaineDateUTC).toISOString(),
           })
@@ -3249,34 +3256,130 @@ function acceptRequest_driver(bundleWorkingData, resolve) {
             ) {
               //Found driver's data
               //Update the true request
-              // {
-              //   request_fp: bundleWorkingData.request_fp,
-              //   taxi_id: false,
-              //   /*intentional_request_decline: {
-              //     $not: bundleWorkingData.driver_fingerprint,
-              //   },*/
-              // }
+              //? Dynamically generate the update expression based on the request type
+              let dynamicUpdateExpression = /RIDE/i.test(
+                bundleWorkingData.requestType
+              )
+                ? {
+                    table_name: "requests_central",
+                    _idKey: requestData._id,
+                    UpdateExpression:
+                      "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRoute = :val5",
+                    ExpressionAttributeValues: {
+                      ":val1": bundleWorkingData.driver_fingerprint,
+                      ":val2": true,
+                      ":val3": new Date(chaineDateUTC).toISOString(),
+                      ":val4":
+                        driverData[0].operational_state.default_selected_car
+                          .car_fingerprint,
+                      ":val5": true,
+                    },
+                    ExpressionAttributeNames: {
+                      "#r": "request_state_vars",
+                      "#i": "isAccepted",
+                      "#inRoute": "inRouteToPickup",
+                    },
+                  }
+                : /DELIVERY/i.test(bundleWorkingData.requestType)
+                ? /cash/i.test(requestData.payment_method)
+                  ? {
+                      table_name: "requests_central",
+                      _idKey: requestData._id,
+                      UpdateExpression:
+                        "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#inRouteDrop = :val6",
+                      ExpressionAttributeValues: {
+                        ":val1": bundleWorkingData.driver_fingerprint,
+                        ":val2": true,
+                        ":val3": new Date(chaineDateUTC).toISOString(),
+                        ":val4":
+                          driverData[0].operational_state.default_selected_car
+                            .car_fingerprint,
+                        ":val5": true,
+                        ":val6": false,
+                      },
+                      ExpressionAttributeNames: {
+                        "#r": "request_state_vars",
+                        "#i": "isAccepted",
+                        "#inRouteCash": "inRouteToPickupCash",
+                        "#inRouteDrop": "inRouteToDropoff",
+                      },
+                    }
+                  : //Ewallet payment - delivery
+                    {
+                      table_name: "requests_central",
+                      _idKey: requestData._id,
+                      UpdateExpression:
+                        "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#didPCash = :val6, #r.#inRouteDrop = :val7",
+                      ExpressionAttributeValues: {
+                        ":val1": bundleWorkingData.driver_fingerprint,
+                        ":val2": true,
+                        ":val3": new Date(chaineDateUTC).toISOString(),
+                        ":val4":
+                          driverData[0].operational_state.default_selected_car
+                            .car_fingerprint,
+                        ":val5": true,
+                        ":val6": true,
+                        ":val7": false,
+                      },
+                      ExpressionAttributeNames: {
+                        "#r": "request_state_vars",
+                        "#i": "isAccepted",
+                        "#inRouteCash": "inRouteToPickupCash",
+                        "#didPCash": "didPickupCash",
+                        "#inRouteDrop": "inRouteToDropoff",
+                      },
+                    }
+                : //SHOPPING
+                /cash/i.test(requestData.payment_method)
+                ? {
+                    table_name: "requests_central",
+                    _idKey: requestData._id,
+                    UpdateExpression:
+                      "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#inRouteShop = :val6",
+                    ExpressionAttributeValues: {
+                      ":val1": bundleWorkingData.driver_fingerprint,
+                      ":val2": true,
+                      ":val3": new Date(chaineDateUTC).toISOString(),
+                      ":val4":
+                        driverData[0].operational_state.default_selected_car
+                          .car_fingerprint,
+                      ":val5": true,
+                      ":val6": true,
+                    },
+                    ExpressionAttributeNames: {
+                      "#r": "request_state_vars",
+                      "#i": "isAccepted",
+                      "#inRouteCash": "inRouteToPickupCash",
+                      "#inRouteShop": "inRouteToShop",
+                    },
+                  }
+                : //Ewallet payment - shopping
+                  {
+                    table_name: "requests_central",
+                    _idKey: requestData._id,
+                    UpdateExpression:
+                      "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#didPCash = :val6, #r.#inRouteShop = :val7",
+                    ExpressionAttributeValues: {
+                      ":val1": bundleWorkingData.driver_fingerprint,
+                      ":val2": true,
+                      ":val3": new Date(chaineDateUTC).toISOString(),
+                      ":val4":
+                        driverData[0].operational_state.default_selected_car
+                          .car_fingerprint,
+                      ":val5": true,
+                      ":val6": true,
+                      ":val7": true,
+                    },
+                    ExpressionAttributeNames: {
+                      "#r": "request_state_vars",
+                      "#i": "isAccepted",
+                      "#inRouteCash": "inRouteToPickupCash",
+                      "#didPCash": "didPickupCash",
+                      "#inRouteShop": "inRouteToShop",
+                    },
+                  };
 
-              dynamo_update({
-                table_name: "requests_central",
-                _idKey: requestData._id,
-                UpdateExpression:
-                  "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRoute = :val5",
-                ExpressionAttributeValues: {
-                  ":val1": bundleWorkingData.driver_fingerprint,
-                  ":val2": true,
-                  ":val3": new Date(chaineDateUTC).toISOString(),
-                  ":val4":
-                    driverData[0].operational_state.default_selected_car
-                      .car_fingerprint,
-                  ":val5": true,
-                },
-                ExpressionAttributeNames: {
-                  "#r": "request_state_vars",
-                  "#i": "isAccepted",
-                  "#inRoute": "inRouteToPickup",
-                },
-              })
+              dynamo_update(dynamicUpdateExpression)
                 .then((result) => {
                   if (result === false) {
                     //logger.info(err);
