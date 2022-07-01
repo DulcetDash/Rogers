@@ -3068,6 +3068,13 @@ function cancelRider_request(
  * @param resolve
  */
 function declineRequest_driver(bundleWorkingData, resolve) {
+  //? Resolve the requestType
+  bundleWorkingData["requestType"] =
+    bundleWorkingData.requestType !== undefined &&
+    bundleWorkingData.requestType !== null
+      ? bundleWorkingData.requestType
+      : "RIDE";
+
   resolveDate();
   //Only decline if not yet accepted by the driver
   dynamo_find_query({
@@ -3088,6 +3095,7 @@ function declineRequest_driver(bundleWorkingData, resolve) {
           dynamo_insert("global_events", {
             event_name: "driver_declining_request",
             request_fp: bundleWorkingData.request_fp,
+            requestType: bundleWorkingData.requestType,
             driver_fingerprint: bundleWorkingData.driver_fingerprint,
             date: new Date(chaineDateUTC).toISOString(),
           })
@@ -3572,6 +3580,13 @@ function arrayEquals(a, b) {
  * @param resolve
  */
 function cancelRequest_driver(bundleWorkingData, resolve) {
+  //? Resolve the requestType
+  bundleWorkingData["requestType"] =
+    bundleWorkingData.requestType !== undefined &&
+    bundleWorkingData.requestType !== null
+      ? bundleWorkingData.requestType
+      : "RIDE";
+
   resolveDate();
 
   dynamo_find_query({
@@ -3635,6 +3650,7 @@ function cancelRequest_driver(bundleWorkingData, resolve) {
               dynamo_insert("global_events", {
                 event_name: "driver_cancelling_request",
                 request_fp: bundleWorkingData.request_fp,
+                request_type: bundleWorkingData.requestType,
                 driver_fingerprint: bundleWorkingData.driver_fingerprint,
                 date: new Date(chaineDateUTC).toISOString(),
               })
@@ -3645,23 +3661,78 @@ function cancelRequest_driver(bundleWorkingData, resolve) {
               () => {}
             );
             //Update the true request
-            dynamo_update({
-              table_name: "requests_central",
-              _idKey: tripData._id,
-              UpdateExpression:
-                "set shopper_id = :val1, #r.#i = :val2, car_fingerprint = :val3, #r.#inRoute = :val4",
-              ExpressionAttributeValues: {
-                ":val1": "false",
-                ":val2": false,
-                ":val3": "false",
-                ":val4": false,
-              },
-              ExpressionAttributeNames: {
-                "#r": "request_state_vars",
-                "#i": "isAccepted",
-                "#inRoute": "inRouteToPickup",
-              },
-            })
+            //? Dynamically generaten the update expression
+            let dynamicUpdateExpression = /RIDE/i.test(
+              bundleWorkingData.requestType
+            )
+              ? {
+                  table_name: "requests_central",
+                  _idKey: tripData._id,
+                  UpdateExpression:
+                    "set shopper_id = :val1, #r.#i = :val2, car_fingerprint = :val3, #r.#inRoute = :val4",
+                  ExpressionAttributeValues: {
+                    ":val1": "false",
+                    ":val2": false,
+                    ":val3": "false",
+                    ":val4": false,
+                  },
+                  ExpressionAttributeNames: {
+                    "#r": "request_state_vars",
+                    "#i": "isAccepted",
+                    "#inRoute": "inRouteToPickup",
+                  },
+                }
+              : /DELIVERY/i.test(bundleWorkingData.requestType)
+              ? {
+                  table_name: "requests_central",
+                  _idKey: tripData._id,
+                  UpdateExpression:
+                    "set shopper_id = :val1, #r.#i = :val2, car_fingerprint = :val3, #r.#complDrp = :val4, #r.#routeToPCash = :val5, #r.#didPCash = :val6, #r.#routeDrop = :val7",
+                  ExpressionAttributeValues: {
+                    ":val1": "false",
+                    ":val2": false,
+                    ":val3": "false",
+                    ":val4": false,
+                    ":val5": false,
+                    ":val6": false,
+                    ":val7": false,
+                  },
+                  ExpressionAttributeNames: {
+                    "#r": "request_state_vars",
+                    "#i": "isAccepted",
+                    "#inRoute": "inRouteToPickup",
+                    "#complDrp": "completedDropoff",
+                    "#routeToPCash": "inRouteToPickupCash",
+                    "#didPCash": "didPickupCash",
+                    "#routeDrop": "inRouteToDropoff",
+                  },
+                }
+              : //SHOPPING
+                {
+                  table_name: "requests_central",
+                  _idKey: tripData._id,
+                  UpdateExpression:
+                    "set shopper_id = :val1, #r.#i = :val2, car_fingerprint = :val3, #r.#routeToPCash = :val4, #r.#didPCash = :val5, #r.#routeTShop = :val6, #r.#routeTDelivery = :val7",
+                  ExpressionAttributeValues: {
+                    ":val1": "false",
+                    ":val2": false,
+                    ":val3": "false",
+                    ":val4": false,
+                    ":val5": false,
+                    ":val6": false,
+                    ":val7": false,
+                  },
+                  ExpressionAttributeNames: {
+                    "#r": "request_state_vars",
+                    "#i": "isAccepted",
+                    "#routeToPCash": "inRouteToPickupCash",
+                    "#didPCash": "didPickupCash",
+                    "#routeTShop": "inRouteToShop",
+                    "#routeTDelivery": "inRouteToDelivery",
+                  },
+                };
+
+            dynamo_update(dynamicUpdateExpression)
               .then((result) => {
                 if (result === false) {
                   resolve({ response: "unable_to_cancel_request_error" });
