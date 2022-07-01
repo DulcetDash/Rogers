@@ -4118,7 +4118,7 @@ function confirmPickupRequest_driver(bundleWorkingData, resolve) {
               table_name: "requests_central",
               _idKey: requestGlobalData._id,
               UpdateExpression:
-                "set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#inShop = :val4, #r.#didPCash = :val5, #r.#inRPicCash = :val6",
+                "set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#inShop = :val4, #r.#didPCash = :val5, #r.#inRPicCash = :val6, date_routeToShop = :val7, date_pickedupCash = :val8",
               ExpressionAttributeValues: {
                 ":val1": requestGlobalData.shopper_id,
                 ":val2": new Date(chaineDateUTC).toISOString(),
@@ -4126,6 +4126,8 @@ function confirmPickupRequest_driver(bundleWorkingData, resolve) {
                 ":val4": true,
                 ":val5": true,
                 ":val6": true,
+                ":val7": new Date(chaineDateUTC).toISOString(),
+                ":val8": new Date(chaineDateUTC).toISOString(),
               },
               ExpressionAttributeNames: {
                 "#r": "request_state_vars",
@@ -4190,6 +4192,132 @@ function confirmPickupRequest_driver(bundleWorkingData, resolve) {
     .catch((error) => {
       logger.error(error);
       resolve({ response: "unable_to_confirm_pickup_request_not_owned" });
+    });
+}
+
+/**
+ * @func confirmDoneShoppingRequest_driver
+ * Responsible for confirming that the shopping is done.
+ * @param bundleWorkingData: contains the driver_fp and the request_fp.
+ * @param resolve
+ */
+function confirmDoneShoppingRequest_driver(bundleWorkingData, resolve) {
+  // logger.error(bundleWorkingData);
+  //? Resolve the requestType situation
+  bundleWorkingData["requestType"] =
+    bundleWorkingData.requestType !== undefined &&
+    bundleWorkingData.requestType !== null
+      ? bundleWorkingData.requestType
+      : "RIDE";
+
+  resolveDate();
+
+  //Only confirm pickup if not yet accepted by the driver
+  dynamo_find_query({
+    table_name: "requests_central",
+    IndexName: "shopper_id",
+    KeyConditionExpression: "shopper_id = :val1",
+    FilterExpression: "request_fp = :val2",
+    ExpressionAttributeValues: {
+      ":val1": bundleWorkingData.driver_fingerprint,
+      ":val2": bundleWorkingData.request_fp,
+    },
+  })
+    .then((requestGlobalData) => {
+      if (requestGlobalData !== undefined && requestGlobalData.length > 0) {
+        requestGlobalData = requestGlobalData[0];
+        //The driver requesting for the confirm pickup is the one who's currently associated to the request - proceed to the pickup confirmation.
+        //Save the pickup confirmation event
+        new Promise((res) => {
+          dynamo_insert("global_events", {
+            event_name: "driver_confirm_pickup_request",
+            request_fp: requestGlobalData.request_fp,
+            driver_fingerprint: requestGlobalData.taxi_id,
+            rider_fingerprint: requestGlobalData.client_id,
+            date: new Date(chaineDateUTC).toISOString(),
+          })
+            .then()
+            .catch((error) => logger.error(error));
+          //...
+          res(true);
+        }).then(
+          () => {},
+          () => {}
+        );
+        //Update the true request
+        dynamo_update({
+          table_name: "requests_central",
+          _idKey: requestGlobalData._id,
+          UpdateExpression:
+            "set shopper_id = :val1, date_routeToDelivery = :val2, #r.#routeDel = :val3",
+          ExpressionAttributeValues: {
+            ":val1": requestGlobalData.shopper_id,
+            ":val2": new Date(chaineDateUTC).toISOString(),
+            ":val3": true,
+          },
+          ExpressionAttributeNames: {
+            "#r": "request_state_vars",
+            "#routeDel": "inRouteToDelivery",
+          },
+        })
+          .then((result) => {
+            if (result === false) {
+              resolve({
+                response: "unable_to_confirm_doneShopping_request_error",
+              });
+            }
+
+            //! Clear the request cached list for all the drivers in the same city
+            new Promise((resClearRedis) => {
+              clearCityDriversCacheLists({
+                city: requestGlobalData.locations.pickup.city,
+                requestType: requestGlobalData.ride_mode,
+                resolve: resClearRedis,
+              });
+            })
+              .then()
+              .catch((error) => logger.error(error));
+
+            //! Clear the cached daily amount for THIS driver
+            new Promise((resClearDaily) => {
+              clearDailyRequestAmountCached(
+                bundleWorkingData.driver_fingerprint,
+                resClearDaily
+              );
+            })
+              .then()
+              .catch((error) => logger.error(error));
+
+            //! Clear the cached global numbers for THIS driver
+            new Promise((resClearDaily) => {
+              clearDriversGlobalAccountNumbersCache({
+                driver_fingerprint: bundleWorkingData.driver_fingerprint,
+                resolve: resClearDaily,
+              });
+            })
+              .then()
+              .catch((error) => logger.error(error));
+
+            //DONE
+            resolve({
+              response: "successfully_confirmed_doneShopping",
+              rider_fp: requestGlobalData.client_id,
+            });
+          })
+          .catch((error) => {
+            logger.error(error);
+            resolve({
+              response: "unable_to_confirm_doneShopping_request_error",
+            });
+          });
+      } //abort the pickup confirmation
+      else {
+        resolve({ response: "unable_to_confirm_doneShopping_request_error" });
+      }
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve({ response: "unable_to_confirm_doneShopping_request_error" });
     });
 }
 
@@ -5892,6 +6020,45 @@ redisCluster.on("connect", function () {
           logger.error(error);
           res.send({
             response: "unable_to_confirm_pickup_request_error",
+          });
+        });
+    }
+  });
+
+  /**
+   * CONFIRM DONE SHOPPING REQUESTS - SHOPPERS
+   * Responsible for confirming that the shopping is done
+   */
+  app.post("/confirm_doneShopping_request_driver", function (req, res) {
+    //DEBUG
+    /*req.body = {
+              driver_fingerprint:
+                "23c9d088e03653169b9c18193a0b8dd329ea1e43eb0626ef9f16b5b979694a429710561a3cb3ddae",
+              request_fp:
+                "999999f5c51c380ef9dee9680872a6538cc9708ef079a8e42de4d762bfa7d49efdcde41c6009cbdd9cdf6f0ae0544f74cb52caa84439cbcda40ce264f90825e8",
+            };*/
+    //...
+    req = req.body;
+    //logger.info(req);
+
+    //Do basic checking
+    if (
+      // req.driver_fingerprint !== undefined &&
+      // req.driver_fingerprint !== null &&
+      req.request_fp !== undefined &&
+      req.request_fp !== null
+    ) {
+      //...
+      new Promise((res0) => {
+        confirmDoneShoppingRequest_driver(req, res0);
+      })
+        .then((result) => {
+          res.send(result);
+        })
+        .catch((error) => {
+          logger.error(error);
+          res.send({
+            response: "unable_to_confirm_doneShopping_request_error",
           });
         });
     }
