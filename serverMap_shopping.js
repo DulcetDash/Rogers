@@ -1675,6 +1675,7 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
       inRouteToDelivery: null,
       completedShopping: null,
       inRouteToShop: null,
+      didPickupCash: null,
 
       ride_mode: null, //ride or delivery
       request_type: null, //immediate or scheduled
@@ -1772,6 +1773,8 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
           request.request_state_vars.completedShopping;
         parsedRequestsArray.delivery_basic_infos.inRouteToShop =
           request.request_state_vars.inRouteToShop;
+        parsedRequestsArray.delivery_basic_infos.didPickupCash =
+          request.request_state_vars.didPickupCash;
         //...
         parsedRequestsArray.delivery_basic_infos.pickup_note =
           /false/i.test(request.request_documentation.note) ||

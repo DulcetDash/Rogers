@@ -3358,7 +3358,7 @@ function acceptRequest_driver(bundleWorkingData, resolve) {
                     table_name: "requests_central",
                     _idKey: requestData._id,
                     UpdateExpression:
-                      "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#didPCash = :val6, #r.#inRouteShop = :val7",
+                      "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#inRouteShop = :val7",
                     ExpressionAttributeValues: {
                       ":val1": bundleWorkingData.driver_fingerprint,
                       ":val2": true,
@@ -3367,14 +3367,12 @@ function acceptRequest_driver(bundleWorkingData, resolve) {
                         driverData[0].operational_state.default_selected_car
                           .car_fingerprint,
                       ":val5": true,
-                      ":val6": true,
                       ":val7": true,
                     },
                     ExpressionAttributeNames: {
                       "#r": "request_state_vars",
                       "#i": "isAccepted",
                       "#inRouteCash": "inRouteToPickupCash",
-                      "#didPCash": "didPickupCash",
                       "#inRouteShop": "inRouteToShop",
                     },
                   };
@@ -4095,7 +4093,8 @@ function confirmPickupRequest_driver(bundleWorkingData, resolve) {
                 "#in": "inRouteToDropoff",
               },
             }
-          : {
+          : /DELIVERY/i.test(bundleWorkingData.requestType)
+          ? {
               table_name: "requests_central",
               _idKey: requestGlobalData._id,
               UpdateExpression:
@@ -4113,8 +4112,29 @@ function confirmPickupRequest_driver(bundleWorkingData, resolve) {
                 "#in": "inRouteToDropoff",
                 "#didPCash": "didPickupCash",
               },
+            }
+          : //SHOPPING
+            {
+              table_name: "requests_central",
+              _idKey: requestGlobalData._id,
+              UpdateExpression:
+                "set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#inShop = :val4, #r.#didPCash = :val5, #r.#inRPicCash = :val6",
+              ExpressionAttributeValues: {
+                ":val1": requestGlobalData.shopper_id,
+                ":val2": new Date(chaineDateUTC).toISOString(),
+                ":val3": true,
+                ":val4": true,
+                ":val5": true,
+                ":val6": true,
+              },
+              ExpressionAttributeNames: {
+                "#r": "request_state_vars",
+                "#i": "isAccepted",
+                "#inShop": "inRouteToShop",
+                "#didPCash": "didPickupCash",
+                "#inRPicCash": "inRouteToPickupCash",
+              },
             };
-
         dynamo_update(dynamicUpdateExpression)
           .then((result) => {
             if (result === false) {
@@ -4254,11 +4274,15 @@ function confirmDropoffRequest_driver(bundleWorkingData, resolve) {
           : requestData["locations"]["dropoff"];
         //Update
         refreshedDropoff[bundleWorkingData.selectedPackageIndex][
-          "isDroped"
+          /DELIVERY/i.test(bundleWorkingData.requestType)
+            ? "isDroped"
+            : "isShoped"
         ] = true;
         //Add the date
         refreshedDropoff[bundleWorkingData.selectedPackageIndex][
-          "date_dropoff"
+          /DELIVERY/i.test(bundleWorkingData.requestType)
+            ? "date_dropoff"
+            : "date_shoped"
         ] = new Date(chaineDateUTC).toISOString();
 
         //? Dynamically generate the update expression
