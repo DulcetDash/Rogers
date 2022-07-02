@@ -1697,6 +1697,62 @@ function shouldSendNewSMS({ req, hasAccount, resolve }) {
 }
 
 /**
+ * @func clearCityDriversCacheLists
+ * Responsible for clearing the requests list for all the drivers in the city to update it
+ * to the current state based on a driver performing alterations to a specific request.
+ * @param city: the city in which the operation should me performed.
+ * @param requestType: RIDE, DELIVERY or SHOPPING
+ * @param resolve
+ */
+function clearCityDriversCacheLists({ city = false, requestType, resolve }) {
+  if (city !== false) {
+    //? 1 . Get all the drivers from the city
+    dynamo_get_all({
+      table_name: "drivers_shoppers_central",
+      FilterExpression: "contains(regional_clearances, :val1)",
+      ExpressionAttributeValues: {
+        ":val1": city,
+      },
+    }).then((driversListData) => {
+      if (driversListData !== undefined && driversListData.length > 0) {
+        //Found some drivers in the city
+        //? 2. Assemble each redis keys for their request list
+        let parentPromises = driversListData.map((driver) => {
+          return new Promise((resCompute) => {
+            let redisKeyReformed = `${driver.driver_fingerprint}-rideDeliveryMade-holder-${requestType}`;
+            logger.info(redisKeyReformed);
+
+            //! CLEAR
+            redisCluster.del(redisKeyReformed, function (err, resp) {
+              console.log(err, resp);
+              //DONE
+              resCompute(true);
+            });
+          });
+        });
+        //...
+        Promise.all(parentPromises)
+          .then((result) => {
+            logger.warn(result);
+            resolve(true);
+          })
+          .catch((error) => {
+            logger.error(error);
+            resolve(false);
+          });
+      } //No no drivers found in this city
+      else {
+        resolve(false);
+      }
+    });
+  } //No city specified
+  else {
+    logger.warn("No cities specified for the clearing operation.");
+    resolve(false);
+  }
+}
+
+/**
  * @func isUserValid
  * Responsible for checking if a user account is valid or not based on the Primary key
  * which is in this case the user_identifier.
@@ -2406,6 +2462,17 @@ redisCluster.on("connect", function () {
                           dynamo_insert("requests_central", REQUEST_TEMPLATE)
                             .then((result) => {
                               //....DONE
+                              //! Clear the request cached list for all the drivers in the same city
+                              new Promise((resClearRedis) => {
+                                clearCityDriversCacheLists({
+                                  city: REQUEST_TEMPLATE.locations.pickup.city,
+                                  requestType: REQUEST_TEMPLATE.ride_mode,
+                                  resolve: resClearRedis,
+                                });
+                              })
+                                .then()
+                                .catch((error) => logger.error(error));
+                              //...
                               resolve({ response: "successful" });
                             })
                             .catch((error) => {
@@ -2659,6 +2726,18 @@ redisCluster.on("connect", function () {
                             .then((result) => {
                               if (result) {
                                 //....DONE
+                                //! Clear the request cached list for all the drivers in the same city
+                                new Promise((resClearRedis) => {
+                                  clearCityDriversCacheLists({
+                                    city: REQUEST_TEMPLATE.locations.pickup
+                                      .city,
+                                    requestType: REQUEST_TEMPLATE.ride_mode,
+                                    resolve: resClearRedis,
+                                  });
+                                })
+                                  .then()
+                                  .catch((error) => logger.error(error));
+                                //....
                                 resolve({ response: "successful" });
                               } //Failed
                               else {
@@ -3018,6 +3097,16 @@ redisCluster.on("connect", function () {
                             .then((result) => {
                               if (result) {
                                 //Success
+                                //! Clear the request cached list for all the drivers in the same city
+                                new Promise((resClearRedis) => {
+                                  clearCityDriversCacheLists({
+                                    city: requestData.locations.pickup.city,
+                                    requestType: requestData.ride_mode,
+                                    resolve: resClearRedis,
+                                  });
+                                })
+                                  .then()
+                                  .catch((error) => logger.error(error));
                                 //...
                                 resolve([{ response: "success" }]);
                               } //Failure

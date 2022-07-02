@@ -1041,26 +1041,26 @@ function tripChecker_Dispatcher(
         logger.error("CACHED");
         //Has a record
         try {
-          //Make a rehydrate request
-          new Promise((resCompute) => {
-            execTripChecker_Dispatcher(
-              driverData,
-              user_fingerprint,
-              user_nature,
-              requestType,
-              RIDE_REDIS_KEY,
-              resolve
-            );
-            //...
-            resCompute(true);
-          })
-            .then(
-              () => {},
-              () => {}
-            )
-            .catch((error) => {
-              logger.error(error);
-            });
+          //! DEBUG : Make a rehydrate request
+          // new Promise((resCompute) => {
+          //   execTripChecker_Dispatcher(
+          //     driverData,
+          //     user_fingerprint,
+          //     user_nature,
+          //     requestType,
+          //     RIDE_REDIS_KEY,
+          //     resolve
+          //   );
+          //   //...
+          //   resCompute(true);
+          // })
+          //   .then(
+          //     () => {},
+          //     () => {}
+          //   )
+          //   .catch((error) => {
+          //     logger.error(error);
+          //   });
           resp = JSON.parse(resp);
           //....
           resolve(resp);
