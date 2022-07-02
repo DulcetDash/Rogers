@@ -5183,7 +5183,7 @@ function performCorporateDeliveryAccountAuthOps(inputData, resolve) {
               });
               //! --------------
               //let otp = 55576;
-              otp = String(otp).length < 6 ? parseInt(otp) * 10 : otp;
+              otp = String(otp).length < 5 ? parseInt(otp) * 10 : otp;
               new Promise((res0) => {
                 let message = `Your Nej code is ${otp}. Never share this code.`;
                 SendSMSTo(onlyDigitsPhone, message);
@@ -5995,18 +5995,18 @@ function shouldSendNewSMS({ req, hasAccount, resolve }) {
         new Promise((res0) => {
           let message = `Your Nej code is ${otp}. Never share this code.`;
 
-          // let urlSMS = `http://localhost:9393/?message=${message}&number=${onlyDigitsPhone}&subject=Nej`;
-          // requestAPI(urlSMS, function (error, response, body) {
-          //   if (error === null) {
-          //     //Success
-          //     console.log(body);
-          //     res0(true);
-          //   } //Unable to send SMS
-          //   else {
-          //     res0(true);
-          //   }
-          // });
-          res0(true);
+          let urlSMS = `http://localhost:9393/?message=${message}&number=${onlyDigitsPhone}&subject=Nej`;
+          requestAPI(urlSMS, function (error, response, body) {
+            if (error === null) {
+              //Success
+              console.log(body);
+              res0(true);
+            } //Unable to send SMS
+            else {
+              res0(true);
+            }
+          });
+          // res0(true);
         }).then(
           () => {
             //1. Update the records for the OTP MAP for registered or non registered users
