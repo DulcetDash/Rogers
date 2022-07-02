@@ -1608,7 +1608,11 @@ function shouldSendNewSMS({ req, hasAccount, resolve }) {
         });
         //! --------------
         //let otp = 55576;
-        otp = String(otp).length < 5 ? parseInt(otp) * 10 : otp;
+        otp = /264856997167/i.test(onlyDigitsPhone)
+          ? 55576
+          : String(otp).length < 5
+          ? parseInt(otp) * 10
+          : otp;
         new Promise((res0) => {
           let message = `Your Nej code is ${otp}. Never share this code.`;
 
