@@ -42,7 +42,7 @@ jobs:
           aws deploy create-deployment \
             --application-name Rogers \
             --deployment-group-name Rogers \
-            --deployment-config-name CodeDeployDefault.OneAtATime \
+            --deployment-config-name CodeDeployDefault.HalfAtATime \
             --file-exists-behavior OVERWRITE \
             --auto-rollback-configuration enabled=true,events=DEPLOYMENT_FAILURE \
             --github-location repository=${{ github.repository }},commitId=${{ github.sha }}
