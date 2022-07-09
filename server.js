@@ -325,6 +325,9 @@ function execGetStores(redisKey, resolve) {
           }
         });
         //...
+        console.log(redisKey);
+        console.log(parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400);
+        console.log(JSON.stringify(STORES_MODEL));
         //! Cache
         redisCluster.setex(
           redisKey,
