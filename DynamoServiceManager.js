@@ -288,12 +288,16 @@ async function find_query({
     dynamoClient.query(params, function (err, resultFindget) {
       if (err) {
         logger.warn("ERROR HERE");
-        logger.error(err);
+        logger.warn(err);
         resolve([]);
       }
       //...
       // logger.info(resultFindget.Items.length);
-      resolve(resultFindget.Items);
+      resolve(
+        resultFindget !== undefined && resultFindget !== null
+          ? resultFindget.Items
+          : []
+      );
     });
   });
 }

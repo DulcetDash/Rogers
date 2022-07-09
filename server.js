@@ -246,7 +246,7 @@ function getStores(resolve) {
 }
 
 function execGetStores(redisKey, resolve) {
-  dynamo_get_all("shops_central")
+  dynamo_get_all({ table_name: "shops_central" })
     .then((storesData) => {
       if (storesData !== undefined && storesData.length > 0) {
         let STORES_MODEL = [];
@@ -329,11 +329,11 @@ function execGetStores(redisKey, resolve) {
         console.log(parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400);
         console.log(JSON.stringify(STORES_MODEL));
         //! Cache
-        // redisCluster.setex(
-        //   redisKey,
-        //   parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
-        //   JSON.stringify(STORES_MODEL)
-        // );
+        redisCluster.setex(
+          redisKey,
+          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
+          JSON.stringify(STORES_MODEL)
+        );
         resolve({ response: STORES_MODEL });
       } //No stores
       else {
