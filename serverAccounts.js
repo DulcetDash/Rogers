@@ -5185,7 +5185,7 @@ function performCorporateDeliveryAccountAuthOps(inputData, resolve) {
               //let otp = 55576;
               otp = String(otp).length < 5 ? parseInt(otp) * 10 : otp;
               new Promise((res0) => {
-                let message = `Your Nej code is ${otp}. Never share this code.`;
+                let message = `Your Orniss code is ${otp}. Never share this code.`;
                 SendSMSTo(onlyDigitsPhone, message);
                 res0(true);
                 //SMS
@@ -5997,7 +5997,7 @@ function shouldSendNewSMS({ req, hasAccount, resolve }) {
           ? parseInt(otp) * 10
           : otp;
         new Promise((res0) => {
-          let message = `Your Nej code is ${otp}. Never share this code.`;
+          let message = `Your Orniss code is ${otp}. Never share this code.`;
 
           let urlSMS = `http://localhost:9393/?message=${message}&number=${onlyDigitsPhone}&subject=Nej`;
           requestAPI(urlSMS, function (error, response, body) {

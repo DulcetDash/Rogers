@@ -195,54 +195,65 @@ function generateUniqueFingerprint(str, encryption = false, resolve) {
 function getStores(resolve) {
   let redisKey = "get-stores";
 
-  redisGet(redisKey)
-    .then((resp) => {
-      if (resp !== null) {
-        //Has some data
-        try {
-          resp = JSON.parse(resp);
-          resolve(resp);
-        } catch (error) {
-          logger.error(error);
-          new Promise((resCompute) => {
-            execGetStores(redisKey, resCompute);
-          })
-            .then((result) => {
-              resolve(result);
-            })
-            .catch((error) => {
-              logger.error(error);
-              resolve({ response: [] });
-            });
-        }
-      } //No data
-      else {
-        new Promise((resCompute) => {
-          execGetStores(redisKey, resCompute);
-        })
-          .then((result) => {
-            resolve(result);
-          })
-          .catch((error) => {
-            logger.error(error);
-            resolve({ response: [] });
-          });
-      }
+  new Promise((resCompute) => {
+    execGetStores(redisKey, resCompute);
+  })
+    .then((result) => {
+      resolve(result);
     })
     .catch((error) => {
       logger.error(error);
-      //No data
-      new Promise((resCompute) => {
-        execGetStores(redisKey, resCompute);
-      })
-        .then((result) => {
-          resolve(result);
-        })
-        .catch((error) => {
-          logger.error(error);
-          resolve({ response: [] });
-        });
+      resolve({ response: [] });
     });
+
+  // redisGet(redisKey)
+  //   .then((resp) => {
+  //     if (resp !== null) {
+  //       //Has some data
+  //       try {
+  //         resp = JSON.parse(resp);
+  //         resolve(resp);
+  //       } catch (error) {
+  //         logger.error(error);
+  //         new Promise((resCompute) => {
+  //           execGetStores(redisKey, resCompute);
+  //         })
+  //           .then((result) => {
+  //             resolve(result);
+  //           })
+  //           .catch((error) => {
+  //             logger.error(error);
+  //             resolve({ response: [] });
+  //           });
+  //       }
+  //     } //No data
+  //     else {
+  //       new Promise((resCompute) => {
+  //         execGetStores(redisKey, resCompute);
+  //       })
+  //         .then((result) => {
+  //           resolve(result);
+  //         })
+  //         .catch((error) => {
+  //           logger.error(error);
+  //           resolve({ response: [] });
+  //         });
+  //     }
+  //   })
+  //   .catch((error) => {
+  //     logger.error(error);
+  //     //No data
+  //     new Promise((resCompute) => {
+  //       execGetStores(redisKey, resCompute);
+  //     })
+  //       .then((result) => {
+  //         resolve(result);
+  //       })
+  //       .catch((error) => {
+  //         logger.error(error);
+  //         resolve({ response: [] });
+  //       });
+  //   });
 }
 
 function execGetStores(redisKey, resolve) {
@@ -666,6 +677,8 @@ function checkIndices(index_name, resolve) {
 function searchProductsFor(req, resolve) {
   let redisKey = `${req.store}-${req.key}-productFiltered`;
 
+  logger.warn(redisKey);
+
   // new Promise((resCompute) => {
   //   execSearchProductsFor(req, redisKey, resCompute);
   // })
@@ -871,7 +884,7 @@ function execSearchProductsFor(req, redisKey, resolve) {
                         // ElasticSearch_client.ref;
                         //? Search
                         ElasticSearch_client.search({
-                          size: 500,
+                          size: 10000,
                           index: index_name,
                           body: {
                             query: {
@@ -1617,7 +1630,7 @@ function shouldSendNewSMS({ req, hasAccount, resolve }) {
           ? parseInt(otp) * 10
           : otp;
         new Promise((res0) => {
-          let message = `Your Nej code is ${otp}. Never share this code.`;
+          let message = `Your Orniss code is ${otp}. Never share this code.`;
 
           let urlSMS = `http://localhost:9393/?message=${message}&number=${onlyDigitsPhone}&subject=TEST`;
           requestAPI(urlSMS, function (error, response, body) {
@@ -2156,6 +2169,7 @@ redisCluster.on("connect", function () {
         //? EFFIENCY A
         app.post("/getResultsForKeywords", function (req, res) {
           req = req.body;
+          logger.info(req);
           if (
             req.key !== undefined &&
             req.key !== null &&
