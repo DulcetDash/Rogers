@@ -1232,7 +1232,7 @@ function getRequestDataClient(requestData, resolve) {
                               : false
                           );
                         }
-                      } //Get from mongo and cache
+                      } //Get from dynamo and cache
                       else {
                         redisCluster.setex(
                           driver_details_cached_key,
@@ -2825,6 +2825,8 @@ redisCluster.on("connect", function () {
             ) {
               //! Check if the user id exists
               let redisKey = `${req.user_identifier}-shoppings`;
+
+              // logger.error(redisKey);
 
               redisGet(redisKey)
                 .then((resp) => {
