@@ -4053,6 +4053,14 @@ redisCluster.on("connect", function () {
                   if (resp !== null) {
                     //Has some cached data
                     try {
+                      new Promise((resCompute) => {
+                        getRecentlyVisitedShops(req, redisKey, resCompute);
+                      })
+                        .then((result) => {})
+                        .catch((error) => {
+                          logger.error(error);
+                        });
+
                       resp = JSON.parse(resp);
                       resolve(resp);
                     } catch (error) {
