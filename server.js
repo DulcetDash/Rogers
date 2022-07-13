@@ -3566,6 +3566,15 @@ redisCluster.on("connect", function () {
                 .then((resp) => {
                   if (resp !== null) {
                     try {
+                      //Rehydrate
+                      new Promise((resCompute) => {
+                        getFreshUserDataClients(req, redisKey, resCompute);
+                      })
+                        .then((result) => {})
+                        .catch((error) => {
+                          logger.error(error);
+                        });
+
                       resp = JSON.parse(resp);
                       resolve([
                         {
