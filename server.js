@@ -1576,6 +1576,22 @@ function getOutputStandardizedUserDataFormat(userData) {
 }
 
 /**
+ * @func ucFirst
+ * Responsible to uppercase only the first character and lowercase the rest.
+ * @param stringData: the string to be processed.
+ */
+function ucFirst(stringData) {
+  try {
+    return `${stringData[0].toUpperCase()}${stringData
+      .substr(1)
+      .toLowerCase()}`;
+  } catch (error) {
+    logger.info(error);
+    return stringData;
+  }
+}
+
+/**
  * @func shouldSendNewSMS
  * Responsible for figuring out if the system is allowed to send new SMS to a specific number
  * based on the daily limit that the number has ~ 10SMS per day.
@@ -2816,23 +2832,23 @@ redisCluster.on("connect", function () {
                     //Has some data
                     try {
                       //Rehydrate
-                      // new Promise((resCompute) => {
-                      //   getRequestDataClient(req, resCompute);
-                      // })
-                      //   .then((result) => {
-                      //     //!Cache
-                      //     redisCluster.setex(
-                      //       redisKey,
-                      //       parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
-                      //       JSON.stringify(result)
-                      //     );
-                      //     //...
-                      //     // resolve(result);
-                      //   })
-                      //   .catch((error) => {
-                      //     logger.error(error);
-                      //     // resolve(false);
-                      //   });
+                      new Promise((resCompute) => {
+                        getRequestDataClient(req, resCompute);
+                      })
+                        .then((result) => {
+                          //!Cache
+                          redisCluster.setex(
+                            redisKey,
+                            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
+                            JSON.stringify(result)
+                          );
+                          //...
+                          // resolve(result);
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          // resolve(false);
+                        });
 
                       // console.log(resp);
 
@@ -5424,6 +5440,263 @@ redisCluster.on("connect", function () {
             res.send({
               response: "error_authentication_failed",
             });
+          }
+        });
+
+        /**
+         * ADMINISTRATIONS APIS
+         */
+        //1. Get the list of all the users
+        app.post("/getUsersList", function (req, res) {
+          req = req.body;
+
+          if (req.admin_fp !== undefined && req.admin_fp !== null) {
+            dynamo_get_all({
+              table_name: "users_central",
+            })
+              .then((usersData) => {
+                if (
+                  usersData !== undefined &&
+                  usersData !== null &&
+                  usersData.length > 0
+                ) {
+                  //Found some data
+                  logger.info(usersData);
+                  //Sort based on the registration date
+                  usersData.sort((a, b) =>
+                    new Date(a.date_registered) > new Date(b.date_registered)
+                      ? -1
+                      : new Date(a.date_registered) >
+                        new Date(a.date_registered)
+                      ? 1
+                      : 0
+                  );
+                  //DONE
+                  res.send({ response: usersData });
+                } //No users
+                else {
+                  res.send({ response: [] });
+                }
+              })
+              .catch((error) => {
+                logger.error(error);
+                res.send({ response: [] });
+              });
+          } //Invalid data
+          else {
+            res.send({ response: [] });
+          }
+        });
+
+        //2. Get the list of all the drivers
+        app.post("/getDriversList", function (req, res) {
+          req = req.body;
+
+          if (req.admin_fp !== undefined && req.admin_fp !== null) {
+            //1. Get alll the applications
+            dynamo_get_all({
+              table_name: "drivers_application_central",
+            })
+              .then((applicationData) => {
+                //Sort based on the registration date
+                applicationData.sort((a, b) =>
+                  new Date(a.date_applied) > new Date(b.date_applied)
+                    ? -1
+                    : new Date(a.date_applied) > new Date(a.date_applied)
+                    ? 1
+                    : 0
+                );
+
+                dynamo_get_all({
+                  table_name: "drivers_shoppers_central",
+                })
+                  .then((usersData) => {
+                    if (
+                      usersData !== undefined &&
+                      usersData !== null &&
+                      usersData.length > 0
+                    ) {
+                      //Found some data
+                      // logger.info(usersData);
+                      //Sort based on the registration date
+                      usersData.sort((a, b) =>
+                        new Date(a.date_registered) >
+                        new Date(b.date_registered)
+                          ? -1
+                          : new Date(a.date_registered) >
+                            new Date(a.date_registered)
+                          ? 1
+                          : 0
+                      );
+                      //DONE
+                      res.send({
+                        response: {
+                          registered: usersData,
+                          awaiting: applicationData,
+                        },
+                      });
+                    } //No users
+                    else {
+                      res.send({
+                        response: { registered: [], awaiting: applicationData },
+                      });
+                    }
+                  })
+                  .catch((error) => {
+                    logger.error(error);
+                    res.send({
+                      response: { registered: [], awaiting: applicationData },
+                    });
+                  });
+              })
+              .catch((error) => {
+                logger.error(error);
+                res.send({ response: { registered: [], awaiting: [] } });
+              });
+          } //Invalid data
+          else {
+            res.send({ response: { registered: [], awaiting: [] } });
+          }
+        });
+
+        //3. suspended or unsuspend a driver
+        app.post("/suspendUnsuspendDriver", function (req, res) {
+          resolveDate();
+
+          req = req.body;
+
+          //? Get the _id
+          if (
+            req.admin_fp !== undefined &&
+            req.admin_fp !== null &&
+            req.operation !== undefined &&
+            req.operation !== null &&
+            req.driver_id !== undefined &&
+            req.driver_id !== null
+          ) {
+            dynamo_update({
+              table_name: "drivers_shoppers_central",
+              _idKey: req.driver_id,
+              UpdateExpression:
+                "set isDriverSuspended = :val1, #idData.#dateUp = :val2",
+              ExpressionAttributeValues: {
+                ":val1": req.operation === "suspend",
+                ":val2": new Date(chaineDateUTC).toISOString(),
+              },
+              ExpressionAttributeNames: {
+                "#idData": "identification_data",
+                "#dateUp": "date_updated",
+              },
+            }).then((result) => {
+              if (result === false) {
+                //Error
+                res.send({ response: "error" });
+              }
+              //....
+              res.send({ response: "success" });
+            });
+          } //Invalid data
+          else {
+            res.send({ response: "error" });
+          }
+        });
+
+        //4. Approve driver account
+        app.post("/approveDriverAccount", function (req, res) {
+          resolveDate();
+          req = req.body;
+
+          if (
+            req.admin_fp !== undefined &&
+            req.admin_fp !== null &&
+            req.driverData !== undefined &&
+            req.driverData !== null
+          ) {
+            let driverData = req.driverData;
+            //1. Create a fresh driver object
+            let templateDRIVER = {
+              identification_data: {
+                date_updated: new Date(chaineDateUTC).toISOString(), //Done
+                rating: 5, //Done
+                copy_id_paper: driverData.documents.id_photo, //Done
+                profile_picture: driverData.documents.driver_photo, //Done
+                banking_details: {}, //Done
+                driver_licence_doc: driverData.documents.license_photo, //Done
+                title: "Mr", //Done
+                copy_blue_paper:
+                  driverData.documents.blue_paper_photo !== undefined
+                    ? driverData.documents.blue_paper_photo
+                    : null, //Done
+                copy_public_permit:
+                  driverData.documents.permit_photo !== undefined
+                    ? driverData.documents.permit_photo
+                    : null, //Done
+                isAccount_verified: true,
+                copy_white_paper:
+                  driverData.documents.white_paper_photo !== undefined
+                    ? driverData.documents.white_paper_photo
+                    : null, //Done
+                paymentNumber: otpGenerator.generate(6, {
+                  lowerCaseAlphabets: false,
+                  upperCaseAlphabets: false,
+                  specialChars: false,
+                }), //Done
+                personal_id_number: "Not set", //Done
+              },
+              date_updated: new Date(chaineDateUTC).toISOString(), //DOne
+              gender: "Not set", //Done
+              account_verifications: {},
+              payments_information: {},
+              date_registered: new Date(chaineDateUTC).toISOString(), //Done
+              operation_clearances:
+                driverData.nature_driver === "COURIER" ? "DELIVERY" : "RIDE", //Done
+              passwod: `${otpGenerator.generate(7, {
+                lowerCaseAlphabets: false,
+                upperCaseAlphabets: false,
+                specialChars: false,
+              })}`, //Done
+              owners_information: false, //DOne
+              surname: driverData.surname, //Done
+              driver_fingerprint: driverData.driver_fingerprint, //Done
+              suspension_infos: [], //Done
+              suspension_message: "false", //Done
+              name: driverData.name, //Done
+              phone_number: driverData.phone_number, //Done
+              cars_data: [
+                {
+                  date_updated: new Date(chaineDateUTC).toISOString(), //Done
+                  permit_number: driverData.vehicle_details.permit_number, //Done
+                  taxi_number: driverData.vehicle_details.taxi_number, //DOne
+                  max_passengers: 4, //Done
+                  taxi_picture: driverData.documents.vehicle_photo, //DOne
+                  car_brand: driverData.vehicle_details.brand_name, //DOne
+                  vehicle_type: "normalTaxiEconomy", //Done
+                  plate_number: driverData.vehicle_details.plate_number, //Done
+                  car_fingerprint: driverData._id, //Done
+                  date_registered: new Date(chaineDateUTC).toISOString(), //Done
+                },
+              ],
+              isDriverSuspended: false, //Done
+              operational_state: {
+                last_location: new Date(chaineDateUTC).toISOString(), //Done
+                push_notification_token: "abc", //Done
+                default_selected_car: {
+                  vehicle_type: "normalTaxiEconomy", //Done
+                  date_Selected: new Date(chaineDateUTC).toISOString(), //Done
+                  car_fingerprint: driverData._id, //Done
+                  max_passengers: 4, //Done
+                },
+                status: "online", //Done
+              },
+              regional_clearances: [ucFirst(driverData["city"])], //Done
+              email: driverData["email"], //Done
+            };
+
+            //2. Move all the documents from the application folder to the approved one on S3
+            logger.warn(templateDRIVER);
+          } //Invalid data
+          else {
+            res.send({ response: "error" });
           }
         });
       }

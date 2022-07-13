@@ -210,6 +210,7 @@ async function update({
     if (Object.keys(ExpressionAttributeNames).length === 0)
       delete params["ExpressionAttributeNames"];
 
+    // logger.warn(params);
     //...
     dynamoClient.update(params, function (err, resultUpdate) {
       if (err) {
@@ -283,7 +284,7 @@ async function find_query({
 
     if (ScanIndexForward === null) delete params["ScanIndexForward"];
 
-    logger.warn(params);
+    // logger.warn(params);
     //...
     dynamoClient.query(params, function (err, resultFindget) {
       if (err) {
@@ -363,7 +364,7 @@ async function get_all({
         resolve([]);
       }
       //...
-      logger.warn(params);
+      // logger.warn(params);
       resolve(resultFindget.Items);
     });
   });

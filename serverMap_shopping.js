@@ -1042,25 +1042,25 @@ function tripChecker_Dispatcher(
         //Has a record
         try {
           //! DEBUG - Make a rehydrate request
-          // new Promise((resCompute) => {
-          //   execTripChecker_Dispatcher(
-          //     driverData,
-          //     user_fingerprint,
-          //     user_nature,
-          //     requestType,
-          //     RIDE_REDIS_KEY,
-          //     resolve
-          //   );
-          //   //...
-          //   resCompute(true);
-          // })
-          //   .then(
-          //     () => {},
-          //     () => {}
-          //   )
-          //   .catch((error) => {
-          //     logger.error(error);
-          //   });
+          new Promise((resCompute) => {
+            execTripChecker_Dispatcher(
+              driverData,
+              user_fingerprint,
+              user_nature,
+              requestType,
+              RIDE_REDIS_KEY,
+              resolve
+            );
+            //...
+            resCompute(true);
+          })
+            .then(
+              () => {},
+              () => {}
+            )
+            .catch((error) => {
+              logger.error(error);
+            });
 
           resp = JSON.parse(resp);
           //....
