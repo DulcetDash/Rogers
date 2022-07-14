@@ -688,12 +688,9 @@ function doFreshGoogleSearchAndReturn(littlePack, redisKey, resolve) {
         body["date_updated"] = new Date(chaineDateUTC).toISOString();
 
         dynamo_insert("enriched_locationSearch_persist", body)
-          .then((result) => {
-            resSave(true);
-          })
+          .then((result) => {})
           .catch((error) => {
             logger.error(error);
-            resSave(true);
           });
 
         // new Promise((resSave) => {

@@ -2106,6 +2106,18 @@ function updateRidersPushNotifToken(req, redisKey, resolve) {
     });
 }
 
+//S3 COPY files
+function copyFile(s3Params) {
+  return s3.copyObject(s3Params).promise();
+}
+
+//S3 DELETE files
+function deleteFile(s3Params) {
+  return s3
+    .deleteObject({ Bucket: s3Params.Bucket, Key: s3Params.Key })
+    .promise();
+}
+
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
 
@@ -2574,7 +2586,7 @@ redisCluster.on("connect", function () {
                   req.pickup_location !== null;
 
             if (checkerCondition) {
-              logger.info(req);
+              // logger.info(req);
               let security_pin = otpGenerator.generate(6, {
                 lowerCaseAlphabets: false,
                 upperCaseAlphabets: false,
@@ -2682,7 +2694,9 @@ redisCluster.on("connect", function () {
                               security: {
                                 pin: security_pin, //Will be used to check the request
                               },
-                              date_requested: new Date(chaineDateUTC), //The time of the request
+                              date_requested: new Date(
+                                chaineDateUTC
+                              ).toISOString(), //The time of the request
                               date_pickedup: null, //The time when the driver picked up the  client/package
                               date_routeToDropoff: null, //The time when the driver started going to drop off the client/package
                               date_completedDropoff: null, //The time when the driver was done with the ride
@@ -2758,6 +2772,7 @@ redisCluster.on("connect", function () {
                           )}${Math.round(new Date(chaineDateUTC).getTime())}`;
                         })
                         .finally(() => {
+                          logger.info(REQUEST_TEMPLATE);
                           //?Continue here
                           dynamo_insert("requests_central", REQUEST_TEMPLATE)
                             .then((result) => {
@@ -5480,7 +5495,7 @@ redisCluster.on("connect", function () {
                   usersData.length > 0
                 ) {
                   //Found some data
-                  logger.info(usersData);
+                  // logger.info(usersData);
                   //Sort based on the registration date
                   usersData.sort((a, b) =>
                     new Date(a.date_registered) > new Date(b.date_registered)
@@ -5597,14 +5612,17 @@ redisCluster.on("connect", function () {
               table_name: "drivers_shoppers_central",
               _idKey: req.driver_id,
               UpdateExpression:
-                "set isDriverSuspended = :val1, #idData.#dateUp = :val2",
+                "set isDriverSuspended = :val1, #idData.#dateUp = :val2, #opState.#st = :val3",
               ExpressionAttributeValues: {
                 ":val1": req.operation === "suspend",
                 ":val2": new Date(chaineDateUTC).toISOString(),
+                ":val3": req.operation === "suspend" ? "offline" : "online",
               },
               ExpressionAttributeNames: {
                 "#idData": "identification_data",
                 "#dateUp": "date_updated",
+                "#opState": "operational_state",
+                "#st": "status",
               },
             }).then((result) => {
               if (result === false) {
@@ -5680,7 +5698,9 @@ redisCluster.on("connect", function () {
               suspension_infos: [], //Done
               suspension_message: "false", //Done
               name: driverData.name, //Done
-              phone_number: driverData.phone_number, //Done
+              phone_number: /\+/i.test(driverData.phone_number)
+                ? driverData.phone_number
+                : `+${driverData.phone_number}`, //Done
               cars_data: [
                 {
                   date_updated: new Date(chaineDateUTC).toISOString(), //Done
@@ -5692,6 +5712,8 @@ redisCluster.on("connect", function () {
                   vehicle_type: "normalTaxiEconomy", //Done
                   plate_number: driverData.vehicle_details.plate_number, //Done
                   car_fingerprint: driverData._id, //Done
+                  model_name: driverData.vehicle_details.model_name, //DOne
+                  color: driverData.vehicle_details.color, //Done
                   date_registered: new Date(chaineDateUTC).toISOString(), //Done
                 },
               ],
@@ -5712,7 +5734,136 @@ redisCluster.on("connect", function () {
             };
 
             //2. Move all the documents from the application folder to the approved one on S3
-            logger.warn(templateDRIVER);
+            // logger.warn(templateDRIVER);
+            let filesMap = [
+              {
+                filename: templateDRIVER.identification_data.copy_id_paper,
+                dest_folder: "Drivers_documents",
+              },
+              {
+                filename: templateDRIVER.identification_data.profile_picture,
+                dest_folder: "Profiles_pictures",
+              },
+              {
+                filename: templateDRIVER.identification_data.driver_licence_doc,
+                dest_folder: "Drivers_documents",
+              },
+              {
+                filename: templateDRIVER.identification_data.copy_blue_paper,
+                dest_folder: "Drivers_documents",
+              },
+              {
+                filename: templateDRIVER.identification_data.copy_public_permit,
+                dest_folder: "Drivers_documents",
+              },
+              {
+                filename: templateDRIVER.identification_data.copy_white_paper,
+                dest_folder: "Drivers_documents",
+              },
+              {
+                filename: templateDRIVER.cars_data[0].taxi_picture,
+                dest_folder: "Drivers_documents",
+              },
+            ];
+
+            //! remove all invalid file names
+            filesMap = filesMap.filter(
+              (file) =>
+                file.filename !== undefined &&
+                file.filename !== null &&
+                file.filename.length > 0
+            );
+
+            logger.warn(filesMap);
+            //...
+            let parentPromises = filesMap.map((document) => {
+              return new Promise(async (resMove) => {
+                let s3Params = {
+                  Bucket: process.env.AWS_S3_DRIVERS_BUCKET_NAME,
+                  CopySource: `${process.env.AWS_S3_DRIVERS_BUCKET_NAME}/Drivers_Applications/${document.filename}`,
+                  Key: `${document.dest_folder}/${document.filename}`,
+                };
+
+                try {
+                  await copyFile(s3Params).then((r) => console.log(r));
+                  console.log("All good");
+                  resMove(true);
+                } catch (ex) {
+                  console.log(`Failed with the following exception : ${ex}`);
+                  resMove(false);
+                }
+              });
+            });
+            //DONE
+            Promise.all(parentPromises)
+              .then((resultMoving) => {
+                logger.info(resultMoving);
+                //! Check if there are any error
+                let areThereErrors = resultMoving.filter((el) => el === false);
+
+                if (areThereErrors.length === 0) {
+                  //? No errors - all good
+                  //Migrate the driver record in the database of registered drivers and delete the application record
+                  //1. Move to official table
+                  dynamo_insert("drivers_shoppers_central", templateDRIVER)
+                    .then((result) => {
+                      if (result === false) {
+                        res.send({
+                          response: "error",
+                          message: "Could not register the driver officially.",
+                        });
+                      }
+                      //....
+                      //4. Delete the record
+                      dynamo_delete(
+                        "drivers_application_central",
+                        req.driverData._id
+                      )
+                        .then((resultDel) => {
+                          //3. Register the event
+                          let approveEvent = {
+                            date: new Date(chaineDateUTC).toISOString(),
+                            event_name: "driver_approval_registration",
+                            registration_id: `${otpGenerator.generate(128, {
+                              lowerCaseAlphabets: true,
+                              upperCaseAlphabets: true,
+                              specialChars: false,
+                            })}`,
+                            driver_fingerprint:
+                              templateDRIVER.driver_fingerprint,
+                            recordData: req.driverData,
+                          };
+                          //...
+                          dynamo_insert("global_events", approveEvent).then(
+                            (resultApprove) => {
+                              res.send({ response: "success" });
+                            }
+                          );
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          res.send({ response: "success" });
+                        });
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                      res.send({
+                        response: "error",
+                        message: "Could not register the driver officially.",
+                      });
+                    });
+                } //Has some errors
+                else {
+                  res.send({
+                    response: "error",
+                    message: "Could not migrate the driver's documents.",
+                  });
+                }
+              })
+              .catch((error) => {
+                logger.error(error);
+                res.send({ response: "error" });
+              });
           } //Invalid data
           else {
             res.send({ response: "error" });
