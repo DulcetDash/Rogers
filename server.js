@@ -32,6 +32,7 @@ const {
   dynamo_find_query,
   dynamo_delete,
   dynamo_get_all,
+  dynamo_find_get,
 } = require("./DynamoServiceManager");
 //....
 
@@ -2117,6 +2118,47 @@ function deleteFile(s3Params) {
     .deleteObject({ Bucket: s3Params.Bucket, Key: s3Params.Key })
     .promise();
 }
+
+//Check if it's today
+const isToday = (someDate) => {
+  const today = new Date(chaineDateUTC);
+  return (
+    someDate.getDate() == today.getDate() &&
+    someDate.getMonth() == today.getMonth() &&
+    someDate.getFullYear() == today.getFullYear()
+  );
+};
+
+//Get the sum of today for the requests
+const getTodayAmountsSums = ({ arrayRequests = [], dataType = "sales" }) => {
+  switch (dataType) {
+    case "sales":
+      return arrayRequests
+        .filter((el) => isToday(new Date(el.date_requested)))
+        .map((el) =>
+          el.totals_request.fare !== undefined
+            ? parseFloat(el.totals_request.fare)
+            : parseFloat(el.totals_request.total.replace("N$", ""))
+        )
+        .reduce((partialSum, a) => partialSum + a, 0);
+
+    case "revenue":
+      return arrayRequests
+        .filter(
+          (el) =>
+            isToday(new Date(el.date_requested)) && el.ride_mode !== "RIDE"
+        )
+        .map((el) =>
+          el.totals_request.service_fee !== undefined
+            ? parseFloat(el.totals_request.service_fee.replace("N$", ""))
+            : parseFloat(el.totals_request.total.replace("N$", ""))
+        )
+        .reduce((partialSum, a) => partialSum + a, 0);
+
+    default:
+      return 0;
+  }
+};
 
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
@@ -5858,6 +5900,350 @@ redisCluster.on("connect", function () {
                     response: "error",
                     message: "Could not migrate the driver's documents.",
                   });
+                }
+              })
+              .catch((error) => {
+                logger.error(error);
+                res.send({ response: "error" });
+              });
+          } //Invalid data
+          else {
+            res.send({ response: "error" });
+          }
+        });
+
+        //5. Get the requests list for the admin
+        //Needs to be well segmented.
+        app.post("/getGeneralRequestsList", function (req, res) {
+          resolveDate();
+
+          req = req.body;
+
+          //? Get the _id
+          if (req.admin_fp !== undefined && req.admin_fp !== null) {
+            //Get all the requests
+            dynamo_get_all({
+              table_name: "requests_central",
+            })
+              .then((allRequests) => {
+                if (allRequests !== undefined && allRequests.length > 0) {
+                  //Found some requests
+                  //?Sort based on the requested date
+                  allRequests.sort((a, b) =>
+                    new Date(a.date_requested) > new Date(b.date_requested)
+                      ? -1
+                      : new Date(a.date_requested) > new Date(a.date_requested)
+                      ? 1
+                      : 0
+                  );
+
+                  //! Attach the rider details
+                  let parentPromises1 = allRequests.map((request, index) => {
+                    return new Promise((resCompute) => {
+                      dynamo_find_query({
+                        table_name: "users_central",
+                        IndexName: "user_identifier",
+                        KeyConditionExpression: "user_identifier = :val1",
+                        ExpressionAttributeValues: {
+                          ":val1": request.client_id,
+                        },
+                      })
+                        .then((clientData) => {
+                          if (
+                            clientData !== undefined &&
+                            clientData.length > 0
+                          ) {
+                            //Has some client data
+                            //Save
+                            allRequests[index]["clientData"] = clientData[0];
+                            resCompute(true);
+                          } //No client?
+                          else {
+                            allRequests[index]["clientData"] = false;
+                            resCompute(false);
+                          }
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                          allRequests[index]["clientData"] = false;
+                          resCompute(false);
+                        });
+                    });
+                  });
+
+                  //DONE
+                  Promise.all(parentPromises1)
+                    .then((result) => {
+                      // logger.info(result);
+                    })
+                    .catch((error) => {
+                      logger.error(error);
+                    })
+                    .finally(() => {
+                      //! Attach the driver details
+                      let parentPromises2 = allRequests.map(
+                        (request, index) => {
+                          return new Promise((resCompute) => {
+                            dynamo_find_query({
+                              table_name: "drivers_shoppers_central",
+                              IndexName: "driver_fingerprint",
+                              KeyConditionExpression:
+                                "driver_fingerprint = :val1",
+                              ExpressionAttributeValues: {
+                                ":val1": request.shopper_id,
+                              },
+                            })
+                              .then((driverData) => {
+                                if (
+                                  driverData !== undefined &&
+                                  driverData.length > 0
+                                ) {
+                                  //Has some driver data
+                                  //Save
+                                  allRequests[index]["driverData"] =
+                                    driverData[0];
+                                  resCompute(true);
+                                } //No client?
+                                else {
+                                  allRequests[index]["driverData"] = false;
+                                  resCompute(false);
+                                }
+                              })
+                              .catch((error) => {
+                                logger.error(error);
+                                allRequests[index]["driverData"] = false;
+                                resCompute(false);
+                              });
+                          });
+                        }
+                      );
+
+                      //DONE
+                      Promise.all(parentPromises2)
+                        .then((result) => {
+                          // logger.info(result);
+                        })
+                        .catch((error) => {
+                          logger.error(error);
+                        })
+                        .finally(() => {
+                          //! Get all the cancelled data
+                          dynamo_get_all({
+                            table_name: "cancelled_requests_central",
+                          })
+                            .then((allCancelledRequests) => {
+                              allCancelledRequests =
+                                allCancelledRequests !== undefined &&
+                                allCancelledRequests !== null
+                                  ? allCancelledRequests
+                                  : []; //Check
+
+                              //?Sort based on the cancelled date
+                              allCancelledRequests.sort((a, b) =>
+                                new Date(a.date_cancelled) >
+                                new Date(b.date_cancelled)
+                                  ? -1
+                                  : new Date(a.date_cancelled) >
+                                    new Date(a.date_cancelled)
+                                  ? 1
+                                  : 0
+                              );
+
+                              //! Attach the rider details
+                              let parentPromises3 = allCancelledRequests.map(
+                                (request, index) => {
+                                  return new Promise((resCompute) => {
+                                    dynamo_find_query({
+                                      table_name: "users_central",
+                                      IndexName: "user_identifier",
+                                      KeyConditionExpression:
+                                        "user_identifier = :val1",
+                                      ExpressionAttributeValues: {
+                                        ":val1": request.client_id,
+                                      },
+                                    })
+                                      .then((clientData) => {
+                                        if (
+                                          clientData !== undefined &&
+                                          clientData.length > 0
+                                        ) {
+                                          //Has some client data
+                                          //Save
+                                          allCancelledRequests[index][
+                                            "clientData"
+                                          ] = clientData[0];
+                                          resCompute(true);
+                                        } //No client?
+                                        else {
+                                          allCancelledRequests[index][
+                                            "clientData"
+                                          ] = false;
+                                          resCompute(false);
+                                        }
+                                      })
+                                      .catch((error) => {
+                                        logger.error(error);
+                                        allCancelledRequests[index][
+                                          "clientData"
+                                        ] = false;
+                                        resCompute(false);
+                                      });
+                                  });
+                                }
+                              );
+
+                              Promise.all(parentPromises3)
+                                .then((result) => {
+                                  // logger.info(result);
+                                })
+                                .catch((error) => {
+                                  logger.error(error);
+                                })
+                                .finally(() => {
+                                  //! Attach the driver details
+                                  let parentPromises4 =
+                                    allCancelledRequests.map(
+                                      (request, index) => {
+                                        return new Promise((resCompute) => {
+                                          dynamo_find_query({
+                                            table_name:
+                                              "drivers_shoppers_central",
+                                            IndexName: "driver_fingerprint",
+                                            KeyConditionExpression:
+                                              "driver_fingerprint = :val1",
+                                            ExpressionAttributeValues: {
+                                              ":val1": request.shopper_id,
+                                            },
+                                          })
+                                            .then((driverData) => {
+                                              if (
+                                                driverData !== undefined &&
+                                                driverData.length > 0
+                                              ) {
+                                                //Has some driver data
+                                                //Save
+                                                allCancelledRequests[index][
+                                                  "driverData"
+                                                ] = driverData[0];
+                                                resCompute(true);
+                                              } //No client?
+                                              else {
+                                                allCancelledRequests[index][
+                                                  "driverData"
+                                                ] = false;
+                                                resCompute(false);
+                                              }
+                                            })
+                                            .catch((error) => {
+                                              logger.error(error);
+                                              allCancelledRequests[index][
+                                                "driverData"
+                                              ] = false;
+                                              resCompute(false);
+                                            });
+                                        });
+                                      }
+                                    );
+
+                                  Promise.all(parentPromises4)
+                                    .then((result) => {
+                                      // logger.info(result);
+                                    })
+                                    .catch((error) => {
+                                      logger.error(error);
+                                    })
+                                    .finally(() => {
+                                      //? Assemble the response data
+                                      let RESPONSE_TEMPLATE_DATA = {
+                                        ride: {
+                                          inprogress: allRequests.filter(
+                                            (el) =>
+                                              el.ride_mode === "RIDE" &&
+                                              el.request_state_vars
+                                                .completedDropoff === false
+                                          ),
+                                          completed: allRequests.filter(
+                                            (el) =>
+                                              el.ride_mode === "RIDE" &&
+                                              el.request_state_vars
+                                                .completedRatingClient
+                                          ),
+                                          cancelled:
+                                            allCancelledRequests.filter(
+                                              (el) => el.ride_mode === "RIDE"
+                                            ),
+                                        },
+                                        delivery: {
+                                          inprogress: allRequests.filter(
+                                            (el) =>
+                                              el.ride_mode === "DELIVERY" &&
+                                              el.request_state_vars
+                                                .completedDropoff === false
+                                          ),
+                                          completed: allRequests.filter(
+                                            (el) =>
+                                              el.ride_mode === "DELIVERY" &&
+                                              el.request_state_vars
+                                                .completedRatingClient
+                                          ),
+                                          cancelled:
+                                            allCancelledRequests.filter(
+                                              (el) =>
+                                                el.ride_mode === "DELIVERY"
+                                            ),
+                                        },
+                                        shopping: {
+                                          inprogress: allRequests.filter(
+                                            (el) =>
+                                              el.ride_mode === "SHOPPING" &&
+                                              el.request_state_vars
+                                                .completedShopping === false
+                                          ),
+                                          completed: allRequests.filter(
+                                            (el) =>
+                                              el.ride_mode === "SHOPPING" &&
+                                              el.request_state_vars
+                                                .completedRatingClient
+                                          ),
+                                          cancelled:
+                                            allCancelledRequests.filter(
+                                              (el) =>
+                                                el.ride_mode === "SHOPPING"
+                                            ),
+                                        },
+                                        stats: {
+                                          total_sales_today:
+                                            getTodayAmountsSums({
+                                              arrayRequests: allRequests,
+                                              dataType: "sales",
+                                            }),
+                                          total_revenue_today:
+                                            getTodayAmountsSums({
+                                              arrayRequests: allRequests,
+                                              dataType: "revenue",
+                                            }),
+                                          total_requests_success:
+                                            allRequests.length,
+                                        },
+                                      };
+
+                                      // logger.info(RESPONSE_TEMPLATE_DATA);
+                                      //...
+                                      res.send({
+                                        response: RESPONSE_TEMPLATE_DATA,
+                                      });
+                                    });
+                                });
+                            })
+                            .catch((error) => {
+                              logger.error(error);
+                              res.send({ response: "error" });
+                            });
+                        });
+                    });
+                } //No requests
+                else {
+                  res.send({ response: {} });
                 }
               })
               .catch((error) => {
