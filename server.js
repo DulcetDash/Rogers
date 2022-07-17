@@ -2155,6 +2155,11 @@ const getTodayAmountsSums = ({ arrayRequests = [], dataType = "sales" }) => {
         )
         .reduce((partialSum, a) => partialSum + a, 0);
 
+    case "requests":
+      return arrayRequests.filter(
+        (el) => isToday(new Date(el.date_requested)) && el.ride_mode !== "RIDE"
+      ).length;
+
     default:
       return 0;
   }
@@ -6160,7 +6165,7 @@ redisCluster.on("connect", function () {
                                             (el) =>
                                               el.ride_mode === "RIDE" &&
                                               el.request_state_vars
-                                                .completedDropoff === false
+                                                .completedRatingClient === false
                                           ),
                                           completed: allRequests.filter(
                                             (el) =>
@@ -6178,7 +6183,7 @@ redisCluster.on("connect", function () {
                                             (el) =>
                                               el.ride_mode === "DELIVERY" &&
                                               el.request_state_vars
-                                                .completedDropoff === false
+                                                .completedRatingClient === false
                                           ),
                                           completed: allRequests.filter(
                                             (el) =>
@@ -6197,7 +6202,7 @@ redisCluster.on("connect", function () {
                                             (el) =>
                                               el.ride_mode === "SHOPPING" &&
                                               el.request_state_vars
-                                                .completedShopping === false
+                                                .completedRatingClient === false
                                           ),
                                           completed: allRequests.filter(
                                             (el) =>
@@ -6223,7 +6228,10 @@ redisCluster.on("connect", function () {
                                               dataType: "revenue",
                                             }),
                                           total_requests_success:
-                                            allRequests.length,
+                                            getTodayAmountsSums({
+                                              arrayRequests: allRequests,
+                                              dataType: "requests",
+                                            }),
                                         },
                                       };
 
