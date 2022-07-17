@@ -2130,7 +2130,7 @@ const isToday = (someDate) => {
 };
 
 //Get the sum of today for the requests
-const getTodayAmountsSums = ({ arrayRequests = [], dataType = "sales" }) => {
+const getAmountsSums = ({ arrayRequests = [], dataType = "sales" }) => {
   switch (dataType) {
     case "sales":
       return arrayRequests
@@ -2148,17 +2148,88 @@ const getTodayAmountsSums = ({ arrayRequests = [], dataType = "sales" }) => {
           (el) =>
             isToday(new Date(el.date_requested)) && el.ride_mode !== "RIDE"
         )
+        .map((el) => {
+          let tmpSum = 0;
+          tmpSum +=
+            el.totals_request.service_fee !== undefined
+              ? parseFloat(el.totals_request.service_fee.replace("N$", ""))
+              : 0;
+
+          tmpSum +=
+            el.totals_request.cart !== undefined
+              ? parseFloat(el.totals_request.cart.replace("N$", ""))
+              : 0;
+
+          tmpSum +=
+            el.totals_request.delivery_fee !== undefined
+              ? parseFloat(el.totals_request.delivery_fee.replace("N$", ""))
+              : 0;
+
+          tmpSum +=
+            el.totals_request.cash_pickup_fee !== undefined
+              ? parseFloat(el.totals_request.cash_pickup_fee.replace("N$", ""))
+              : 0;
+
+          //...
+          tmpSum +=
+            el.totals_request.service_fee === undefined
+              ? parseFloat(el.totals_request.total.replace("N$", ""))
+              : 0;
+
+          return tmpSum;
+        })
+        .reduce((partialSum, a) => partialSum + a, 0);
+
+    case "requests":
+      return arrayRequests.filter((el) => isToday(new Date(el.date_requested)))
+        .length;
+
+    case "todayOnly":
+      return arrayRequests.filter((el) => isToday(new Date(el.date_requested)));
+
+    case "gross_sum":
+      return arrayRequests
         .map((el) =>
-          el.totals_request.service_fee !== undefined
-            ? parseFloat(el.totals_request.service_fee.replace("N$", ""))
+          el.totals_request.fare !== undefined
+            ? parseFloat(String(el.totals_request.fare).replace("N$", ""))
             : parseFloat(el.totals_request.total.replace("N$", ""))
         )
         .reduce((partialSum, a) => partialSum + a, 0);
 
-    case "requests":
-      return arrayRequests.filter(
-        (el) => isToday(new Date(el.date_requested)) && el.ride_mode !== "RIDE"
-      ).length;
+    case "net_sum":
+      return arrayRequests
+        .filter((el) => el.ride_mode !== "RIDE")
+        .map((el) => {
+          let tmpSum = 0;
+          tmpSum +=
+            el.totals_request.service_fee !== undefined
+              ? parseFloat(el.totals_request.service_fee.replace("N$", ""))
+              : 0;
+
+          tmpSum +=
+            el.totals_request.cart !== undefined
+              ? parseFloat(el.totals_request.cart.replace("N$", ""))
+              : 0;
+
+          tmpSum +=
+            el.totals_request.delivery_fee !== undefined
+              ? parseFloat(el.totals_request.delivery_fee.replace("N$", ""))
+              : 0;
+
+          tmpSum +=
+            el.totals_request.cash_pickup_fee !== undefined
+              ? parseFloat(el.totals_request.cash_pickup_fee.replace("N$", ""))
+              : 0;
+
+          //...
+          tmpSum +=
+            el.totals_request.service_fee === undefined
+              ? parseFloat(el.totals_request.total.replace("N$", ""))
+              : 0;
+
+          return tmpSum;
+        })
+        .reduce((partialSum, a) => partialSum + a, 0);
 
     default:
       return 0;
@@ -6217,18 +6288,16 @@ redisCluster.on("connect", function () {
                                             ),
                                         },
                                         stats: {
-                                          total_sales_today:
-                                            getTodayAmountsSums({
-                                              arrayRequests: allRequests,
-                                              dataType: "sales",
-                                            }),
-                                          total_revenue_today:
-                                            getTodayAmountsSums({
-                                              arrayRequests: allRequests,
-                                              dataType: "revenue",
-                                            }),
+                                          total_sales_today: getAmountsSums({
+                                            arrayRequests: allRequests,
+                                            dataType: "sales",
+                                          }),
+                                          total_revenue_today: getAmountsSums({
+                                            arrayRequests: allRequests,
+                                            dataType: "revenue",
+                                          }),
                                           total_requests_success:
-                                            getTodayAmountsSums({
+                                            getAmountsSums({
                                               arrayRequests: allRequests,
                                               dataType: "requests",
                                             }),
@@ -6253,6 +6322,369 @@ redisCluster.on("connect", function () {
                 else {
                   res.send({ response: {} });
                 }
+              })
+              .catch((error) => {
+                logger.error(error);
+                res.send({ response: "error" });
+              });
+          } //Invalid data
+          else {
+            res.send({ response: "error" });
+          }
+        });
+
+        // 6. Get the summary data
+        app.post("/getSummaryData", function (req, res) {
+          resolveDate();
+
+          req = req.body;
+
+          //Check the admin
+          if (req.admin_fp !== undefined && req.admin_fp !== null) {
+            //1. Get all the requests
+            dynamo_get_all({
+              table_name: "requests_central",
+            })
+              .then((allRequests) => {
+                //2. Get al the cancelled requests
+                dynamo_get_all({
+                  table_name: "cancelled_requests_central",
+                })
+                  .then((allCancelledRequests) => {
+                    //4. Get all the users
+                    dynamo_get_all({
+                      table_name: "users_central",
+                    })
+                      .then((allUsers) => {
+                        //5. Get all the drivers
+                        dynamo_get_all({
+                          table_name: "drivers_shoppers_central",
+                        })
+                          .then((allDrivers) => {
+                            //6. Get all the stores
+                            dynamo_get_all({
+                              table_name: "shops_central",
+                            })
+                              .then((allStores) => {
+                                //7. Get all the catalogue
+                                dynamo_get_all({
+                                  table_name: "catalogue_central",
+                                })
+                                  .then((allCatalogue) => {
+                                    //? Got all ther required data
+                                    let TEMPLATE_SUMMARY_META = {
+                                      today_graph_data: {},
+                                      today: {
+                                        total_requests: getAmountsSums({
+                                          arrayRequests: allRequests,
+                                          dataType: "todayOnly",
+                                        }).length,
+                                        total_rides: getAmountsSums({
+                                          arrayRequests: allRequests,
+                                          dataType: "todayOnly",
+                                        }).filter(
+                                          (el) => el.ride_mode === "RIDE"
+                                        ).length,
+                                        total_deliveries: getAmountsSums({
+                                          arrayRequests: allRequests,
+                                          dataType: "todayOnly",
+                                        }).filter(
+                                          (el) => el.ride_mode === "DELIVERY"
+                                        ).length,
+                                        total_shoppings: getAmountsSums({
+                                          arrayRequests: allRequests,
+                                          dataType: "todayOnly",
+                                        }).filter(
+                                          (el) => el.ride_mode === "SHOPPING"
+                                        ).length,
+                                        total_cancelled_requests:
+                                          getAmountsSums({
+                                            arrayRequests: allCancelledRequests,
+                                            dataType: "todayOnly",
+                                          }).length,
+                                        total_cancelled_rides: getAmountsSums({
+                                          arrayRequests: allCancelledRequests,
+                                          dataType: "todayOnly",
+                                        }).filter(
+                                          (el) => el.ride_mode === "RIDE"
+                                        ).length,
+                                        total_cancelled_deliveries:
+                                          getAmountsSums({
+                                            arrayRequests: allCancelledRequests,
+                                            dataType: "todayOnly",
+                                          }).filter(
+                                            (el) => el.ride_mode === "DELIVERY"
+                                          ).length,
+                                        total_cancelled_shoppings:
+                                          getAmountsSums({
+                                            arrayRequests: allCancelledRequests,
+                                            dataType: "todayOnly",
+                                          }).filter(
+                                            (el) => el.ride_mode === "SHOPPING"
+                                          ).length,
+                                        total_sales: getAmountsSums({
+                                          arrayRequests: allRequests,
+                                          dataType: "sales",
+                                        }),
+                                        total_revenues: getAmountsSums({
+                                          arrayRequests: allRequests,
+                                          dataType: "revenue",
+                                        }),
+                                        total_loss: getAmountsSums({
+                                          arrayRequests:
+                                            allCancelledRequests.filter((el) =>
+                                              isToday(
+                                                new Date(el.date_requested)
+                                              )
+                                            ),
+                                          dataType: "gross_sum",
+                                        }),
+                                        percentage_handling: 0,
+                                      },
+                                      general_requests: {
+                                        total_requests: allRequests.length,
+                                        total_rides: allRequests.filter(
+                                          (el) => el.ride_mode === "RIDE"
+                                        ).length,
+                                        total_deliveries: allRequests.filter(
+                                          (el) => el.ride_mode === "DELIVERY"
+                                        ).length,
+                                        total_shoppings: allRequests.filter(
+                                          (el) => el.ride_mode === "SHOPPING"
+                                        ).length,
+                                        total_cancelled_requests:
+                                          allCancelledRequests.length,
+                                        total_cancelled_rides:
+                                          allCancelledRequests.filter(
+                                            (el) => el.ride_mode === "RIDE"
+                                          ).length,
+                                        total_cancelled_deliveries:
+                                          allCancelledRequests.filter(
+                                            (el) => el.ride_mode === "DELIVERY"
+                                          ).length,
+                                        total_cancelled_shoppings:
+                                          allCancelledRequests.filter(
+                                            (el) => el.ride_mode === "SHOPPING"
+                                          ).length,
+                                        percentage_handling: 0,
+                                      },
+                                      general_finances: {
+                                        total_sales: getAmountsSums({
+                                          arrayRequests: allRequests,
+                                          dataType: "gross_sum",
+                                        }),
+                                        total_revenues: getAmountsSums({
+                                          arrayRequests: allRequests,
+                                          dataType: "net_sum",
+                                        }),
+                                        total_rides_sales: getAmountsSums({
+                                          arrayRequests: allRequests.filter(
+                                            (el) => el.ride_mode === "RIDE"
+                                          ),
+                                          dataType: "gross_sum",
+                                        }),
+                                        total_rides_revenues: "Not considered",
+                                        total_deliveries_sales: getAmountsSums({
+                                          arrayRequests: allRequests.filter(
+                                            (el) => el.ride_mode === "DELIVERY"
+                                          ),
+                                          dataType: "gross_sum",
+                                        }),
+                                        total_deliveries_revenues:
+                                          getAmountsSums({
+                                            arrayRequests: allRequests.filter(
+                                              (el) =>
+                                                el.ride_mode === "DELIVERY"
+                                            ),
+                                            dataType: "net_sum",
+                                          }),
+                                        total_shoppings_sales: getAmountsSums({
+                                          arrayRequests: allRequests.filter(
+                                            (el) => el.ride_mode === "SHOPPING"
+                                          ),
+                                          dataType: "gross_sum",
+                                        }),
+                                        total_shoppings_revenues:
+                                          getAmountsSums({
+                                            arrayRequests: allRequests.filter(
+                                              (el) =>
+                                                el.ride_mode === "SHOPPING"
+                                            ),
+                                            dataType: "net_sum",
+                                          }),
+                                        total_loss: getAmountsSums({
+                                          arrayRequests: allCancelledRequests,
+                                          dataType: "gross_sum",
+                                        }),
+                                        total_net_loss: getAmountsSums({
+                                          arrayRequests: allCancelledRequests,
+                                          dataType: "net_sum",
+                                        }),
+                                        total_rides_loss: getAmountsSums({
+                                          arrayRequests:
+                                            allCancelledRequests.filter(
+                                              (el) => el.ride_mode === "RIDE"
+                                            ),
+                                          dataType: "gross_sum",
+                                        }),
+                                        total_deliveries_loss: getAmountsSums({
+                                          arrayRequests:
+                                            allCancelledRequests.filter(
+                                              (el) =>
+                                                el.ride_mode === "DELIVERY"
+                                            ),
+                                          dataType: "gross_sum",
+                                        }),
+                                        total_shoppings_loss: getAmountsSums({
+                                          arrayRequests:
+                                            allCancelledRequests.filter(
+                                              (el) =>
+                                                el.ride_mode === "SHOPPING"
+                                            ),
+                                          dataType: "gross_sum",
+                                        }),
+                                        percentage_handling: 0,
+                                      },
+                                      users: {
+                                        total_users: allUsers.length,
+                                        total_male_users: allUsers.filter(
+                                          (el) => /^m/i.test(el.gender)
+                                        ).length,
+                                        total_female_users: allUsers.filter(
+                                          (el) => /^f/i.test(el.gender)
+                                        ).length,
+                                        total_unknown_gender_users:
+                                          allUsers.filter(
+                                            (el) =>
+                                              /^m/i.test(el.gender) === false &&
+                                              /^f/i.test(el.gender) === false
+                                          ).length,
+                                        total_mtc_users: allUsers.filter((el) =>
+                                          /26481/i.test(el.phone_number)
+                                        ).length,
+                                        total_tnmobile_users: allUsers.filter(
+                                          (el) => /26485/i.test(el.phone_number)
+                                        ).length,
+                                      },
+                                      drivers: {
+                                        total_drivers: allDrivers.length,
+                                        total_ride_drivers: allDrivers.filter(
+                                          (el) =>
+                                            el.operation_clearances === "RIDE"
+                                        ).length,
+                                        total_delivery_drivers:
+                                          allDrivers.filter(
+                                            (el) =>
+                                              el.operation_clearances ===
+                                              "DELIVERY"
+                                          ).length,
+                                        total_shoppers: allDrivers.filter(
+                                          (el) =>
+                                            el.operation_clearances ===
+                                            "SHOPPING"
+                                        ).length,
+                                        total_male_drivers: allDrivers.filter(
+                                          (el) => /^m/i.test(el.gender)
+                                        ).length,
+                                        total_female_drivers: allDrivers.filter(
+                                          (el) => /^f/i.test(el.gender)
+                                        ).length,
+                                        total_unknown_gender_drivers:
+                                          allDrivers.filter(
+                                            (el) =>
+                                              /^m/i.test(el.gender) === false &&
+                                              /^f/i.test(el.gender) === false
+                                          ).length,
+                                        total_male_ride_drivers:
+                                          allDrivers.filter(
+                                            (el) =>
+                                              /^m/i.test(el.gender) &&
+                                              el.operation_clearances === "RIDE"
+                                          ).length,
+                                        total_female_ride_drivers:
+                                          allDrivers.filter(
+                                            (el) =>
+                                              /^f/i.test(el.gender) &&
+                                              el.operation_clearances === "RIDE"
+                                          ).length,
+                                        total_male_delivery_drivers:
+                                          allDrivers.filter(
+                                            (el) =>
+                                              /^m/i.test(el.gender) &&
+                                              el.operation_clearances ===
+                                                "DELIVERY"
+                                          ).length,
+                                        total_female_delivery_drivers:
+                                          allDrivers.filter(
+                                            (el) =>
+                                              /^f/i.test(el.gender) &&
+                                              el.operation_clearances ===
+                                                "DELIVERY"
+                                          ).length,
+                                        total_male_shoppers: allDrivers.filter(
+                                          (el) =>
+                                            /^m/i.test(el.gender) &&
+                                            el.operation_clearances ===
+                                              "SHOPPING"
+                                        ).length,
+                                        total_female_shoppers:
+                                          allDrivers.filter(
+                                            (el) =>
+                                              /^f/i.test(el.gender) &&
+                                              el.operation_clearances ===
+                                                "SHOPPING"
+                                          ).length,
+                                      },
+                                      shopping_details: {
+                                        total_stores_registered:
+                                          allStores.length,
+                                        total_unpublished_stores:
+                                          allStores.filter(
+                                            (el) =>
+                                              el.publish === undefined ||
+                                              el.publish === null ||
+                                              el.publish
+                                          ).length,
+                                        total_products_in_catalogue:
+                                          allCatalogue.length,
+                                        interval_catalogue_update:
+                                          "Every 3 days",
+                                        last_updated:
+                                          allCatalogue[allCatalogue.length - 1]
+                                            .date_added,
+                                      },
+                                    };
+
+                                    //Start filling out
+                                    logger.info(TEMPLATE_SUMMARY_META);
+                                    res.send({
+                                      response: TEMPLATE_SUMMARY_META,
+                                    });
+                                  })
+                                  .catch((error) => {
+                                    logger.error(error);
+                                    res.send({ response: "error" });
+                                  });
+                              })
+                              .catch((error) => {
+                                logger.error(error);
+                                res.send({ response: "error" });
+                              });
+                          })
+                          .catch((error) => {
+                            logger.error(error);
+                            res.send({ response: "error" });
+                          });
+                      })
+                      .catch((error) => {
+                        logger.error(error);
+                        res.send({ response: "error" });
+                      });
+                  })
+                  .catch((error) => {
+                    logger.error(error);
+                    res.send({ response: "error" });
+                  });
               })
               .catch((error) => {
                 logger.error(error);
