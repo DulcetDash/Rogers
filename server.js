@@ -2236,6 +2236,130 @@ const getAmountsSums = ({ arrayRequests = [], dataType = "sales" }) => {
   }
 };
 
+//CHeck if the date is within the last x days
+function isDateWithinTheLastXDays({ dateString, dayLimit = 3 }) {
+  //Get the date value of next week.
+  let today = new Date(chaineDateUTC);
+  let prevWeek = Date.parse(
+    new Date(today.getFullYear(), today.getMonth(), today.getDate() - dayLimit)
+  );
+
+  return {
+    check: prevWeek > new Date(dateString) <= today,
+    start: prevWeek,
+    end: today,
+  };
+}
+
+//Generate graph data from the requests data
+function generateGraphDataFromRequestsData({ requestData }) {
+  let mapDatesString = {};
+  let limitDays = 7;
+
+  //?Sort based on the cancelled date
+  requestData.sort((a, b) =>
+    new Date(a.date_requested) < new Date(b.date_requested)
+      ? -1
+      : new Date(a.date_requested) < new Date(a.date_requested)
+      ? 1
+      : 0
+  );
+
+  requestData
+    .filter(
+      (el) =>
+        isDateWithinTheLastXDays({
+          dateString: el.date_requested,
+          dayLimit: limitDays,
+        }).check
+    )
+    .map((el) => {
+      //Compute the maps
+      let refDate = new Date(el.date_requested);
+
+      if (isNaN(refDate.getDate()) === false) {
+        let mapKey = `${
+          refDate.getDate() > 9 ? refDate.getDate() : `0${refDate.getDate()}`
+        }-${
+          refDate.getMonth() + 1 > 9
+            ? refDate.getMonth() + 1
+            : `0${refDate.getMonth() + 1}`
+        }-${refDate.getFullYear()}`;
+
+        if (mapDatesString[mapKey] !== undefined) {
+          //Already created
+          mapDatesString[mapKey].y += 1;
+        } //Not yet created
+        else {
+          mapDatesString[mapKey] = {
+            y: 1,
+            x: mapKey,
+          };
+        }
+      }
+    });
+  //....
+  //Augment the data between the dates limits
+  let datesLimit = isDateWithinTheLastXDays({
+    dateString: chaineDateUTC,
+    dayLimit: limitDays,
+  });
+  let completeDaysArray_ref = getDates(
+    new Date(datesLimit.start),
+    new Date(datesLimit.end)
+  );
+
+  //! Augment the data
+  //! AND Transform map to array
+  let cleanArrayData = [];
+  completeDaysArray_ref.map((refElement) => {
+    let refKey = refElement.replace("T22:00:00.000Z", "").trim();
+
+    if (mapDatesString[refKey] !== undefined) {
+      // logger.warn(refKey);
+      // logger.error(mapDatesString);
+      //Exists
+      let tmpElement = { y: mapDatesString[refKey].y, x: refKey };
+      cleanArrayData.push(tmpElement);
+    } //Does not exist
+    else {
+      let tmpElement = { y: 0, x: refKey };
+      cleanArrayData.push(tmpElement);
+    }
+  });
+
+  //...
+  // for (const key in mapDatesString) {
+  //   cleanArrayData.push(mapDatesString[key]);
+  // }
+  //...
+  // logger.info(cleanArrayData);
+  return cleanArrayData;
+}
+
+function addDaysToDate(date, days) {
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function getDates(startDate, stopDate) {
+  let dateArray = new Array();
+  let currentDate = startDate;
+  while (currentDate <= stopDate) {
+    let refDate = new Date(currentDate);
+    dateArray.push(
+      `${refDate.getDate() > 9 ? refDate.getDate() : `0${refDate.getDate()}`}-${
+        refDate.getMonth() + 1 > 9
+          ? refDate.getMonth() + 1
+          : `0${refDate.getMonth() + 1}`
+      }-${refDate.getFullYear()}`
+    );
+    //...
+    currentDate = addDaysToDate(currentDate, 1);
+  }
+  return dateArray;
+}
+
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
 
@@ -6373,7 +6497,16 @@ redisCluster.on("connect", function () {
                                   .then((allCatalogue) => {
                                     //? Got all ther required data
                                     let TEMPLATE_SUMMARY_META = {
-                                      today_graph_data: {},
+                                      today_graph_data: {
+                                        successful_requests:
+                                          generateGraphDataFromRequestsData({
+                                            requestData: allRequests,
+                                          }),
+                                        cancelled_requests:
+                                          generateGraphDataFromRequestsData({
+                                            requestData: allCancelledRequests,
+                                          }),
+                                      },
                                       today: {
                                         total_requests: getAmountsSums({
                                           arrayRequests: allRequests,
@@ -6656,7 +6789,7 @@ redisCluster.on("connect", function () {
                                     };
 
                                     //Start filling out
-                                    logger.info(TEMPLATE_SUMMARY_META);
+                                    // logger.info(TEMPLATE_SUMMARY_META);
                                     res.send({
                                       response: TEMPLATE_SUMMARY_META,
                                     });
