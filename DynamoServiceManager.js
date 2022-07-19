@@ -284,7 +284,7 @@ async function find_query({
 
     if (ScanIndexForward === null) delete params["ScanIndexForward"];
 
-    // logger.warn(params);
+    logger.warn(params);
     //...
     dynamoClient.query(params, function (err, resultFindget) {
       if (err) {
@@ -322,7 +322,7 @@ async function find_get(table_name, _idKey) {
         resolve([]);
       }
       //...
-      logger.info(resultFindget);
+      // logger.info(resultFindget);
       resolve([resultFindget.Item]);
     });
   });
@@ -358,6 +358,8 @@ async function get_all({
     if (Object.keys(FilterExpression).length === 0)
       delete params["FilterExpression"];
     //...
+
+    // logger.warn(params);
     dynamoClient.scan(params, function (err, resultFindget) {
       if (err) {
         logger.error(err);
