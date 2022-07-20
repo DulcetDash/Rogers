@@ -23,6 +23,7 @@
     "flatted": "^3.1.1",
     "fuzzyset": "^1.0.7",
     "geolib": "^3.3.1",
+    "jsonwebtoken": "^8.5.1",
     "geolocation-utils": "^1.2.3",
     "helmet": "^4.6.0",
     "http": "^0.0.1-security",
