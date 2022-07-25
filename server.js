@@ -142,39 +142,38 @@ function SendSMSTo(phone_number, message) {
   })
     .publish(params)
     .promise();
-
-  // Handle promise's fulfilled/rejected states
-  // publishTextPromise
-  //   .then(function (data) {
-  //     console.log("MessageID is " + data.MessageId);
-  //   })
-  //   .catch(function (err) {
-  //     console.error(err, err.stack);
-  //   });
-
-  // Set region
-  // AWS_SMS.config.update({ region: "us-east-1" });
-
-  // // Create publish parameters
-  // var params = {
-  //   Message: message /* required */,
-  //   PhoneNumber: phone_number,
-  // };
-
-  // // Create promise and SNS service object
-  // var publishTextPromise = new AWS_SMS.SNS({ apiVersion: "2010-03-31" })
-  //   .publish(params)
-  //   .promise();
-
-  // // Handle promise's fulfilled/rejected states
-  // publishTextPromise
-  //   .then(function (data) {
-  //     logger.info("MessageID is " + data.MessageId);
-  //   })
-  //   .catch(function (err) {
-  //     console.error(err);
-  //   });
 }
+
+/**
+ * Responsible for sending push notification to devices
+ */
+var sendPushUPNotification = function (data) {
+  //logger.info("Notify data");
+  //logger.info(data);
+  var headers = {
+    "Content-Type": "application/json; charset=utf-8",
+  };
+
+  var options = {
+    host: "onesignal.com",
+    port: 443,
+    path: "/api/v1/notifications",
+    method: "POST",
+    headers: headers,
+  };
+
+  var https = require("https");
+  var req = https.request(options, function (res) {
+    res.on("data", function (data) {
+      ////logger.info("Response:");
+    });
+  });
+
+  req.on("error", function (e) {});
+
+  req.write(JSON.stringify(data));
+  req.end();
+};
 
 /**
  * @func generateUniqueFingerprint()
@@ -2452,6 +2451,78 @@ const AdminsBackgroundCheck = function (req, res, next) {
   }
 };
 
+/**
+ * @func sendTargetedPushNotifications
+ * Responsible for sending push notifications for new requests (rides, deliveries of shopping)
+ * @param request_type: RIDE, DELIVERY or SHOPPING
+ * @param fare: the fare of the request
+ * @param resolve
+ */
+function sendTargetedPushNotifications({ request_type, fare, resolve }) {
+  //1. Get all the drivers for this request type
+  dynamo_find_query({
+    table_name: "drivers_shoppers_central",
+    IndexName: "operation_clearances",
+    KeyConditionExpression: "operation_clearances = :val1",
+    ExpressionAttributeValues: {
+      ":val1": request_type.toUpperCase().trim(),
+    },
+  })
+    .then((driversData) => {
+      if (
+        driversData !== undefined &&
+        driversData !== null &&
+        driversData.length > 0
+      ) {
+        //Found some drivers
+        //2. Isolate the drivers notifications token
+        let driversNotifTokens = driversData.map((data) => {
+          return data.operational_state.pushnotif_token !== null &&
+            data.operational_state.pushnotif_token !== undefined
+            ? data.operational_state.pushnotif_token.userId
+            : null;
+        });
+
+        logger.info(driversNotifTokens);
+
+        //? 3. Send
+        let message = {
+          app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
+          android_channel_id:
+            process.env.DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
+          priority: 10,
+          contents: /RIDE/i.test(request_type)
+            ? {
+                en: "You have a new ride request, click here for more details.",
+              }
+            : /DELIVERY/i.test(request_type)
+            ? {
+                en: "You have a new delivery request, click here for more details.",
+              }
+            : {
+                en: "You have a new shopping request, click here for more details.",
+              },
+          headings: /RIDE/i.test(request_type)
+            ? { en: "New ride request, N$" + fare }
+            : /DELIVERY/i.test(request_type)
+            ? { en: "New delivery request, N$" + fare }
+            : { en: "New shopping request, N$" + fare },
+          content_available: true,
+          include_player_ids: driversNotifTokens,
+        };
+        //Send
+        sendPushUPNotification(message);
+      } //No drivers yet
+      else {
+        resolve(false);
+      }
+    })
+    .catch((error) => {
+      logger.error(error);
+      resolve(false);
+    });
+}
+
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
 
@@ -4701,53 +4772,12 @@ redisCluster.on("connect", function () {
               let redisKey = `${req.user_identifier}-pushnotif_tokenDataCached`;
               req.pushnotif_token = JSON.parse(req.pushnotif_token);
               //! Get the cached and compare, only update the database if not the same as the cached
-              redisGet(redisKey)
-                .then((resp) => {
-                  console.log(resp);
-                  if (resp !== null) {
-                    //Has data
-                    try {
-                      resp = JSON.parse(resp);
-
-                      if (`${req.pushnotif_token}` !== `${resp}`) {
-                        //Update
-                        new Promise((resCompute) => {
-                          updateRidersPushNotifToken(req, redisKey, resCompute);
-                        })
-                          .then((result) => {
-                            resolve(result);
-                          })
-                          .catch((error) => {
-                            logger.error(error);
-                            resolve({ response: "error" });
-                          });
-                      }
-                    } catch (error) {
-                      logger.error(error);
-                      new Promise((resCompute) => {
-                        updateRidersPushNotifToken(req, redisKey, resCompute);
-                      })
-                        .then((result) => {
-                          resolve(result);
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          resolve({ response: "error" });
-                        });
-                    }
-                  } //No data - update  the db and cache
-                  else {
-                    new Promise((resCompute) => {
-                      updateRidersPushNotifToken(req, redisKey, resCompute);
-                    })
-                      .then((result) => {
-                        resolve(result);
-                      })
-                      .catch((error) => {
-                        logger.error(error);
-                        resolve({ response: "error" });
-                      });
-                  }
+              //Update
+              new Promise((resCompute) => {
+                updateRidersPushNotifToken(req, redisKey, resCompute);
+              })
+                .then((result) => {
+                  resolve(result);
                 })
                 .catch((error) => {
                   logger.error(error);
