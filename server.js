@@ -11,6 +11,7 @@ var otpGenerator = require("otp-generator");
 var elasticsearch = require("elasticsearch");
 const morgan = require("morgan");
 const { v4: uuidv4 } = require("uuid");
+const Redis = require("./Utility/redisConnector");
 
 const { logger } = require("./LogService");
 const { sendSMS } = require("./SendSMS");
@@ -140,6 +141,8 @@ const {
   getUserLocationInfos,
   getSearchedLocations,
 } = require("./searchService");
+const RequestsModel = require("./models/RequestsModel");
+const DriversModel = require("./models/DriversModel");
 
 function SendSMSTo(phone_number, message) {
   // Load the AWS SDK for Node.js
@@ -1037,527 +1040,89 @@ function execSearchProductsFor(req, redisKey, resolve) {
  * @param requestData: user_identifier mainly
  * @param resolve
  */
-function getRequestDataClient(requestData, resolve) {
-  dynamo_find_query({
-    table_name: "requests_central",
-    IndexName: "client_id",
-    KeyConditionExpression: "client_id = :val1",
-    FilterExpression: "#r.#c = :val2",
-    ExpressionAttributeValues: {
-      ":val1": requestData.user_identifier,
-      ":val2": false,
-    },
-    ExpressionAttributeNames: {
-      "#r": "request_state_vars",
-      "#c": "completedRatingClient",
-    },
-  })
-    .then((shoppingData) => {
-      //...
-      if (shoppingData !== undefined && shoppingData.length > 0) {
-        shoppingData = shoppingData[0];
+const getRequestDataClient = async (requestData) => {
+  const { user_identifier } = requestData;
 
-        //!1. SHOPPING DATA
-        if (shoppingData["ride_mode"].toUpperCase() === "SHOPPING") {
-          //Has a pending shopping
-          let RETURN_DATA_TEMPLATE = {
-            ride_mode: shoppingData["ride_mode"].toUpperCase(),
-            request_fp: shoppingData.request_fp,
-            client_id: requestData.user_identifier, //the user identifier - requester
-            driver_details: {}, //Will hold the details of the shopper
-            shopping_list: shoppingData.shopping_list, //The list of items to shop for
-            payment_method: shoppingData.payment_method, //mobile_money or cash
-            trip_locations: shoppingData.locations, //Has the pickup and delivery locations
-            totals_request: shoppingData.totals_request, //Has the cart details in terms of fees
-            request_type: shoppingData.request_type, //scheduled or immediate
-            state_vars: shoppingData.request_state_vars,
-            ewallet_details: {
-              phone: "+264856997167",
-              security:
-                shoppingData.security !== undefined &&
-                shoppingData.security !== null
-                  ? shoppingData.security.pin
-                  : "None",
+  const requests = await RequestsModel.query("client_id")
+    .eq(user_identifier)
+    .filter("date_completedDropoff")
+    .not()
+    .exists()
+    .exec();
+
+  if (requests.count > 0) {
+    const shoppingData = requests[0];
+
+    //!1. SHOPPING DATA or DELIVERY DATA
+    if (
+      shoppingData["ride_mode"].toUpperCase() === "SHOPPING" ||
+      shoppingData["ride_mode"].toUpperCase() === "DELIVERY"
+    ) {
+      //Has a pending shopping
+      let RETURN_DATA_TEMPLATE = {
+        ride_mode: shoppingData["ride_mode"].toUpperCase(),
+        request_fp: shoppingData.id,
+        client_id: requestData.user_identifier, //the user identifier - requester
+        driver_details: {}, //Will hold the details of the shopper
+        shopping_list: shoppingData.shopping_list, //The list of items to shop for
+        payment_method: shoppingData.payment_method, //mobile_money or cash
+        trip_locations: shoppingData.locations, //Has the pickup and delivery locations
+        totals_request: shoppingData.totals_request, //Has the cart details in terms of fees
+        request_type: shoppingData.request_type, //scheduled or immediate
+        state_vars: shoppingData.request_state_vars,
+        ewallet_details: {
+          phone: "+264856997167",
+          security: shoppingData?.security ? shoppingData.security : "None",
+        },
+        date_requested: shoppingData.createdAt, //The time of the request
+      };
+      //..Get the shopper's infos
+      if (shoppingData?.shopper_id !== "false") {
+        const shopper = await DriversModel.query("id")
+          .eq(shoppingData.shopper_id)
+          .exec();
+        if (shopper.count > 0) {
+          //Has a shopper
+          let driverData = shopper[0];
+
+          RETURN_DATA_TEMPLATE.driver_details = {
+            name: driverData.name,
+            picture: driverData.identification_data.profile_picture,
+            rating: driverData.identification_data.rating,
+            phone: driverData.phone_number,
+            vehicle: {
+              picture: driverData.taxi_picture,
+              brand: driverData.car_brand,
+              plate_no: driverData.plate_number,
+              taxi_number: driverData.taxi_number,
             },
-            date_requested: shoppingData.date_requested, //The time of the request
           };
-          //..Get the shopper's infos
-          dynamo_find_query({
-            table_name: "drivers_shoppers_central",
-            IndexName: "driver_fingerprint",
-            KeyConditionExpression: "driver_fingerprint = :val1",
-            ExpressionAttributeValues: {
-              ":val1": shoppingData.shopper_id,
-            },
-          })
-            .then((shopperData) => {
-              if (shopperData !== undefined && shopperData.length > 0) {
-                //Has a shopper
-                let driverData = shopperData[0];
-
-                RETURN_DATA_TEMPLATE.driver_details = {
-                  name: driverData.name,
-                  picture: driverData.identification_data.profile_picture,
-                  rating: driverData.identification_data.rating,
-                  phone: driverData["phone_number"],
-                  vehicle: {
-                    picture: driverData.cars_data[0].taxi_picture,
-                    brand: driverData.cars_data[0].car_brand,
-                    plate_no: driverData.cars_data[0].plate_number,
-                    taxi_number: driverData.cars_data[0].taxi_number,
-                  },
-                };
-                //...
-                resolve([RETURN_DATA_TEMPLATE]);
-              } //No shoppers yet
-              else {
-                RETURN_DATA_TEMPLATE.driver_details = {
-                  name: null,
-                  phone: null,
-                  picture: null,
-                };
-                //...
-                resolve([RETURN_DATA_TEMPLATE]);
-              }
-            })
-            .catch((error) => {
-              logger.error(error);
-              resolve(false);
-            });
-        }
-        //!2. RIDE DATA
-        else if (shoppingData["ride_mode"].toUpperCase() === "RIDE") {
-          //Check the state of the ride request
-          //?1. NOT YET ACCEPTED
-          if (shoppingData.request_state_vars.isAccepted === false) {
-            let RETURN_DATA_TEMPLATE = {
-              step_name: "pending",
-              ride_mode: shoppingData["ride_mode"].toUpperCase(),
-              request_fp: shoppingData.request_fp,
-              payment_method: shoppingData.payment_method,
-              trip_locations: shoppingData.locations,
-              passengers: shoppingData.passengers_number,
-              ride_style: shoppingData.ride_style,
-              fare: shoppingData.totals_request.fare,
-              note: shoppingData.request_documentation.note,
-              state_vars: shoppingData.request_state_vars,
-              driver_details: false,
-              route_details: {
-                //Will have eta and so on.
-              },
-              date_requested: shoppingData.date_requested,
-            };
-            //Get the route details
-            let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
-
-            requestAPI.post(
-              {
-                url: urlRequest,
-                form: {
-                  user_fingerprint: shoppingData.client_id,
-                  org_latitude: parseFloat(
-                    shoppingData.locations.pickup.coordinates.latitude
-                  ),
-                  org_longitude: parseFloat(
-                    shoppingData.locations.pickup.coordinates.longitude
-                  ),
-                  dest_latitude: parseFloat(
-                    shoppingData.locations.dropoff[0].coordinates[0]
-                  ),
-                  dest_longitude: parseFloat(
-                    shoppingData.locations.dropoff[0].coordinates[1]
-                  ),
-                },
-              },
-              function (err, response, body) {
-                if (err) {
-                  logger.error(err);
-                  resolve(false);
-                }
-                //...
-                try {
-                  body = JSON.parse(body);
-                  //Complete the route details
-                  RETURN_DATA_TEMPLATE.route_details["eta"] = body["eta"];
-                  RETURN_DATA_TEMPLATE.route_details["distance"] =
-                    body["distance"];
-                  RETURN_DATA_TEMPLATE.route_details["origin"] = body["origin"];
-                  //DONE
-                  resolve([RETURN_DATA_TEMPLATE]);
-                } catch (error) {
-                  logger.error(error);
-                  resolve(false);
-                }
-              }
-            );
-          }
-          //?2. ACCEPTED - IN ROUTE TO PICKUP  AND IN ROUTE TO DROP OFF
-          else if (
-            shoppingData.request_state_vars.isAccepted &&
-            // shoppingData.request_state_vars.inRouteToDropoff &&
-            shoppingData.request_state_vars.completedDropoff === false
-          ) {
-            let RETURN_DATA_TEMPLATE = {
-              step_name: shoppingData.request_state_vars.inRouteToDropoff
-                ? "in_route_to_dropoff"
-                : "in_route_to_pickup",
-              ride_mode: shoppingData["ride_mode"].toUpperCase(),
-              request_fp: shoppingData.request_fp,
-              payment_method: shoppingData.payment_method,
-              trip_locations: shoppingData.locations,
-              passengers: shoppingData.passengers_number,
-              ride_style: shoppingData.ride_style,
-              fare: shoppingData.totals_request.fare,
-              note: shoppingData.request_documentation.note,
-              state_vars: shoppingData.request_state_vars,
-              driver_details: false,
-              route_details: {
-                //Will have eta and so on.
-              },
-              date_requested: shoppingData.date_requested,
-            };
-
-            //Get the drivers details
-            dynamo_find_query({
-              table_name: "drivers_shoppers_central",
-              IndexName: "driver_fingerprint",
-              KeyConditionExpression: "driver_fingerprint = :val1",
-              ExpressionAttributeValues: {
-                ":val1": shoppingData.shopper_id,
-              },
-            })
-              .then((driverData) => {
-                if (driverData !== undefined && driverData.length > 0) {
-                  //Has a driver
-                  driverData = driverData[0];
-                  //Complete the drivers details
-                  RETURN_DATA_TEMPLATE.driver_details = {
-                    name: driverData.name,
-                    picture: driverData.identification_data.profile_picture,
-                    rating: driverData.identification_data.rating,
-                    phone: driverData["phone_number"],
-                    vehicle: {
-                      picture: driverData.cars_data[0].taxi_picture,
-                      brand: driverData.cars_data[0].car_brand,
-                      plate_no: driverData.cars_data[0].plate_number,
-                      taxi_number: driverData.cars_data[0].taxi_number,
-                    },
-                  };
-
-                  //! Get the current driver location
-                  let driver_details_cached_key = `${driverData.driver_fingerprint}-cached_useful_data`;
-
-                  new Promise((resCompute) => {
-                    redisGet(driver_details_cached_key).then((resp) => {
-                      if (resp !== null) {
-                        //Has some cached data
-                        try {
-                          resp = JSON.parse(resp);
-                          resCompute(
-                            resp.operational_state.last_location !== null &&
-                              resp.operational_state.last_location !== undefined
-                              ? resp.operational_state.last_location.coordinates
-                              : false
-                          );
-                        } catch (error) {
-                          logger.error(error);
-                          redisCluster.setex(
-                            driver_details_cached_key,
-                            parseFloat(process.env.REDIS_EXPIRATION_5MIN) * 65,
-                            JSON.stringify(driverData)
-                          );
-                          //...
-                          resCompute(
-                            driverData.operational_state.last_location !==
-                              null &&
-                              driverData.operational_state.last_location !==
-                                undefined
-                              ? driverData.operational_state.last_location
-                                  .coordinates
-                              : false
-                          );
-                        }
-                      } //Get from dynamo and cache
-                      else {
-                        redisCluster.setex(
-                          driver_details_cached_key,
-                          parseFloat(process.env.REDIS_EXPIRATION_5MIN) * 65,
-                          JSON.stringify(driverData)
-                        );
-                        //...
-                        resCompute(
-                          driverData.operational_state.last_location !== null &&
-                            driverData.operational_state.last_location !==
-                              undefined
-                            ? driverData.operational_state.last_location
-                                .coordinates
-                            : false
-                        );
-                      }
-                    });
-                  })
-                    .then((driverDataCached) => {
-                      //Get the route details
-                      let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
-
-                      requestAPI.post(
-                        {
-                          url: urlRequest,
-                          form: shoppingData.request_state_vars.inRouteToDropoff
-                            ? {
-                                user_fingerprint: shoppingData.client_id,
-                                org_latitude: parseFloat(
-                                  driverDataCached.latitude
-                                ),
-                                org_longitude: parseFloat(
-                                  driverDataCached.longitude
-                                ),
-                                dest_latitude: parseFloat(
-                                  shoppingData.locations.dropoff[0]
-                                    .coordinates[0]
-                                ),
-                                dest_longitude: parseFloat(
-                                  shoppingData.locations.dropoff[0]
-                                    .coordinates[1]
-                                ),
-                              }
-                            : {
-                                user_fingerprint: shoppingData.client_id,
-                                org_latitude: parseFloat(
-                                  shoppingData.locations.pickup.coordinates
-                                    .latitude
-                                ),
-                                org_longitude: parseFloat(
-                                  shoppingData.locations.pickup.coordinates
-                                    .longitude
-                                ),
-                                dest_latitude: parseFloat(
-                                  driverDataCached.latitude
-                                ),
-                                dest_longitude: parseFloat(
-                                  driverDataCached.longitude
-                                ),
-                              },
-                        },
-                        function (err, response, body) {
-                          if (err) {
-                            logger.error(err);
-                            resolve(false);
-                          }
-                          //...
-                          try {
-                            body = JSON.parse(body);
-                            //Complete the route details
-                            RETURN_DATA_TEMPLATE.route_details = body;
-                            //DONE
-                            resolve([RETURN_DATA_TEMPLATE]);
-                          } catch (error) {
-                            logger.error(error);
-                            resolve(false);
-                          }
-                        }
-                      );
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve(false);
-                    });
-                } //No drivers yet?
-                else {
-                  resolve(false);
-                }
-              })
-              .catch((error) => {
-                logger.error(error);
-                resolve(false);
-              });
-          }
-          //?4. RIDE COMPLETED
-          else if (
-            shoppingData.request_state_vars.completedDropoff &&
-            shoppingData.request_state_vars.completedRatingClient == false
-          ) {
-            let RETURN_DATA_TEMPLATE = {
-              step_name: "completed",
-              ride_mode: shoppingData["ride_mode"].toUpperCase(),
-              request_fp: shoppingData.request_fp,
-              payment_method: shoppingData.payment_method,
-              trip_locations: shoppingData.locations,
-              passengers: shoppingData.passengers_number,
-              ride_style: shoppingData.ride_style,
-              fare: shoppingData.totals_request.fare,
-              note: shoppingData.request_documentation.note,
-              state_vars: shoppingData.request_state_vars,
-              driver_details: false,
-              route_details: {
-                //Will have eta and so on.
-              },
-              date_requested: shoppingData.date_requested,
-            };
-
-            //Get the drivers details
-            dynamo_find_query({
-              table_name: "drivers_shoppers_central",
-              IndexName: "driver_fingerprint",
-              KeyConditionExpression: "driver_fingerprint = :val1",
-              ExpressionAttributeValues: {
-                ":val1": shoppingData.shopper_id,
-              },
-            })
-              .then((driverData) => {
-                if (driverData !== undefined && driverData.length > 0) {
-                  //Has a driver
-                  driverData = driverData[0];
-                  //Complete the drivers details
-                  RETURN_DATA_TEMPLATE.driver_details = {
-                    name: driverData.name,
-                    picture: driverData.identification_data.profile_picture,
-                    rating: driverData.identification_data.rating,
-                    vehicle: {
-                      picture: driverData.cars_data[0].taxi_picture,
-                      brand: driverData.cars_data[0].car_brand,
-                      plate_no: driverData.cars_data[0].plate_number,
-                      taxi_number: driverData.cars_data[0].taxi_number,
-                    },
-                  };
-
-                  //Get the route details
-                  let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
-
-                  requestAPI.post(
-                    {
-                      url: urlRequest,
-                      form: {
-                        user_fingerprint: shoppingData.client_id,
-                        org_latitude: parseFloat(
-                          shoppingData.locations.pickup.coordinates.latitude
-                        ),
-                        org_longitude: parseFloat(
-                          shoppingData.locations.pickup.coordinates.longitude
-                        ),
-                        dest_latitude: parseFloat(
-                          shoppingData.locations.dropoff[0].coordinates[0]
-                        ),
-                        dest_longitude: parseFloat(
-                          shoppingData.locations.dropoff[0].coordinates[1]
-                        ),
-                      },
-                    },
-                    function (err, response, body) {
-                      if (err) {
-                        logger.error(err);
-                        resolve(false);
-                      }
-                      //...
-                      try {
-                        body = JSON.parse(body);
-                        //Complete the route details
-                        RETURN_DATA_TEMPLATE.route_details["eta"] = body["eta"];
-                        RETURN_DATA_TEMPLATE.route_details["distance"] =
-                          body["distance"];
-                        RETURN_DATA_TEMPLATE.route_details["origin"] =
-                          body["origin"];
-                        //DONE
-                        resolve([RETURN_DATA_TEMPLATE]);
-                      } catch (error) {
-                        logger.error(error);
-                        resolve(false);
-                      }
-                    }
-                  );
-                } //No drivers yet?
-                else {
-                  resolve(false);
-                }
-              })
-              .catch((error) => {
-                logger.error(error);
-                resolve(false);
-              });
-          } //No request
-          else {
-            resolve(false);
-          }
-        }
-        //!3. DELIVERY DATA
-        else if (shoppingData["ride_mode"].toUpperCase() === "DELIVERY") {
-          //Has a pending shopping
-          let RETURN_DATA_TEMPLATE = {
-            ride_mode: shoppingData["ride_mode"].toUpperCase(),
-            request_fp: shoppingData.request_fp,
-            client_id: requestData.user_identifier, //the user identifier - requester
-            driver_details: {}, //Will hold the details of the shopper
-            shopping_list: shoppingData.shopping_list, //The list of items to shop for
-            payment_method: shoppingData.payment_method, //mobile_money or cash
-            trip_locations: shoppingData.locations, //Has the pickup and delivery locations
-            totals_request: shoppingData.totals_request, //Has the cart details in terms of fees
-            request_type: shoppingData.request_type, //scheduled or immediate
-            state_vars: shoppingData.request_state_vars,
-            ewallet_details: {
-              phone: "+264856997167",
-              security: shoppingData.security.pin,
-            },
-            date_requested: shoppingData.date_requested, //The time of the request
-          };
-          //..Get the shopper's infos
-          dynamo_find_query({
-            table_name: "drivers_shoppers_central",
-            IndexName: "driver_fingerprint",
-            KeyConditionExpression: "driver_fingerprint = :val1",
-            ExpressionAttributeValues: {
-              ":val1": shoppingData.shopper_id,
-            },
-          })
-            .then((shopperData) => {
-              if (shopperData !== undefined && shopperData.length > 0) {
-                //Has a shopper
-                let driverData = shopperData[0];
-
-                RETURN_DATA_TEMPLATE.driver_details = {
-                  name: driverData.name,
-                  picture: driverData.identification_data.profile_picture,
-                  rating: driverData.identification_data.rating,
-                  phone: driverData["phone_number"],
-                  vehicle: {
-                    picture: driverData.cars_data[0].taxi_picture,
-                    brand: driverData.cars_data[0].car_brand,
-                    plate_no: driverData.cars_data[0].plate_number,
-                    taxi_number: driverData.cars_data[0].taxi_number,
-                  },
-                };
-                //...
-                resolve([RETURN_DATA_TEMPLATE]);
-              } //No shoppers yet
-              else {
-                RETURN_DATA_TEMPLATE.driver_details = {
-                  name: null,
-                  phone: null,
-                  picture: null,
-                };
-                //...
-                resolve([RETURN_DATA_TEMPLATE]);
-              }
-            })
-            .catch((error) => {
-              logger.error(error);
-              resolve(false);
-            });
-        } //Invalid data
+        } //No shoppers yet
         else {
-          resolve(false);
+          RETURN_DATA_TEMPLATE.driver_details = {
+            name: null,
+            phone: null,
+            picture: null,
+          };
         }
+      } else {
+        RETURN_DATA_TEMPLATE.driver_details = {
+          name: null,
+          phone: null,
+          picture: null,
+        };
       }
 
-      //No pending shoppings
-      else {
-        resolve(false);
-      }
-    })
-    .catch((error) => {
-      logger.error(error);
-      resolve(false);
-    });
-}
+      return [RETURN_DATA_TEMPLATE];
+    } else {
+      return false;
+    }
+  }
+  //No pending shoppings
+  else {
+    return false;
+  }
+};
 
 /**
  * @func getFreshUserDataClients
@@ -2900,36 +2465,23 @@ ElasticSearch_client.ping(
 
       //?6. Request for delivery or ride
       //? EFFIENCY A
-      app.post("/requestForRideOrDelivery", function (req, res) {
-        new Promise((resolve) => {
+      app.post("/requestForRideOrDelivery", async (req, res) => {
+        try {
           req = req.body;
           //! Check for the user identifier, shopping_list and totals
           //Check basic ride or delivery conditions
           let checkerCondition =
-            req.ride_mode !== undefined &&
-            req.ride_mode !== null &&
-            req.ride_mode == "delivery"
-              ? req.user_identifier !== undefined &&
-                req.user_identifier !== null &&
-                req.user_identifier !== "empty_fingerprint" &&
-                req.dropOff_data !== undefined &&
-                req.dropOff_data !== null &&
-                req.totals !== undefined &&
-                req.totals !== null &&
-                req.pickup_location !== undefined &&
-                req.pickup_location !== null
-              : req.user_identifier !== undefined &&
-                req.user_identifier !== null &&
-                req.user_identifier !== "empty_fingerprint" &&
-                req.dropOff_data !== undefined &&
-                req.dropOff_data !== null &&
-                req.passengers_number !== undefined &&
-                req.passengers_number !== null &&
-                req.pickup_location !== undefined &&
-                req.pickup_location !== null;
+            req?.ride_mode == "delivery"
+              ? req?.user_identifier &&
+                req?.dropOff_data &&
+                req?.totals &&
+                req?.pickup_location
+              : req?.user_identifier &&
+                req?.dropOff_data &&
+                req?.passengers_number &&
+                req?.pickup_location;
 
           if (checkerCondition) {
-            // logger.info(req);
             let security_pin = otpGenerator.generate(6, {
               lowerCaseAlphabets: false,
               upperCaseAlphabets: false,
@@ -2941,351 +2493,80 @@ ElasticSearch_client.ping(
                 ? parseInt(security_pin) * 10
                 : security_pin;
 
-            try {
-              //! Check if the user has no unconfirmed shoppings
-              let checkUnconfirmed = {
-                client_id: req.user_identifier,
-                "request_state_vars.completedRatingClient": false,
-              };
+            //! Check if the user has no unconfirmed shoppings
+            const previousRequest = await RequestsModel.query("client_id")
+              .eq(req.user_identifier)
+              .filter("date_completedDropoff")
+              .not()
+              .exists()
+              .exec();
 
-              dynamo_find_query({
-                table_name: "requests_central",
-                IndexName: "client_id",
-                KeyConditionExpression: "client_id = :val1",
-                FilterExpression: "#r.#c = :val2",
-                ExpressionAttributeValues: {
-                  ":val1": req.user_identifier,
-                  ":val2": false,
-                },
-                ExpressionAttributeNames: {
-                  "#r": "request_state_vars",
-                  "#c": "completedRatingClient",
-                },
-              })
-                .then((prevDelivery) => {
-                  //! Delete previous cache
-                  let redisKey = `${req.user_identifier}-shoppings`;
-                  redisCluster.del(redisKey);
-                  //...
+            if (previousRequest.count <= 0) {
+              //No unconfirmed requests
+              //! Perform the conversions
+              req.totals = req?.totals ? JSON.parse(req.totals) : null;
+              if (req?.totals?.delivery_fee) {
+                req.totals.delivery_fee = parseFloat(
+                  req.totals?.delivery_fee?.replace("N$", "")
+                );
+                req.totals.service_fee = parseFloat(
+                  req.totals?.service_fee?.replace("N$", "")
+                );
+                req.totals.total = parseFloat(
+                  req.totals?.total?.replace("N$", "")
+                );
+              }
+              //...
 
-                  if (prevDelivery !== undefined && prevDelivery.length <= 0) {
-                    //No unconfirmed shopping - okay
-                    //! Perform the conversions
-                    req.dropOff_data =
-                      req.dropOff_data !== undefined
-                        ? JSON.parse(req.dropOff_data)
-                        : null;
-                    req.totals =
-                      req.totals !== undefined ? JSON.parse(req.totals) : null;
-                    req.pickup_location =
-                      req.pickup_location !== undefined
-                        ? JSON.parse(req.pickup_location)
-                        : null;
-                    req.passengers_number =
-                      req.passengers_number !== undefined
-                        ? parseInt(req.passengers_number)
-                        : null;
-                    req.areGoingTheSameWay =
-                      req.areGoingTheSameWay !== undefined
-                        ? req.areGoingTheSameWay === "true"
-                        : null;
-                    req.ride_selected =
-                      req.ride_selected !== undefined
-                        ? JSON.parse(req.ride_selected)
-                        : null;
-                    req.custom_fare =
-                      req.custom_fare !== undefined &&
-                      req.custom_fare !== "false"
-                        ? parseFloat(req.custom_fare)
-                        : false;
-                    //...
-                    let REQUEST_TEMPLATE =
-                      req.ride_mode === "delivery"
-                        ? {
-                            request_fp: null,
-                            client_id: req.user_identifier, //the user identifier - requester
-                            shopper_id: "false", //The id of the shopper
-                            payment_method: req.payment_method, //mobile_money or cash
-                            locations: {
-                              pickup: req.pickup_location, //Has the pickup locations
-                              dropoff: req.dropOff_data, //The list of recipient/riders and their locations
-                            },
-                            totals_request: req.totals, //Has the cart details in terms of fees
-                            request_type: "immediate", //scheduled or immediate
-                            request_documentation: {
-                              note: req.note,
-                            },
-                            ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
-                            request_state_vars: {
-                              isAccepted: false, //If the shopping request is accepted
-                              inRouteToPickupCash: false, //If the shopper is in route to pickup the cash
-                              didPickupCash: false, //If the shopper picked up the cash
-                              inRouteToDropoff: false, //If the driver is in route to drop the client/package
-                              completedDropoff: false, //If the driver is done trip
-                              completedRatingClient: false, //If the client has completed the rating of the shopped items
-                              rating_data: {
-                                rating: false, //Out of 5
-                                comments: false, //The clients comments
-                                compliments: [], //The service badges
-                              }, //The rating infos
-                            },
-                            security: {
-                              pin: security_pin, //Will be used to check the request
-                            },
-                            date_requested: new Date(
-                              chaineDateUTC
-                            ).toISOString(), //The time of the request
-                            date_pickedup: null, //The time when the driver picked up the  client/package
-                            date_routeToDropoff: null, //The time when the driver started going to drop off the client/package
-                            date_completedDropoff: null, //The time when the driver was done with the ride
-                            date_routeToDropoff: null, //The time when the driver started going to dropoff the client/package
-                            date_clientRatedRide: null, //The time when the client rated the driver
-                          }
-                        : {
-                            request_fp: null,
-                            client_id: req.user_identifier, //the user identifier - requester
-                            shopper_id: "false", //The id of the shopper
-                            payment_method: req.payment_method, //mobile_money or cash
-                            locations: {
-                              pickup: req.pickup_location, //Has the pickup locations
-                              dropoff: req.dropOff_data, //The list of recipient/riders and their locations
-                            },
-                            totals_request: {
-                              fare:
-                                req.custom_fare !== undefined &&
-                                req.custom_fare !== false
-                                  ? req.custom_fare
-                                  : req.ride_selected.base_fare,
-                            }, //Has the cart details in terms of fees
-                            ride_selected: req.ride_selected, //The type of vehicle selected
-                            request_type: "immediate", //scheduled or immediate
-                            request_documentation: {
-                              note: req.note,
-                            },
-                            passengers_number: req.passengers_number, //the number of passengers
-                            areGoingTheSameWay: req.areGoingTheSameWay, //If all the passengers are going to the same destination or not
-                            ride_style: req.ride_style, //Private or Shared rides
-                            ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
-                            request_state_vars: {
-                              isAccepted: false, //If the shopping request is accepted
-                              inRouteToPickup: false, //If the driver is in route to pickup the package/client
-                              inRouteToDropoff: false, //If the driver is in route to drop the client/package
-                              completedDropoff: false, //If the driver is done trip
-                              completedRatingClient: false, //If the client has completed the rating of the shopped items
-                              rating_data: {
-                                rating: false, //Out of 5
-                                comments: false, //The clients comments
-                                compliments: [], //The service badges
-                              }, //The rating infos
-                            },
-                            security: {
-                              pin: security_pin, //Will be used to check the request
-                            },
-                            date_requested: new Date(
-                              chaineDateUTC
-                            ).toISOString(), //The time of the request
-                            date_pickedup: null, //The time when the driver picked up the  client/package
-                            date_routeToDropoff: null, //The time when the driver started going to drop off the client/package
-                            date_completedDropoff: null, //The time when the driver was done with the ride
-                            date_routeToDropoff: null, //The time when the driver started going to dropoff the client/package
-                            date_clientRatedRide: null, //The time when the client rated the driver
-                          };
-                    //...
-                    //?1. Get the request_fp
-                    new Promise((resCompute) => {
-                      generateUniqueFingerprint(
-                        `${JSON.stringify(req)}`,
-                        "basic",
-                        resCompute
-                      );
-                    })
-                      .then((result) => {
-                        REQUEST_TEMPLATE.request_fp = result;
-                      })
-                      .catch((error) => {
-                        logger.error(error);
-                        REQUEST_TEMPLATE.request_fp = `${req.user_identifier.subtr(
-                          0,
-                          10
-                        )}${Math.round(new Date(chaineDateUTC).getTime())}`;
-                      })
-                      .finally(() => {
-                        logger.info(REQUEST_TEMPLATE);
-                        //?Continue here
-                        dynamo_insert("requests_central", REQUEST_TEMPLATE)
-                          .then((result) => {
-                            if (result) {
-                              //....DONE
-                              //! Clear the request cached list for all the drivers in the same city
-                              new Promise((resClearRedis) => {
-                                clearCityDriversCacheLists({
-                                  city: REQUEST_TEMPLATE.locations.pickup.city,
-                                  requestType: REQUEST_TEMPLATE.ride_mode,
-                                  resolve: resClearRedis,
-                                });
-                              })
-                                .then()
-                                .catch((error) => logger.error(error));
-                              //....
-                              resolve({ response: "successful" });
-                            } //Failed
-                            else {
-                              resolve({ response: "unable_to_request" });
-                            }
-                          })
-                          .catch((error) => {
-                            logger.error(error);
-                            resolve({ response: "unable_to_request" });
-                          });
-                      });
-                  } //Has an unconfirmed shopping - block
-                  else {
-                    resolve({ response: "has_a_pending_shopping" });
-                  }
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  resolve({ response: "unable_to_request" });
-                });
-            } catch (error) {
-              logger.error(error);
-              resolve({ response: "unable_to_request" });
+              const newRequest = await RequestsModel.create({
+                id: uuidv4(),
+                client_id: req.user_identifier, //the user identifier - requester
+                payment_method: req.payment_method, //mobile_money or cash
+                locations: {
+                  pickup: JSON.parse(req.pickup_location), //Has the pickup locations
+                  dropoff: JSON.parse(req.dropOff_data), //The list of recipient/riders and their locations
+                },
+                totals_request: req.totals, //Has the cart details in terms of fees
+                request_documentation: req.note,
+                ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
+                security: security_pin,
+              });
+
+              console.log(newRequest);
+
+              // res.json({ response: "successful" });
+              res.json({ response: "unable_to_request" });
+            } //Has a pending request
+            else {
+              res.json({ response: "has_a_pending_shopping" });
             }
           } else {
-            resolve({ response: "unable_to_request" });
+            res.json({ response: "unable_to_request" });
           }
-        })
-          .then((result) => {
-            logger.info(result);
-            res.send(result);
-          })
-          .catch((error) => {
-            logger.error(error);
-            res.send({ response: "unable_to_request" });
-          });
+        } catch (error) {
+          logger.error(error);
+          res.json({ response: "unable_to_request" });
+        }
       });
 
       //?7. Get the current shopping data - client
       //? EFFIENCY A
-      app.post("/getShoppingData", function (req, res) {
-        // logger.error(error);
-        return res.send(false);
+      app.post("/getShoppingData", async (req, res) => {
         try {
-          new Promise((resolve) => {
-            req = req.body;
+          req = req.body;
 
-            if (
-              req.user_identifier !== undefined &&
-              req.user_identifier !== null
-            ) {
-              //! Check if the user id exists
-              let redisKey = `${req.user_identifier}-shoppings`;
+          if (
+            req.user_identifier !== undefined &&
+            req.user_identifier !== null
+          ) {
+            //! Check if the user id exists
+            const request = await getRequestDataClient(req);
 
-              // logger.error(redisKey);
-
-              redisGet(redisKey)
-                .then((resp) => {
-                  if (resp !== null) {
-                    //Has some data
-                    try {
-                      //Rehydrate
-                      new Promise((resCompute) => {
-                        getRequestDataClient(req, resCompute);
-                      })
-                        .then((result) => {
-                          //!Cache
-                          redisCluster.setex(
-                            redisKey,
-                            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
-                            JSON.stringify(result)
-                          );
-                          //...
-                          // resolve(result);
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          // resolve(false);
-                        });
-
-                      // console.log(resp);
-
-                      resp = JSON.parse(resp);
-                      resolve(resp);
-                    } catch (error) {
-                      logger.error(error);
-                      //Make a new request
-                      new Promise((resCompute) => {
-                        getRequestDataClient(req, resCompute);
-                      })
-                        .then((result) => {
-                          //!Cache
-                          redisCluster.setex(
-                            redisKey,
-                            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
-                            JSON.stringify(result)
-                          );
-                          //...
-                          resolve(result);
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          resolve(false);
-                        });
-                    }
-                  } //Make a new request
-                  else {
-                    new Promise((resCompute) => {
-                      getRequestDataClient(req, resCompute);
-                    })
-                      .then((result) => {
-                        //!Cache
-                        redisCluster.setex(
-                          redisKey,
-                          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
-                          JSON.stringify(result)
-                        );
-                        //...
-                        resolve(result);
-                      })
-                      .catch((error) => {
-                        logger.error(error);
-                        resolve(false);
-                      });
-                  }
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  //Make a new request
-                  new Promise((resCompute) => {
-                    getRequestDataClient(req, resCompute);
-                  })
-                    .then((result) => {
-                      //!Cache
-                      redisCluster.setex(
-                        redisKey,
-                        parseInt(process.env.REDIS_EXPIRATION_5MIN) * 100,
-                        JSON.stringify(result)
-                      );
-                      //...
-                      resolve(result);
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve(false);
-                    });
-                });
-            } //Missing data
-            else {
-              resolve(false);
-            }
-          })
-            .then((result) => {
-              res.send(result);
-            })
-            .catch((error) => {
-              logger.error(error);
-              res.send(false);
-            });
+            res.json(request);
+          } //Missing data
+          else {
+            res.send(false);
+          }
         } catch (error) {
           logger.error(error);
           res.send(false);
