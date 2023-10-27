@@ -2715,7 +2715,6 @@ ElasticSearch_client.ping(
       app.post("/getSearchedLocations", async (req, res) => {
         try {
           const results = await getSearchedLocations(req.body);
-          console.log(results);
           res.send(results);
         } catch (error) {
           console.error(error);

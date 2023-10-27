@@ -243,7 +243,6 @@ const initializeFreshGetOfLocations = async (
           body.predictions.map(async (locationPlace, index) => {
             let averageGeo = 0;
             //? Deduct the street, city and country
-            console.log(locationPlace.structured_formatting);
             let locationName = locationPlace.structured_formatting.main_text;
             //Get the street city and country infos
             let secondaryDetailsCombo = locationPlace?.structured_formatting
