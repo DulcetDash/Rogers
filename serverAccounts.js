@@ -91,8 +91,8 @@ function SendSMSTo(phone_number, message) {
     .catch(function (err) {
       console.error(err, err.stack);
     });
-  // let username = "Nej";
-  // let password = "Nej*1";
+  // let username = "DulcetDash";
+  // let password = "DulcetDash*1";
 
   // let postData = JSON.stringify({
   //   to: phone_number,
@@ -3193,7 +3193,7 @@ function execGet_driversDeepInsights_fromWalletData(
                           data !== false &&
                           data !== null
                       );
-                    //? Compute the global remaining comission for Nej
+                    //? Compute the global remaining comission for DulcetDash
                     let totalEarnings = 0;
                     let totalDues = 0;
                     let totalDues_wallet = 0;
@@ -4342,7 +4342,7 @@ function getDriver_onlineOffline_status(req, resolve) {
                       driverData[0].suspension_infos.length - 1
                     ].reason
                   )
-                  ? `Your account has been suspended to an overdue Nej commission.`
+                  ? `Your account has been suspended to an overdue DulcetDash commission.`
                   : false
                 : false,
           };
@@ -5999,7 +5999,7 @@ function shouldSendNewSMS({ req, hasAccount, resolve }) {
         new Promise((res0) => {
           let message = `Your Orniss code is ${otp}. Never share this code.`;
 
-          let urlSMS = `http://localhost:9393/?message=${message}&number=${onlyDigitsPhone}&subject=Nej`;
+          let urlSMS = `http://localhost:9393/?message=${message}&number=${onlyDigitsPhone}&subject=DulcetDash`;
           requestAPI(urlSMS, function (error, response, body) {
             if (error === null) {
               //Success
@@ -6124,11 +6124,11 @@ function sendSMSAny({ req, resolve, service }) {
       if (otpData !== undefined && otpData.length < DAILY_THRESHOLD) {
         new Promise((res0) => {
           let onlyDigitsPhone = req.phone.replace("+", "").trim();
-          let message = `Hi ${req.name},\nThanks for applying at Nej ${
+          let message = `Hi ${req.name},\nThanks for applying at DulcetDash ${
             service === "courier" ? "for deliveries/shopping" : "to drive"
           }, you will hear from us pretty soon.\nNej support`;
 
-          let urlSMS = `http://localhost:9393/?message=${message}&number=${onlyDigitsPhone}&subject=Nej`;
+          let urlSMS = `http://localhost:9393/?message=${message}&number=${onlyDigitsPhone}&subject=DulcetDash`;
           requestAPI(urlSMS, function (error, response, body) {
             if (error === null) {
               //Success
@@ -6282,10 +6282,10 @@ var collectionWalletTransactions_logs = null;
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
 
-  logger.info("[+] Nej Account services active.");
+  logger.info("[+] DulcetDash Account services active.");
   app
     .get("/", function (req, res) {
-      res.send("Nej Account services up");
+      res.send("DulcetDash Account services up");
     })
     .use(
       express.json({
@@ -6984,7 +6984,7 @@ redisCluster.on("connect", function () {
                               driverData[0].suspension_infos.length - 1
                             ].reason
                           )
-                          ? `Your account has been suspended to an overdue Nej commission.`
+                          ? `Your account has been suspended to an overdue DulcetDash commission.`
                           : false
                         : false,
                   };

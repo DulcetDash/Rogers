@@ -11,6 +11,7 @@ const crypto = require("crypto");
 var otpGenerator = require("otp-generator");
 var elasticsearch = require("elasticsearch");
 const urlParser = require("url");
+const morgan = require("morgan");
 
 const { logger } = require("./LogService");
 const { sendSMS } = require("./SendSMS");
@@ -886,7 +887,7 @@ function execSearchProductsFor(req, redisKey, resolve) {
                   let header = {
                     index: {
                       _index: index_name,
-                      _id: el._id,
+                      _id: el.id,
                     },
                   };
 
@@ -1713,7 +1714,7 @@ function shouldSendNewSMS({ req, hasAccount, resolve }) {
               logger.warn("USER HAS AN ACCOUNT.");
               dynamo_update({
                 table_name: "users_central",
-                _idKey: req._id,
+                _idKey: req.id,
                 UpdateExpression: "set #a.#p = :val1",
                 ExpressionAttributeValues: {
                   ":val1": {
@@ -1832,7 +1833,7 @@ function isUserValid(user_identifier, resolve) {
     .then((result) => {
       resolve({
         status: result !== undefined && result.length > 0,
-        _id: result !== undefined && result.length > 0 ? result[0]._id : null,
+        _id: result !== undefined && result.length > 0 ? result[0].id : null,
       });
     })
     .catch((error) => {
@@ -2084,7 +2085,7 @@ function updateRidersPushNotifToken(req, redisKey, resolve) {
           req.user_nature === "rider"
             ? {
                 table_name: "users_central",
-                _idKey: userData._id,
+                _idKey: userData.id,
                 UpdateExpression:
                   "set pushnotif_token = :val1, last_updated = :val2",
                 ExpressionAttributeValues: {
@@ -2094,7 +2095,7 @@ function updateRidersPushNotifToken(req, redisKey, resolve) {
               }
             : {
                 table_name: "drivers_shoppers_central",
-                _idKey: userData._id,
+                _idKey: userData.id,
                 UpdateExpression:
                   "set operational_state.pushnotif_token = :val1, date_updated = :val2",
                 ExpressionAttributeValues: {
@@ -2529,7 +2530,7 @@ redisCluster.on("connect", function () {
   //? Check elasticsearch
   ElasticSearch_client.ping(
     {
-      requestTimeout: 30000,
+      requestTimeout: 60000,
     },
     function (error) {
       if (error) {
@@ -2537,10 +2538,12 @@ redisCluster.on("connect", function () {
         logger.warn("Error:", error);
       } else {
         logger.info("[*] Elasticsearch connected");
-        logger.info("[+] Nej service active");
+        logger.info("[+] DulcetDash service active");
+
+        app.use(morgan("dev"));
         app
           .get("/", function (req, res) {
-            res.send("[+] Nej server running.");
+            res.send("[+] DulcetDash server running.");
           })
           .use(express.static(path.join(__dirname, "assets")));
         app
@@ -3449,7 +3452,7 @@ redisCluster.on("connect", function () {
 
                     dynamo_update({
                       table_name: "requests_central",
-                      _idKey: requestData._id,
+                      _idKey: requestData.id,
                       UpdateExpression:
                         "set request_state_vars = :val1, date_clientRatedRide = :val2",
                       ExpressionAttributeValues: {
@@ -3535,7 +3538,7 @@ redisCluster.on("connect", function () {
                     requestData = requestData[0];
                     // logger.error(requestData);
                     //!...Delete and save in the cancelled
-                    dynamo_delete("requests_central", requestData._id)
+                    dynamo_delete("requests_central", requestData.id)
                       .then((result) => {
                         //! Delete previous cache
                         let redisKey = `${req.user_identifier}-shoppings`;
@@ -3734,7 +3737,7 @@ redisCluster.on("connect", function () {
                         //Update the name
                         dynamo_update({
                           table_name: "users_central",
-                          _idKey: userData[0]._id,
+                          _idKey: userData[0].id,
                           UpdateExpression: "set #name_word = :val1",
                           ExpressionAttributeValues: {
                             ":val1": req.data_value,
@@ -3759,7 +3762,7 @@ redisCluster.on("connect", function () {
                         //Update the surname
                         dynamo_update({
                           table_name: "users_central",
-                          _idKey: userData[0]._id,
+                          _idKey: userData[0].id,
                           UpdateExpression: "set surname = :val1",
                           ExpressionAttributeValues: {
                             ":val1": req.data_value,
@@ -3781,7 +3784,7 @@ redisCluster.on("connect", function () {
                         //Update the email
                         dynamo_update({
                           table_name: "users_central",
-                          _idKey: userData[0]._id,
+                          _idKey: userData[0].id,
                           UpdateExpression: "set email = :val1",
                           ExpressionAttributeValues: {
                             ":val1": req.data_value,
@@ -3802,7 +3805,7 @@ redisCluster.on("connect", function () {
                         //Update the gender
                         dynamo_update({
                           table_name: "users_central",
-                          _idKey: userData[0]._id,
+                          _idKey: userData[0].id,
                           UpdateExpression: "set gender = :val1",
                           ExpressionAttributeValues: {
                             ":val1": req.data_value,
@@ -3824,7 +3827,7 @@ redisCluster.on("connect", function () {
                         //Update the phone
                         dynamo_update({
                           table_name: "users_central",
-                          _idKey: userData[0]._id,
+                          _idKey: userData[0].id,
                           UpdateExpression: "set phone_number = :val1",
                           ExpressionAttributeValues: {
                             ":val1": req.data_value,
@@ -3880,7 +3883,7 @@ redisCluster.on("connect", function () {
                               //! Update the database
                               dynamo_update({
                                 table_name: "users_central",
-                                _idKey: userData[0]._id,
+                                _idKey: userData[0].id,
                                 UpdateExpression: "set #m.#p = :val1",
                                 ExpressionAttributeValues: {
                                   ":val1": fileUploadName,
@@ -4081,7 +4084,7 @@ redisCluster.on("connect", function () {
               .then((userData) => {
                 if (userData !== undefined && userData.length > 0) {
                   //!Existing user - attach the _id
-                  req["_id"] = userData[0]._id;
+                  req["_id"] = userData[0].id;
 
                   new Promise((resCompute) => {
                     shouldSendNewSMS({
@@ -4394,7 +4397,7 @@ redisCluster.on("connect", function () {
                     //Update the user's profile
                     dynamo_update({
                       table_name: "users_central",
-                      _idKey: isValid._id,
+                      _idKey: isValid.id,
                       UpdateExpression:
                         "set #name_word = :val1, surname = :val2, gender = :val3, email = :val4, #m.#p = :val5, account_state = :val6",
                       ExpressionAttributeValues: {
@@ -4576,7 +4579,7 @@ redisCluster.on("connect", function () {
                             ownerUserData.length > 0
                           ) {
                             //valid user
-                            req["_id"] = ownerUserData[0]._id;
+                            req["_id"] = ownerUserData[0].id;
 
                             new Promise((resCompute) => {
                               shouldSendNewSMS({
@@ -4691,7 +4694,7 @@ redisCluster.on("connect", function () {
                             //? Change the phone details
                             dynamo_update({
                               table_name: "users_central",
-                              _idKey: userData[0]._id,
+                              _idKey: userData[0].id,
                               UpdateExpression:
                                 "set phone_number = :val1, last_updated = :val2",
                               ExpressionAttributeValues: {
@@ -6075,7 +6078,7 @@ redisCluster.on("connect", function () {
                   car_brand: driverData.vehicle_details.brand_name, //DOne
                   vehicle_type: "normalTaxiEconomy", //Done
                   plate_number: driverData.vehicle_details.plate_number, //Done
-                  car_fingerprint: driverData._id, //Done
+                  car_fingerprint: driverData.id, //Done
                   model_name: driverData.vehicle_details.model_name, //DOne
                   color: driverData.vehicle_details.color, //Done
                   date_registered: new Date(chaineDateUTC).toISOString(), //Done
@@ -6088,7 +6091,7 @@ redisCluster.on("connect", function () {
                 default_selected_car: {
                   vehicle_type: "normalTaxiEconomy", //Done
                   date_Selected: new Date(chaineDateUTC).toISOString(), //Done
-                  car_fingerprint: driverData._id, //Done
+                  car_fingerprint: driverData.id, //Done
                   max_passengers: 4, //Done
                 },
                 status: "online", //Done
@@ -6181,7 +6184,7 @@ redisCluster.on("connect", function () {
                       //4. Delete the record
                       dynamo_delete(
                         "drivers_application_central",
-                        req.driverData._id
+                        req.driverData.id
                       )
                         .then((resultDel) => {
                           //3. Register the event
@@ -6995,7 +6998,7 @@ redisCluster.on("connect", function () {
                         adminData !== false &&
                         adminData.length > 0
                       ) {
-                        //!Found the admin
+                        //! Found the admin
                         //Generate the otp - 8-digits
                         let otp = otpGenerator.generate(8, {
                           lowerCaseAlphabets: false,
@@ -7008,7 +7011,7 @@ redisCluster.on("connect", function () {
                         //? Update the otp in the admin profile
                         dynamo_update({
                           table_name: "administration_central",
-                          _idKey: adminData[0]._id,
+                          _idKey: adminData[0].id,
                           UpdateExpression:
                             "set #sec.#spin = :val1, #sec.#date_word = :val2",
                           ExpressionAttributeValues: {
@@ -7271,7 +7274,7 @@ redisCluster.on("connect", function () {
                         <body style="background-color:#fff;padding:30px;">
             
                           <div style="display:flex;flex-direction:row;height:70px;">
-                            <div style="border:1px solid transparent;height:70px;width:120px;"><img style="width:100%;height:100%;object-fit: contain;" alt="Orniss" src="https://orngeneralassets.s3.amazonaws.com/nej.png" /></div>
+                            <div style="border:1px solid transparent;height:70px;width:120px;"><img style="width:100%;height:100%;object-fit: contain;" alt="Orniss" src="https://orngeneralassets.s3.amazonaws.com/dulcetdash.png" /></div>
                           </div>
             
                           <!-- Message -->
@@ -7315,7 +7318,7 @@ redisCluster.on("connect", function () {
 
                               res.send({
                                 response: "valid_credentials",
-                                id: adminData[0]._id,
+                                id: adminData[0].id,
                               });
                             } //Error
                             else {

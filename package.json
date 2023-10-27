@@ -1,5 +1,5 @@
 {
-  "name": "nej-server",
+  "name": "dulcetdash-server",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -9,7 +9,6 @@
   "dependencies": {
     "@babel/core": "^7.12.10",
     "@babel/runtime": "^7.12.5",
-    "amqplib": "^0.8.0",
     "aws-sdk": "2.480.0",
     "babel-plugin-transform-remove-console": "^6.9.4",
     "compression": "^1.7.4",
@@ -23,11 +22,11 @@
     "flatted": "^3.1.1",
     "fuzzyset": "^1.0.7",
     "geolib": "^3.3.1",
-    "jsonwebtoken": "^8.5.1",
     "geolocation-utils": "^1.2.3",
     "helmet": "^4.6.0",
     "http": "^0.0.1-security",
     "is-base64": "^1.1.0",
+    "jsonwebtoken": "^8.5.1",
     "k6": "^0.0.0",
     "moment": "^2.29.1",
     "mongodb": "^3.6.5",

@@ -123,8 +123,8 @@ function SendSMSTo(phone_number, message) {
         console.error(err, err.stack);
       });
   }
-  // let username = "Nej";
-  // let password = "Nej*1";
+  // let username = "DulcetDash";
+  // let password = "DulcetDash*1";
 
   // let postData = JSON.stringify({
   //   to: phone_number,
@@ -2702,12 +2702,12 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
                               <div id="u_content_html_1" class="u_content_html" style="overflow-wrap: break-word;padding: 10px;">
                               <div class="u-col u_column style="display: flex;flex-direction: column;align-items: flex-start;justify-content: center;padding:20px;padding-left:5%;padding-right:5%;font-family:Arial, Helvetica, sans-serif;font-size: 15px;flex:1">
                               <div style="width: 100px;height:100px;bottom:20px;position: relative;margin:auto">
-                                  <img alt="Nej" src="https://ads-central-tc.s3.us-west-1.amazonaws.com/logo_ios.png" style="width: 100%;height: 100%;object-fit: contain;" />
+                                  <img alt="DulcetDash" src="https://ads-central-tc.s3.us-west-1.amazonaws.com/logo_ios.png" style="width: 100%;height: 100%;object-fit: contain;" />
                               </div>
                               <div style="border-bottom:1px solid #d0d0d0;display: flex;flex-direction: row;justify-content: space-between;margin-bottom: 15px;width: 100%;">
                                   <div style="display: flex;flex-direction: row;">
                                       <div style="margin-left: 2%;">
-                                          <div style="font-weight: bold;font-size: 17px;">Nej Technologies CC</div>
+                                          <div style="font-weight: bold;font-size: 17px;">DulcetDash Technologies CC</div>
                                           <div style="font-size: 14px;margin-top: 5px;color:#272626bb">
                                           <div>17 Schinz street</div>
                                           <div>Windhoek</div>
@@ -2800,7 +2800,7 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
                                 .replace(/,/g, "")}
                           
                               <div style="display: flex;flex-direction: row;justify-content: space-between;margin-top: 30px;align-items: center;width:100%">
-                                  <div style="flex:1;color:#272626bb;font-size: 12px;padding-right: 30px;min-width:150px;">Thank you for choosing Nej for all your business delivery needs.</div>
+                                  <div style="flex:1;color:#272626bb;font-size: 12px;padding-right: 30px;min-width:150px;">Thank you for choosing DulcetDash for all your business delivery needs.</div>
                                   
                                   <di class="u-col u_column" style="flex:2;display:flex;flex-direction:column;width:70%;">
                                     <table style="width:100%;">
@@ -5658,7 +5658,7 @@ redisCluster.on("connect", function () {
                                         let receiverName = ucFirst(
                                           parsedRequest.delivery_infos.receiverName_delivery.trim()
                                         );
-                                        let message = `Hello ${receiverName}, a package is being delivered to you via Nej, you can track it by creating a Nej account with your current number.\n\nThe Nej teams.`;
+                                        let message = `Hello ${receiverName}, a package is being delivered to you via DulcetDash, you can track it by creating a DulcetDash account with your current number.\n\nThe DulcetDash teams.`;
                                         //!Check if the receiver is a current user
                                         collectionPassengers_profiles
                                           .find({
@@ -5677,7 +5677,7 @@ redisCluster.on("connect", function () {
                                               userReceiverData !== undefined &&
                                               userReceiverData.length > 0
                                             ) {
-                                              //Is a Nej user, check for how long the app has not been used.
+                                              //Is a DulcetDash user, check for how long the app has not been used.
                                               resolveDate();
                                               if (
                                                 userReceiverData.last_updated !==
@@ -5750,7 +5750,7 @@ redisCluster.on("connect", function () {
                                                 );
                                                 resNotifyReceiver(true);
                                               }
-                                            } //Not a Nej user, Send an SMS
+                                            } //Not a DulcetDash user, Send an SMS
                                             else {
                                               SendSMSTo(
                                                 receiversPhone,

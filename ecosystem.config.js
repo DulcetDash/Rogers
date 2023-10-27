@@ -5,9 +5,9 @@ module.exports = {
     {
       name: "Events gateway",
       script: "server.js",
-      instances: 2,
+      instances: 1,
       autorestart: true,
-      watch: false,
+      watch: true,
       max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
@@ -16,9 +16,9 @@ module.exports = {
     {
       name: "Pricing service",
       script: "pricingService.js",
-      instances: 2,
+      instances: 1,
       autorestart: true,
-      watch: false,
+      watch: true,
       max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
@@ -27,9 +27,9 @@ module.exports = {
     {
       name: "Search service",
       script: "searchService.js",
-      instances: 2,
+      instances: 1,
       autorestart: true,
-      watch: false,
+      watch: true,
       max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
@@ -38,9 +38,9 @@ module.exports = {
     {
       name: "Accounts service",
       script: "serverAccounts.js",
-      instances: 2,
+      instances: 1,
       autorestart: true,
-      watch: false,
+      watch: true,
       max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
@@ -49,9 +49,9 @@ module.exports = {
     {
       name: "Dispatch service",
       script: "serverDispatch.js",
-      instances: 2,
+      instances: 1,
       autorestart: true,
-      watch: false,
+      watch: true,
       max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
@@ -60,9 +60,9 @@ module.exports = {
     {
       name: "Map service",
       script: "serverMap.js",
-      instances: 2,
+      instances: 1,
       autorestart: true,
-      watch: false,
+      watch: true,
       max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
@@ -71,9 +71,9 @@ module.exports = {
     {
       name: "Map delivery service",
       script: "serverMap_delivery.js",
-      instances: 2,
+      instances: 1,
       autorestart: true,
-      watch: false,
+      watch: true,
       max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
@@ -82,9 +82,9 @@ module.exports = {
     {
       name: "Map shopping service",
       script: "serverMap_shopping.js",
-      instances: 2,
+      instances: 1,
       autorestart: true,
-      watch: false,
+      watch: true,
       max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
@@ -93,9 +93,9 @@ module.exports = {
     {
       name: "SMS service",
       script: "SMS/app.js",
-      instances: 2,
+      instances: 1,
       autorestart: true,
-      watch: false,
+      watch: true,
       max_memory_restart: "3G",
       env: {
         NODE_ENV: "production",
