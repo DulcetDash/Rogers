@@ -5,6 +5,7 @@ const http = require("http");
 const fs = require("fs");
 
 const { logger } = require("./LogService");
+const { v4: uuidv4 } = require("uuid");
 
 var app = express();
 var server = http.createServer(app);
@@ -18,6 +19,7 @@ const client = /production/i.test(String(process.env.EVIRONMENT))
       host: process.env.REDIS_HOST,
       port: process.env.REDIS_PORT,
     });
+const Redis = require("./Utility/redisConnector");
 var RedisClustr = require("redis-clustr");
 var redisCluster = /production/i.test(String(process.env.EVIRONMENT))
   ? new RedisClustr({
@@ -49,6 +51,9 @@ const escapeStringRegexp = require("escape-string-regexp");
 var otpGenerator = require("otp-generator");
 const urlParser = require("url");
 const moment = require("moment");
+const { default: axios } = require("axios");
+const LocationPersistModel = require("./models/LocationPersistModel");
+const EnrichedLocationPersistModel = require("./models/EnrichedLocationPersistModel");
 
 const cities_center = {
   windhoek: "-22.558926,17.073211", //Conventional center on which to biais the search results
@@ -99,7 +104,7 @@ function logObject(obj) {
 function getCityCenter(city, res) {
   city = city.toLowerCase().trim();
   let cityCenter = cities_center[city];
-  res(cityCenter);
+  return cityCenter;
 }
 
 checkName = (name, str) => {
@@ -156,103 +161,52 @@ function similarityCheck_locations_search(arrayLocations, query, res) {
  * @param {*} trailingData: will contain the full data needed coming from the user request
  */
 
-function newLoaction_search_engine(
+const newLoaction_search_engine = async (
   keyREDIS,
   queryOR,
   city,
-  cityCenter,
-  res,
   timestamp,
   trailingData
-) {
-  //? 1. Check if it was written in mongodb
-  dynamo_find_query({
-    table_name: "searched_locations_persist",
-    IndexName: "query",
-    KeyConditionExpression: "#query_word = :val1",
-    FilterExpression: "city = :val2 and #state_word = :val3",
-    ExpressionAttributeValues: {
-      ":val1": queryOR,
-      ":val2": city,
-      ":val3": trailingData.state.replace(/ Region/i, "").trim(),
-    },
-    ExpressionAttributeNames: {
-      "#query_word": "query",
-      "#state_word": "state",
-    },
-  })
-    .then((searchedData) => {
-      if (
-        searchedData !== undefined &&
-        searchedData !== null &&
-        searchedData.length > 0
-      ) {
-        logger.warn("FOUND SOME MONGODB RECORDS");
-        logger.info(searchedData);
-        //TODO: could twik this value to allow a minimum limit of values
-        let finalSearchResults = {
-          search_timestamp: timestamp,
-          result: removeResults_duplicates(searchedData).slice(0, 5),
-        };
-        //! Cache globally the final result
-        new Promise((resCache) => {
-          redisCluster.setex(
-            keyREDIS,
-            parseFloat(process.env.REDIS_EXPIRATION_5MIN) * 288,
-            JSON.stringify(finalSearchResults)
-          );
-          resCache(true);
-        })
-          .then()
-          .catch();
-        //...DONE
-        res(finalSearchResults);
-      } //Fresh search
-      else {
-        logger.warn("NO MONG RECORDS< MAKE A FRESH SEARCH");
-        new Promise((resCompute) => {
-          initializeFreshGetOfLocations(
-            keyREDIS,
-            queryOR,
-            city,
-            cityCenter,
-            resCompute,
-            timestamp,
-            trailingData
-          );
-        })
-          .then((result) => {
-            res(result);
-          })
-          .catch((error) => {
-            logger.error(error);
-            res(false);
-          });
-      }
-    })
-    .catch((error) => {
-      logger.error(error);
-      //Fresh search
-      new Promise((resCompute) => {
-        initializeFreshGetOfLocations(
-          keyREDIS,
-          queryOR,
-          city,
-          cityCenter,
-          resCompute,
-          timestamp,
-          trailingData
-        );
-      })
-        .then((result) => {
-          res(result);
-        })
-        .catch((error) => {
-          logger.error(error);
-          res(false);
-        });
-    });
-}
+) => {
+  //? 1. Check if it was written in dynamo
+  const previousSearch = await LocationPersistModel.query("query")
+    .eq(queryOR)
+    .filter("city")
+    .eq(city)
+    .filter("state")
+    .eq(trailingData.state.replace(/ Region/i, "").trim())
+    .exec();
+
+  if (previousSearch.count > 0) {
+    logger.warn("FOUND SOME DYNAMO RECORDS");
+    logger.info(previousSearch);
+
+    const finalSearchResults = {
+      search_timestamp: timestamp,
+      result: removeResults_duplicates(previousSearch).slice(0, 5),
+    };
+
+    //?Cache
+    Redis.set(keyREDIS, JSON.stringify(finalSearchResults), "EX", 3600 * 48);
+
+    return finalSearchResults;
+  } //Fresh search
+  else {
+    logger.warn("NO DYNAMO RECORDS< MAKE A FRESH SEARCH");
+
+    const finalSearchResults = await initializeFreshGetOfLocations(
+      queryOR,
+      city,
+      timestamp,
+      trailingData
+    );
+
+    //?Cache
+    Redis.set(keyREDIS, JSON.stringify(finalSearchResults), "EX", 3600 * 48);
+
+    return finalSearchResults;
+  }
+};
 
 /**
  * @func initializeFreshGetOfLocations
@@ -265,184 +219,130 @@ function newLoaction_search_engine(
  * @param {*} timestamp
  * @param {*} trailingData: will contain the full data needed coming from the user request
  */
-function initializeFreshGetOfLocations(
-  keyREDIS,
+const initializeFreshGetOfLocations = async (
   queryOR,
   city,
-  cityCenter,
-  res,
   timestamp,
   trailingData
-) {
-  query = encodeURIComponent(queryOR.toLowerCase());
+) => {
+  try {
+    const query = encodeURIComponent(queryOR.toLowerCase());
 
-  //TODO: could allocate the country dynamically for scale.
-  let urlRequest = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${query}&key=${process.env.GOOGLE_API_KEY}&components=country:na&language=en&radius=${conventionalSearchRadius}&limit=1000`;
-  logger.error(urlRequest);
+    //TODO: could allocate the country dynamically for scale.
+    let urlRequest = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${query}&key=${process.env.GOOGLE_API_KEY}&components=country:na&language=en&radius=${conventionalSearchRadius}&limit=1000`;
+    logger.error(urlRequest);
 
-  requestAPI(urlRequest, function (err, response, body) {
-    try {
-      body = JSON.parse(body);
-      logger.error(body);
+    const searches = await axios.get(urlRequest);
 
-      if (body != undefined) {
-        if (
-          body.predictions !== undefined &&
-          body.predictions !== null &&
-          body.predictions.length > 0
-        ) {
-          //...
-          //.
-          let request0 = body.predictions.map((locationPlace, index) => {
-            return new Promise((resolve) => {
-              let averageGeo = 0;
-              //? Deduct the street, city and country
-              let locationName = locationPlace.structured_formatting.main_text;
-              //Get the street city and country infos
-              let secondaryDetailsCombo =
-                locationPlace.structured_formatting.secondary_text !==
-                  undefined &&
-                locationPlace.structured_formatting.secondary_text !== null
-                  ? locationPlace.structured_formatting.secondary_text.split(
-                      ", "
-                    )
-                  : false; //Will contain the street, city and country respectively
-              let streetName =
-                secondaryDetailsCombo !== false
-                  ? secondaryDetailsCombo.length >= 3
-                    ? secondaryDetailsCombo[secondaryDetailsCombo.length - 3]
-                    : false
-                  : false;
-              //city
-              let cityName =
-                secondaryDetailsCombo !== false
-                  ? secondaryDetailsCombo.length >= 2
-                    ? secondaryDetailsCombo[secondaryDetailsCombo.length - 2]
-                    : false
-                  : false;
-              //Country
-              let countryName =
-                secondaryDetailsCombo !== false
-                  ? secondaryDetailsCombo.length >= 1
-                    ? secondaryDetailsCombo[secondaryDetailsCombo.length - 1]
-                    : false
-                  : false;
+    body = searches?.data;
+    logger.error(body);
 
-              //...
-              let littlePack = {
-                indexSearch: index,
-                location_id: locationPlace.place_id,
-                location_name: locationName,
-                coordinates: null, //To be completed!
-                averageGeo: averageGeo,
-                city: cityName,
-                street: streetName,
-                state: null, //To be completed!
-                country: countryName,
-                query: queryOR,
-              };
-              //! Get the coordinates and save them in mongodb - to save on cost
-              new Promise((resCompute) => {
-                attachCoordinatesAndRegion(littlePack, resCompute);
-              })
-                .then((result) => {
-                  resolve(result);
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  resolve(false);
-                });
-            });
-          });
-          //Done with grathering result of brute API search
-          Promise.all(request0).then((val) => {
-            logger.info(val);
-            //Remove all the false values
-            let result = fastFilter(val, function (element) {
-              return element !== false && element !== null;
-            });
-            //? Remove all the out of context cities
-            //! 1. Filter by town only for Windhoek in the Khomas region
-            if (
-              /windhoek/i.test(city.trim()) &&
-              /khomas/i.test(trailingData.state.replace(/ Region/i, "").trim())
-            ) {
-              //Khomas region
-              logger.info("KHOMAS");
-              result = fastFilter(val, function (element) {
-                let regFilterCity = new RegExp(city.trim(), "i");
-                return element.city !== false && element.city !== undefined
-                  ? regFilterCity.test(element.city.trim())
-                  : false;
-              });
-            } //Other regions
-            else {
-              logger.error(val);
-              result = fastFilter(val, function (element) {
-                let regFilterState = new RegExp(trailingData.state.trim(), "i");
-                return element.state !== false && element.state !== undefined
-                  ? regFilterState.test(element.state.trim())
-                  : false;
-              });
-            }
+    if (body?.predictions && body?.predictions?.length > 0) {
+      let searchResults = (
+        await Promise.all(
+          body.predictions.map(async (locationPlace, index) => {
+            let averageGeo = 0;
+            //? Deduct the street, city and country
+            console.log(locationPlace.structured_formatting);
+            let locationName = locationPlace.structured_formatting.main_text;
+            //Get the street city and country infos
+            let secondaryDetailsCombo = locationPlace?.structured_formatting
+              ?.secondary_text
+              ? locationPlace.structured_formatting.secondary_text.split(", ")
+              : "none"; //Will contain the street, city and country respectively
+            let streetName =
+              secondaryDetailsCombo !== false
+                ? secondaryDetailsCombo.length >= 3
+                  ? secondaryDetailsCombo[secondaryDetailsCombo.length - 3]
+                  : locationPlace?.structured_formatting?.secondary_text
+                : locationPlace?.structured_formatting?.secondary_text;
+            //city
+            let cityName =
+              secondaryDetailsCombo !== false
+                ? secondaryDetailsCombo.length >= 2
+                  ? secondaryDetailsCombo[secondaryDetailsCombo.length - 2]
+                  : "none"
+                : "none";
+            //Country
+            let countryName =
+              secondaryDetailsCombo !== false
+                ? secondaryDetailsCombo.length >= 1
+                  ? secondaryDetailsCombo[secondaryDetailsCombo.length - 1]
+                  : "none"
+                : "none";
 
-            //! Save in mongo search persist - Cost reduction
-            new Promise((saveMongo) => {
-              if (result.length > 0) {
-                dynamo_insert_many({
-                  table_name: "searched_locations_persist",
-                  array_data: result,
-                })
-                  .then((result) => {
-                    saveMongo(true);
-                    logger.warn("SAVED IN MONGO PERSIST!");
-                  })
-                  .catch((error) => {
-                    logger.error(error);
-                    saveMongo(true);
-                  });
-              } //Nothing to save
-              else {
-                saveMongo(false);
-              }
-            })
-              .then()
-              .catch();
             //...
-            if (result.length > 0) {
-              let finalSearchResults = {
-                search_timestamp: timestamp,
-                result: removeResults_duplicates(result).slice(0, 5),
-              };
-              logger.warn(finalSearchResults);
-              //populated
-              res(finalSearchResults);
-            } //empty
-            else {
-              res(false);
-            }
-          });
-        } else {
-          res(false);
-        }
-      } else {
-        res(false);
-      }
-    } catch (error) {
-      logger.warn("HERE5");
-      logger.warn(error);
-      res(false);
-      // initializeFreshGetOfLocations(
-      //   keyREDIS,
-      //   queryOR,
-      //   city,
-      //   cityCenter,
-      //   res,
-      //   timestamp
+            let littlePack = {
+              indexSearch: index,
+              location_id: locationPlace.place_id,
+              location_name: locationName,
+              coordinates: null, //To be completed!
+              averageGeo: averageGeo,
+              city: cityName,
+              street: streetName,
+              state: null, //To be completed!
+              country: countryName,
+              query: queryOR,
+            };
+            //! Get the coordinates and save them in dynamo - to save on cost
+            const littlePackAndCoords = await attachCoordinatesAndRegion(
+              littlePack
+            );
+
+            return littlePackAndCoords;
+          })
+        )
+      )
+        .filter((item) => item !== false && item !== null)
+        .filter((item) => {
+          //? Remove all the out of context cities
+          //! 1. Filter by town only for Windhoek in the Khomas region
+          if (
+            /windhoek/i.test(city.trim()) &&
+            /khomas/i.test(trailingData.state.replace(/ Region/i, "").trim())
+          ) {
+            //Khomas region
+            logger.info("KHOMAS");
+            let regFilterCity = new RegExp(city.trim(), "i");
+            return item.city !== false && item.city !== undefined
+              ? regFilterCity.test(item.city.trim())
+              : false;
+          } //Other regions
+          else {
+            logger.error(val);
+            let regFilterState = new RegExp(trailingData.state.trim(), "i");
+            return item.state !== false && item.state !== undefined
+              ? regFilterState.test(item.state.trim())
+              : false;
+          }
+        });
+
+      console.log(searchResults);
+
+      //Persist
+      // await Promise.all(
+      //   searchResults.map(async (location) =>
+      //     LocationPersistModel.create({
+      //       id: uuidv4(),
+      //       ...location,
+      //     })
+      //   )
       // );
+
+      const finalResults = {
+        search_timestamp: timestamp,
+        result: removeResults_duplicates(searchResults).slice(0, 5),
+      };
+
+      return finalResults;
+    } else {
+      return false;
     }
-  });
-}
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+};
 
 /**
  * @func arrangeAndExtractSuburbAndStateOrMore
@@ -457,6 +357,7 @@ function arrangeAndExtractSuburbAndStateOrMore(body, location_name) {
     body.result.geometry.location.lat,
     body.result.geometry.location.lng,
   ];
+
   //State
   let state =
     body.result.address_components.filter((item) =>
@@ -512,168 +413,109 @@ function applySuburbsExceptions(location_name, suburb) {
  * @param littlePack: the incomplete location to complete
  * @param resolve
  */
-function attachCoordinatesAndRegion(littlePack, resolve) {
+const attachCoordinatesAndRegion = async (littlePack) => {
   //? Check if its wasn't cached before
   let redisKey = `${littlePack.location_id}-coordinatesAndRegion`;
-  redisGet(redisKey).then((resp) => {
-    if (resp !== null) {
-      try {
-        logger.warn("Using cached coordinates and region");
-        resp = JSON.parse(resp);
-        //? Quickly complete
-        body = resp;
-        //Has a previous record
-        let refinedExtractions = arrangeAndExtractSuburbAndStateOrMore(
-          body,
-          littlePack.location_name
-        );
-        let coordinates = refinedExtractions.coordinates;
-        let state = refinedExtractions.state;
-        //...
-        littlePack.coordinates = coordinates;
-        littlePack.state = state;
-        littlePack.suburb = false;
-        //...done
-        resolve(littlePack);
-      } catch (error) {
-        logger.warn("HERE2");
-        logger.warn(error);
-        //Do a fresh search or from mongo
-        new Promise((resCompute) => {
-          doFreshGoogleSearchAndReturn(littlePack, redisKey, resCompute);
-        })
-          .then((result) => {
-            resolve(result);
-          })
-          .catch((error) => {
-            logger.error(error);
-            resolve(false);
-          });
-      }
-    } //Not cached - check Mongo
-    else {
-      //? First check in mongo
-      dynamo_find_query({
-        table_name: "searched_locations_persist",
-        IndexName: "query",
-        KeyConditionExpression: "#query_word = :val1",
-        FilterExpression: "#r.#p = :val2",
-        ExpressionAttributeValues: {
-          ":val1": littlePack.query,
-          ":val2": littlePack.location_id,
-        },
-        ExpressionAttributeNames: {
-          "#r": "result",
-          "#p": "place_id",
-          "#query_word": "query",
-        },
-      })
-        .then((placeInfo) => {
-          if (
-            placeInfo !== undefined &&
-            placeInfo !== null &&
-            placeInfo.length > 0
-          ) {
-            body = placeInfo[0];
-            //Has a previous record
-            let refinedExtractions = arrangeAndExtractSuburbAndStateOrMore(
-              body,
-              littlePack.location_name
-            );
-            let coordinates = refinedExtractions.coordinates;
-            let state = refinedExtractions.state;
-            //...
-            littlePack.coordinates = coordinates;
-            littlePack.state = state;
-            littlePack.suburb = false;
-            //..Save the body in mongo
-            body["date_updated"] = new Date(chaineDateUTC).toISOString();
 
-            dynamo_insert("enriched_locationSearch_persist", body)
-              .then((result) => {
-                resSave(true);
-              })
-              .catch((error) => {
-                logger.error(error);
-                resSave(true);
-              });
+  const cachedData = await Redis.get(redisKey);
 
-            // new Promise((resSave) => {
-            //   collectionEnrichedLocationPersist.updateOne(
-            //     { "result.place_id": littlePack.place_id },
-            //     {
-            //       $set: body,
-            //     },
-            //     { upsert: true },
-            //     function (err, res) {
-            //       logger.error(err);
-            //       resSave(true);
-            //     }
-            //   );
-            // })
-            //   .then()
-            //   .catch();
-            //...Cache it
-            new Promise((resCache) => {
-              redisCluster.setex(
-                redisKey,
-                parseFloat(process.env.REDIS_EXPIRATION_5MIN) * 24,
-                JSON.stringify(body)
-              );
-              resCache(true);
-            });
-            //...done
-            resolve(littlePack);
-          } //No previous mongo record - do fresh
-          else {
-            new Promise((resCompute) => {
-              doFreshGoogleSearchAndReturn(littlePack, redisKey, resCompute);
-            })
-              .then((result) => {
-                resolve(result);
-              })
-              .catch((error) => {
-                logger.error(error);
-                resolve(false);
-              });
-          }
-        })
-        .catch((error) => {
-          logger.error(error);
-          //fresh
-          new Promise((resCompute) => {
-            doFreshGoogleSearchAndReturn(littlePack, redisKey, resCompute);
-          })
-            .then((result) => {
-              resolve(result);
-            })
-            .catch((error) => {
-              logger.error(error);
-              resolve(false);
-            });
-        });
-    }
-  });
-}
+  if (cachedData && cachedData !== "false" && JSON.parse(cachedData)?.result) {
+    const cachedProcessed = JSON.parse(cachedData);
+    logger.warn("Using cached coordinates and region");
+    //Has a previous record
+    let refinedExtractions = arrangeAndExtractSuburbAndStateOrMore(
+      cachedProcessed,
+      littlePack.location_name
+    );
+    let coordinates = refinedExtractions.coordinates;
+    let state = refinedExtractions.state;
+    //...
+    littlePack.coordinates = coordinates;
+    littlePack.state = state;
+    littlePack.suburb = false;
+    return littlePack;
+  }
+
+  //? Check if it was written in dynamo
+  const previousSearches = await LocationPersistModel.query("query")
+    .eq(littlePack.query)
+    .filter("location_id")
+    .eq(littlePack.location_id)
+    .exec();
+
+  if (previousSearches.count > 0) {
+    //Found
+    const previousData = previousSearches[0];
+    //Has a previous record
+    let refinedExtractions = arrangeAndExtractSuburbAndStateOrMore(
+      previousData,
+      littlePack.location_name
+    );
+    let coordinates = refinedExtractions.coordinates;
+    let state = refinedExtractions.state;
+    //...
+    littlePack.coordinates = coordinates;
+    littlePack.state = state;
+    littlePack.suburb = "false";
+
+    const peristedLocation = await LocationPersistModel.create({
+      id: uuidv4(),
+      ...littlePack,
+    });
+
+    Redis.set(redisKey, JSON.stringify(peristedLocation), "EX", 3600 * 48);
+
+    return littlePack;
+  } //Never peristed
+  else {
+    console.log("Get fresh data -> doFreshGoogleSearchAndReturn");
+    const results = await doFreshGoogleSearchAndReturn(littlePack, redisKey);
+
+    Redis.set(redisKey, JSON.stringify(results), "EX", 3600 * 48);
+
+    return results;
+  }
+};
 
 /**
  * @func doFreshGoogleSearchAndReturn
  * Responsible for doing a clean google maps search, save the value in mongo, cache it and return an updated object.
  */
-function doFreshGoogleSearchAndReturn(littlePack, redisKey, resolve) {
+const doFreshGoogleSearchAndReturn = async (littlePack, redisKey) => {
   let urlRequest = `https://maps.googleapis.com/maps/api/place/details/json?placeid=${littlePack.location_id}&key=${process.env.GOOGLE_API_KEY}&fields=formatted_address,address_components,geometry,place_id&language=en`;
 
-  requestAPI(urlRequest, function (err, response, body) {
-    logger.info(body);
-    try {
-      body = JSON.parse(body);
-      if (
-        body.result !== undefined &&
-        body.result.address_components !== undefined &&
-        body.result.geometry !== undefined
-      ) {
-        // body["result"] = body.results[0];
+  try {
+    //Check if an enriched location was saved
+    const enrichedLocation = await EnrichedLocationPersistModel.query(
+      "place_id"
+    )
+      .eq(littlePack.location_id)
+      .exec();
 
+    if (enrichedLocation.count > 0 && enrichedLocation[0]?.result) {
+      const enrichedLocationData = enrichedLocation[0];
+      let refinedExtractions = arrangeAndExtractSuburbAndStateOrMore(
+        enrichedLocationData,
+        littlePack.location_name
+      );
+      let coordinates = refinedExtractions.coordinates;
+      let state = refinedExtractions.state;
+      //...
+      littlePack.coordinates = coordinates;
+      littlePack.state = state;
+      littlePack.suburb = "false";
+
+      await LocationPersistModel.create({
+        id: uuidv4(),
+        ...littlePack,
+      });
+      return littlePack;
+    } else {
+      const results = await axios.get(urlRequest);
+
+      body = results?.data;
+
+      if (body?.result?.address_components && body?.result?.geometry) {
         let refinedExtractions = arrangeAndExtractSuburbAndStateOrMore(
           body,
           littlePack.location_name
@@ -683,53 +525,26 @@ function doFreshGoogleSearchAndReturn(littlePack, redisKey, resolve) {
         //...
         littlePack.coordinates = coordinates;
         littlePack.state = state;
-        littlePack.suburb = false;
-        //..Save the body in mongo
-        body["date_updated"] = new Date(chaineDateUTC).toISOString();
+        littlePack.suburb = "false";
 
-        dynamo_insert("enriched_locationSearch_persist", body)
-          .then((result) => {})
-          .catch((error) => {
-            logger.error(error);
-          });
-
-        // new Promise((resSave) => {
-        //   collectionEnrichedLocationPersist.updateOne(
-        //     { "result.place_id": littlePack.place_id },
-        //     { $set: body },
-        //     { upsert: true },
-        //     function (err, res) {
-        //       logger.error(err);
-        //       resSave(true);
-        //     }
-        //   );
-        // })
-        //   .then()
-        //   .catch();
-        //...Cache it
-        new Promise((resCache) => {
-          redisCluster.setex(
-            redisKey,
-            parseFloat(process.env.REDIS_EXPIRATION_5MIN) * 24,
-            JSON.stringify(body)
-          );
-          resCache(true);
+        await EnrichedLocationPersistModel.create({
+          id: uuidv4(),
+          place_id: littlePack.location_id,
+          ...body,
         });
-        //...done
-        resolve(littlePack);
+        return littlePack;
       } //Invalid data
       else {
-        resolve(false);
+        return false;
       }
-    } catch (error) {
-      logger.warn("HERE3");
-      logger.warn(error);
-      resolve(false);
     }
-  });
-}
+  } catch (error) {
+    logger.warn(error);
+    return false;
+  }
+};
 
-function removeResults_duplicates(arrayResults, resolve) {
+function removeResults_duplicates(arrayResults) {
   //logger.info(arrayResults);
   let arrayResultsClean = [];
   let arrayIds = [];
@@ -764,103 +579,72 @@ function removeResults_duplicates(arrayResults, resolve) {
  * @param {*} trailingData: will contain the full data needed coming from the user request
  */
 
-function getLocationList_five(
+const getLocationList_five = async (
   queryOR,
   city,
   country,
-  cityCenter,
-  res,
   timestamp,
   trailingData
-) {
+) => {
   resolveDate();
   //Check if cached results are available
   let keyREDIS = `search_locations-${city.trim().toLowerCase()}-${country
     .trim()
     .toLowerCase()}-${queryOR}-${trailingData.state}`; //! Added time for debug
-  logger.info(keyREDIS);
-  //-------------------------------------
-  redisGet(keyREDIS).then(
-    (resp) => {
-      if (resp != null && resp !== undefined) {
-        logger.warn(
-          "[*] Found global search results for the same query input."
-        );
-        //logObject(JSON.parse(reslt));
-        try {
-          //Rehydrate records
-          // new Promise((resCompute) => {
-          //   newLoaction_search_engine(
-          //     keyREDIS,
-          //     queryOR,
-          //     city,
-          //     cityCenter,
-          //     resCompute,
-          //     timestamp,
-          //     trailingData
-          //   );
-          // })
-          //   .then()
-          //   .catch();
-          //...
-          resp = JSON.parse(resp);
-          //Exceptions check
-          resp.result = resp.result.map((location) => {
-            location.suburb = applySuburbsExceptions(
-              location.location_name,
-              location.suburb
-            );
-            return location;
-          });
-          logger.error(resp);
-          //!Update search record time
-          resp.search_timestamp = timestamp;
-          res(resp);
-        } catch (error) {
-          logger.warn("HERE");
-          logger.warn(error);
-          logger.info("Launch new search");
-          newLoaction_search_engine(
-            keyREDIS,
-            queryOR,
-            city,
-            cityCenter,
-            res,
-            timestamp,
-            trailingData
-          );
-        }
-      } //No cached results
-      else {
-        //Launch new search
-        logger.info("Launch new search");
-        newLoaction_search_engine(
-          keyREDIS,
-          queryOR,
-          city,
-          cityCenter,
-          res,
-          timestamp,
-          trailingData
-        );
-      }
-    },
-    (error) => {
-      //Launch new search
-      logger.warn(error);
-      logger.info("Launch new search");
-      newLoaction_search_engine(
-        keyREDIS,
-        queryOR,
-        city,
-        cityCenter,
-        res,
-        timestamp,
-        trailingData
+
+  const cachedData = await Redis.get(keyREDIS);
+
+  if (cachedData) {
+    const cachedProcessed = JSON.parse(cachedData);
+    //Exceptions check
+    cachedProcessed.result = cachedProcessed.result.map((location) => {
+      location.suburb = applySuburbsExceptions(
+        location.location_name,
+        location.suburb
       );
-    }
-  );
-}
+      return location;
+    });
+    //!Update search record time
+    cachedProcessed.search_timestamp = timestamp;
+    return cachedProcessed;
+  }
+
+  //? 1. Check if it was written in dynamo
+  const previousSearch = await LocationPersistModel.query("query")
+    .eq(queryOR)
+    .filter("city")
+    .eq(city)
+    .filter("state")
+    .eq(trailingData.state.replace(/ Region/i, "").trim())
+    .exec();
+
+  if (previousSearch.count > 0) {
+    const finalSearchResults = {
+      search_timestamp: timestamp,
+      result: removeResults_duplicates(previousSearch).slice(0, 5),
+    };
+
+    //?Cache
+    Redis.set(keyREDIS, JSON.stringify(finalSearchResults), "EX", 3600 * 48);
+
+    return finalSearchResults;
+  } //Fresh search
+  else {
+    logger.warn("NO DYNAMO RECORDS< MAKE A FRESH SEARCH");
+
+    const finalSearchResults = await initializeFreshGetOfLocations(
+      queryOR,
+      city,
+      timestamp,
+      trailingData
+    );
+
+    //?Cache
+    Redis.set(keyREDIS, JSON.stringify(finalSearchResults), "EX", 3600 * 48);
+
+    return finalSearchResults;
+  }
+};
 
 /**
  * @func brieflyCompleteEssentialsForLocations
@@ -1486,99 +1270,24 @@ function makeFreshOpenCageRequests(coordinates, osm_id, redisKey, resolve) {
  * REDIS propertiy
  * user_fingerprint+reverseGeocodeKey -> currentLocationInfos: {...}
  */
-function reverseGeocodeUserLocation(resolve, req) {
+const reverseGeocodeUserLocation = async (
+  latitude,
+  longitude,
+  user_fingerprint
+) => {
   //Form the redis key
-  let redisKey = req.user_fingerprint + "-reverseGeocodeKey";
-  //Check if redis has some informations already
-  redisGet(redisKey).then(
-    (resp) => {
-      if (resp !== null) {
-        //Do a fresh request to update the cache
-        //Make a new reseach
-        new Promise((res) => {
-          //logger.info("Fresh geocpding launched");
-          reverseGeocoderExec(res, req, JSON.parse(resp), redisKey);
-        }).then(
-          (result) => {},
-          (error) => {
-            logger.error(error);
-          }
-        );
+  let redisKey = user_fingerprint + "-reverseGeocodeKey";
 
-        //Has already a cache entry
-        //Check if an old current location is present
-        resp = JSON.parse(resp);
-        if (resp.currentLocationInfos !== undefined) {
-          //Make a rehydration request
-          new Promise((res) => {
-            reverseGeocoderExec(res, req, false, redisKey);
-          }).then(
-            (result) => {
-              //Updating cache and replying to the main thread
-              let currentLocationEntry = { currentLocationInfos: result };
-              redisCluster.setex(
-                redisKey,
-                process.env.REDIS_EXPIRATION_5MIN,
-                JSON.stringify(currentLocationEntry)
-              );
-            },
-            (error) => {
-              logger.error(error);
-            }
-          );
-          //Send
-          resolve(resp.currentLocationInfos);
-        } //No previously cached current location
-        else {
-          //Make a new reseach
-          new Promise((res) => {
-            reverseGeocoderExec(res, req, false, redisKey);
-          }).then(
-            (result) => {
-              //Updating cache and replying to the main thread
-              let currentLocationEntry = { currentLocationInfos: result };
-              redisCluster.setex(
-                redisKey,
-                process.env.REDIS_EXPIRATION_5MIN,
-                JSON.stringify(currentLocationEntry)
-              );
-              resolve(result);
-            },
-            (error) => {
-              logger.error(error);
-              resolve(false);
-            }
-          );
-        }
-      } //No cache entry, create a new one
-      else {
-        //Make a new reseach
-        new Promise((res) => {
-          reverseGeocoderExec(res, req, false, redisKey);
-        }).then(
-          (result) => {
-            //Updating cache and replying to the main thread
-            let currentLocationEntry = { currentLocationInfos: result };
-            redisCluster.setex(
-              redisKey,
-              process.env.REDIS_EXPIRATION_5MIN,
-              JSON.stringify(currentLocationEntry)
-            );
-            resolve(result);
-          },
-          (error) => {
-            logger.error(error);
-            resolve(false);
-          }
-        );
-      }
-    },
-    (error) => {
-      logger.error(error);
-      resolve(false);
-    }
-  );
-}
+  const cachedData = await Redis.get(redisKey);
+
+  if (cachedData) {
+    return JSON.parse(cachedData);
+  }
+
+  const geocodingData = await reverseGeocoderExec(latitude, longitude);
+
+  return geocodingData;
+};
 /**
  * @func reverseGeocoderExec
  * @param updateCache: to known whether to update the cache or not if yes, will have the value of the hold cache.
@@ -1586,12 +1295,12 @@ function reverseGeocodeUserLocation(resolve, req) {
  * @param redisKey: the redis key to cache the data to
  * Responsible for executing the geocoding new fresh requests
  */
-function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
+const reverseGeocoderExec = async (latitude, longitude) => {
   //! APPLY BLUE OCEAN BUG FIX FOR THE PICKUP LOCATION COORDINATES
   //? 1. Destination
   //? Get temporary vars
-  let pickLatitude1 = parseFloat(req.latitude);
-  let pickLongitude1 = parseFloat(req.longitude);
+  let pickLatitude1 = parseFloat(latitude);
+  let pickLongitude1 = parseFloat(longitude);
   //! Coordinates order fix - major bug fix for ocean bug
   if (
     pickLatitude1 !== undefined &&
@@ -1604,127 +1313,77 @@ function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
     //? Switch latitude and longitude - check the negative sign
     if (parseFloat(pickLongitude1) < 0) {
       //Negative - switch
-      req.latitude = pickLongitude1;
-      req.longitude = pickLatitude1;
+      latitude = pickLongitude1;
+      longitude = pickLatitude1;
     }
   }
   //! -------
   let url =
     process.env.URL_SEARCH_SERVICES +
     "reverse?lon=" +
-    req.longitude +
+    longitude +
     "&lat=" +
-    req.latitude;
+    latitude;
 
-  logger.info(url);
+  try {
+    const photonData = await axios.get(url);
 
-  requestAPI(url, function (error, response, body) {
-    try {
-      console.log(body);
-      console.log(typeof body);
-      body = JSON.parse(body);
-      if (body != undefined) {
-        if (body.features[0].properties != undefined) {
-          //Check if a city was already assigned
-          //? Deduct consistently the town
-          let urlNominatim = `${process.env.URL_NOMINATIM_SERVICES}/reverse?lat=${req.latitude}&lon=${req.longitude}&zoom=10&format=json`;
-          logger.warn(urlNominatim);
+    const body = photonData?.data;
+    if (body != undefined) {
+      if (body.features[0].properties != undefined) {
+        //Check if a city was already assigned
+        //? Deduct consistently the town
+        let urlNominatim = `${process.env.URL_NOMINATIM_SERVICES}/reverse?lat=${latitude}&lon=${longitude}&zoom=10&format=json`;
 
-          requestAPI(urlNominatim, function (error2, response2, body2) {
-            logger.error(body2);
-            try {
-              body2 = JSON.parse(body2);
-              // logger.warn(body2.address.city);
-              if (body.features[0].properties.street != undefined) {
-                //? Update the city
-                body.features[0].properties["city"] =
-                  body2.address.city !== undefined
-                    ? body2.address.city
-                    : body.features[0].properties["city"];
-                //? -----
-                if (updateCache !== false) {
-                  //Update cache
-                  updateCache.currentLocationInfos =
-                    body.features[0].properties;
-                  redisCluster.setex(
-                    redisKey,
-                    process.env.REDIS_EXPIRATION_5MIN,
-                    JSON.stringify(updateCache)
-                  );
-                }
-                //...
-                resolve(body.features[0].properties);
-              } else if (body.features[0].properties.name != undefined) {
-                //? Update the city
-                body.features[0].properties["city"] =
-                  body2.address.city !== undefined
-                    ? body2.address.city
-                    : body.features[0].properties["city"];
-                //? -----
-                body.features[0].properties.street =
-                  body.features[0].properties.name;
-                if (updateCache !== false) {
-                  //Update cache
-                  updateCache.currentLocationInfos =
-                    body.features[0].properties;
-                  redisCluster.setex(
-                    redisKey,
-                    process.env.REDIS_EXPIRATION_5MIN,
-                    JSON.stringify(updateCache)
-                  );
-                }
-                //...
-                resolve(body.features[0].properties);
-              } else {
-                resolve(false);
-              }
-            } catch (error) {
-              logger.error(error);
-              if (body.features[0].properties.street != undefined) {
-                if (updateCache !== false) {
-                  //Update cache
-                  updateCache.currentLocationInfos =
-                    body.features[0].properties;
-                  redisCluster.setex(
-                    redisKey,
-                    process.env.REDIS_EXPIRATION_5MIN,
-                    JSON.stringify(updateCache)
-                  );
-                }
-                //...
-                resolve(body.features[0].properties);
-              } else if (body.features[0].properties.name != undefined) {
-                body.features[0].properties.street =
-                  body.features[0].properties.name;
-                if (updateCache !== false) {
-                  //Update cache
-                  updateCache.currentLocationInfos =
-                    body.features[0].properties;
-                  redisCluster.setex(
-                    redisKey,
-                    process.env.REDIS_EXPIRATION_5MIN,
-                    JSON.stringify(updateCache)
-                  );
-                }
-                //...
-                resolve(body.features[0].properties);
-              } else {
-                resolve(false);
-              }
-            }
-          });
-        } else {
-          resolve(false);
+        const nominatimData = await axios.get(urlNominatim);
+
+        const body2 = nominatimData?.data;
+
+        try {
+          if (body.features[0].properties.street != undefined) {
+            //? Update the city
+            body.features[0].properties["city"] =
+              body2.address.city !== undefined
+                ? body2.address.city
+                : body.features[0].properties["city"];
+            //? -----
+            return body.features[0].properties;
+          } else if (body.features[0].properties.name != undefined) {
+            //? Update the city
+            body.features[0].properties["city"] =
+              body2.address.city !== undefined
+                ? body2.address.city
+                : body.features[0].properties["city"];
+            //? -----
+            body.features[0].properties.street =
+              body.features[0].properties.name;
+            return body.features[0].properties;
+          } else {
+            return false;
+          }
+        } catch (error) {
+          logger.error(error);
+          if (body.features[0].properties.street != undefined) {
+            return body.features[0].properties;
+          } else if (body.features[0].properties.name != undefined) {
+            body.features[0].properties.street =
+              body.features[0].properties.name;
+            return body.features[0].properties;
+          } else {
+            return false;
+          }
         }
       } else {
-        resolve(false);
+        return false;
       }
-    } catch (error) {
-      logger.warn(error);
-      resolve(false);
+    } else {
+      return false;
     }
-  });
-}
+  } catch (error) {
+    logger.warn(error);
+    return false;
+  }
+};
 
 // /**
 //  * @func r/everseGeocodeUserLocation
@@ -2374,6 +2033,112 @@ function getRouteInfosDestination(
   });
 }
 
+/**
+ * REVERSE GEOCODER
+ * To get the exact approx. location of the user or driver.
+ * REDIS propertiy
+ * user_fingerprint -> currentLocationInfos: {...}
+ */
+exports.getUserLocationInfos = async (latitude, longitude, userId) => {
+  try {
+    const result = await reverseGeocodeUserLocation(
+      latitude,
+      longitude,
+      userId
+    );
+
+    if (result) {
+      //! SUPPORTED CITIES
+      let SUPPORTED_CITIES = ["WINDHOEK", "SWAKOPMUND", "WALVIS BAY"];
+      //? Attach the supported city state
+      result["isCity_supported"] = SUPPORTED_CITIES.includes(
+        result.city !== undefined && result.city !== null
+          ? result.city.trim().toUpperCase()
+          : result.name !== undefined && result.name !== null
+          ? result.name.trim().toUpperCase()
+          : "Unknown city"
+      );
+      result["isCity_supported"] = true;
+      //! Replace Samora Machel Constituency by Wanaheda
+      if (
+        result.suburb !== undefined &&
+        result.suburb !== null &&
+        /Samora Machel Constituency/i.test(result.suburb)
+      ) {
+        result.suburb = "Wanaheda";
+        return result;
+      } else {
+        return result;
+      }
+    } //False returned
+    else {
+      return false;
+    }
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+};
+
+//1. SEARCH API
+exports.getSearchedLocations = async (query) => {
+  try {
+    resolveDate();
+    const { country, city, user_fp, query: userQuery } = query;
+    let state = query?.state;
+    //..
+    logger.info(query);
+    //Update search timestamp
+    let search_timestamp = new Date(chaineDateUTC).getTime();
+    state =
+      state !== undefined ? state.replace(/ Region/i, "").trim() : "Khomas"; //Default to Khomas
+
+    let redisKeyConsistencyKeeper = `${user_fp}-autocompleteSearchRecordTime-${city}-${state}`;
+
+    const result = await getLocationList_five(
+      userQuery,
+      city,
+      country,
+      search_timestamp,
+      query
+    );
+
+    //? Get the redis record time and compare
+    const cachedData = await Redis.get(redisKeyConsistencyKeeper);
+
+    if (cachedData) {
+      const resp = JSON.parse(cachedData);
+      if (result?.result && result?.result?.[0]?.query) {
+        // logger.warn(`Redis last time record: ${resp}`);
+        // logger.warn(`Request time record: ${result.result[0].query}`);
+        // logger.warn(
+        //   `Are search results consistent ? --> ${
+        //     resp === result.result[0].query
+        //   }`
+        // );
+        if (resp === result.result[0].query) {
+          //Inconsistent - do not update
+          //res.send(false);
+          return { result };
+        } //Consistent - update
+        else {
+          logger.info("Inconsistent");
+          //logObject(result);
+          return false;
+        }
+      } //Nothing the compare to
+      else {
+        return false;
+      }
+    } else {
+      return result;
+    }
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+};
+
 redisCluster.on("connect", function () {
   logger.info("[*] Redis connected");
   //Cached restore OR initialized
@@ -2390,102 +2155,6 @@ redisCluster.on("connect", function () {
         extended: true,
       })
     );
-
-  //1. SEARCH API
-  app.post("/getSearchedLocations", function (request, res) {
-    resolveDate();
-    //..
-    request = request.body;
-    // logger.info(request);
-    //Update search timestamp
-    //search_timestamp = dateObject.unix();
-    // let search_timestamp = request.query.length;
-    let search_timestamp = new Date(chaineDateUTC).getTime();
-    request.state =
-      request.state !== undefined
-        ? request.state.replace(/ Region/i, "").trim()
-        : "Khomas"; //Default to Khomas
-    //...
-    //   request.city = "Windhoek";
-    //   request.country = "Namibia";
-    //   request.user_fp = "abcd";
-    //   request.query = "kh";
-
-    let redisKeyConsistencyKeeper = `${request.user_fp}-autocompleteSearchRecordTime-${request.city}-${request.state}`;
-    //1. Get the cityCenter
-    request0 = new Promise((res) => {
-      //Save in Cache
-      redisCluster.set(redisKeyConsistencyKeeper, request.query);
-      getCityCenter(request.city, res);
-    }).then(
-      (result) => {
-        let cityCenter = result;
-        //Get the location
-        new Promise((res) => {
-          let tmpTimestamp = search_timestamp;
-          getLocationList_five(
-            request.query,
-            request.city,
-            request.country,
-            cityCenter,
-            res,
-            tmpTimestamp,
-            request
-          );
-        }).then(
-          (result) => {
-            //? Get the redis record time and compare
-            redisGet(redisKeyConsistencyKeeper)
-              .then((resp) => {
-                if (
-                  resp !== null &&
-                  result !== false &&
-                  result.result !== undefined &&
-                  result.result[0].query !== undefined
-                ) {
-                  logger.warn(`Redis last time record: ${resp}`);
-                  logger.warn(`Request time record: ${result.result[0].query}`);
-                  logger.warn(
-                    `Are search results consistent ? --> ${
-                      resp === result.result[0].query
-                    }`
-                  );
-                  if (resp === result.result[0].query) {
-                    logger.warn(result);
-                    //Inconsistent - do not update
-                    logger.info("Consistent");
-                    //res.send(false);
-                    res.send({ result: result });
-                  } //Consistent - update
-                  else {
-                    logger.info("Inconsistent");
-                    //logObject(result);
-                    // res.send({ result: result });
-                    res.send(false);
-                  }
-                } //Nothing the compare to
-                else {
-                  res.send(false);
-                }
-              })
-              .catch((error) => {
-                logger.error(error);
-                res.send(false);
-              });
-          },
-          (error) => {
-            logger.warn("HERE10");
-            logger.warn(error);
-            res.send(false);
-          }
-        );
-      },
-      (error) => {
-        logger.warn(error);
-        res.send(false);
-      }
-    );
-  });
 
   //2. BRIEFLY COMPLETE THE SUBURBS AND STATE
   app.get("/brieflyCompleteSuburbAndState", function (request, res) {
@@ -2567,111 +2236,6 @@ redisCluster.on("connect", function () {
         //       date: new Date(chaineDateUTC),
         //     };
         //     //..
-        //     collectionHistoricalGPS.insertOne(
-        //       bundleData,
-        //       function (err, reslt) {
-        //         if (err) {
-        //           logger.error(err);
-        //           resHistory(false);
-        //         }
-        //         //...
-        //         logger.info("Saved GPS data");
-        //         resHistory(true);
-        //       }
-        //     );
-        //   } //No required data
-        //   else {
-        //     logger.info("No required GPS data for logs");
-        //     resHistory(false);
-        //   }
-        // })
-        //   .then()
-        //   .catch();
-
-        //Hand responses
-        new Promise((resolve) => {
-          reverseGeocodeUserLocation(resolve, request);
-        }).then(
-          (result) => {
-            if (
-              result !== false &&
-              result !== "false" &&
-              result !== undefined &&
-              result !== null
-            ) {
-              //! SUPPORTED CITIES
-              let SUPPORTED_CITIES = ["WINDHOEK", "SWAKOPMUND", "WALVIS BAY"];
-              //? Attach the supported city state
-              result["isCity_supported"] = SUPPORTED_CITIES.includes(
-                result.city !== undefined && result.city !== null
-                  ? result.city.trim().toUpperCase()
-                  : result.name !== undefined && result.name !== null
-                  ? result.name.trim().toUpperCase()
-                  : "Unknown city"
-              );
-              result["isCity_supported"] = true;
-              //! Replace Samora Machel Constituency by Wanaheda
-              if (
-                result.suburb !== undefined &&
-                result.suburb !== null &&
-                /Samora Machel Constituency/i.test(result.suburb)
-              ) {
-                result.suburb = "Wanaheda";
-                resMAIN(result);
-              } else {
-                resMAIN(result);
-              }
-            } //False returned
-            else {
-              resMAIN(false);
-            }
-          },
-          (error) => {
-            logger.error(error);
-            resMAIN(false);
-          }
-        );
-      }
-    })
-      .then((result) => {
-        res.send(result);
-      })
-      .catch((error) => {
-        //logger.info(error);
-        res.send(false);
-      });
-  });
-
-  /**
-   * REVERSE GEOCODER
-   * To get the exact approx. location of the user or driver.
-   * REDIS propertiy
-   * user_fingerprint -> currentLocationInfos: {...}
-   */
-  app.post("/getUserLocationInfos", function (req, res) {
-    new Promise((resMAIN) => {
-      let request = req.body;
-      resolveDate();
-
-      if (
-        request.latitude != undefined &&
-        request.latitude != null &&
-        request.longitude != undefined &&
-        request.longitude != null &&
-        request.user_fingerprint !== null &&
-        request.user_fingerprint !== undefined
-      ) {
-        logger.error(JSON.stringify(request.user_fingerprint));
-        //TODO: Save the history of the geolocation in Redis
-        // new Promise((resHistory) => {
-        //   if (request.geolocationData !== undefined) {
-        //     bundleData = {
-        //       user_fingerprint: request.user_fingerprint,
-        //       gps_data: request.geolocationData,
-        //       date: new Date(chaineDateUTC),
-        //     };
-        //     //..
-
         //     collectionHistoricalGPS.insertOne(
         //       bundleData,
         //       function (err, reslt) {
