@@ -2550,7 +2550,6 @@ ElasticSearch_client.ping(
       });
 
       //?7. Get the current shopping data - client
-      //? EFFIENCY A
       app.post("/getShoppingData", async (req, res) => {
         try {
           req = req.body;
