@@ -1,0 +1,17 @@
+{
+  "name": "serverless",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@elastic/elasticsearch": "^8.10.0",
+    "aws-sdk": "^2.1483.0",
+    "dynamoose": "^3.2.1",
+    "uuid": "^9.0.1"
+  }
+}

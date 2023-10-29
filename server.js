@@ -16,6 +16,7 @@ const Redis = require("./Utility/redisConnector");
 const { logger } = require("./LogService");
 const { sendSMS } = require("./SendSMS");
 const AWS = require("aws-sdk");
+const _ = require("lodash");
 
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_S3_ID,
@@ -103,14 +104,15 @@ var redisCluster = /production/i.test(String(process.env.EVIRONMENT))
 const redisGet = promisify(redisCluster.get).bind(redisCluster);
 
 var ElasticSearch_client = new elasticsearch.Client({
-  hosts: [process.env.ELASTICSEARCH_ENDPOINT],
+  hosts: [
+    `http://${process.env.ELASTIC_USERNAME}:${process.env.ELASTIC_PASSWORD}@${process.env.ELASTICSEARCH_ENDPOINT}`,
+  ],
 });
 
 var chaineDateUTC = null;
 var dateObject = null;
 const moment = require("moment");
 const { equal } = require("assert");
-const { Logger } = require("mongodb/lib/core");
 
 function resolveDate() {
   //Resolve date
@@ -146,7 +148,7 @@ const RequestsModel = require("./models/RequestsModel");
 const DriversModel = require("./models/DriversModel");
 const StoreModel = require("./models/StoreModel");
 const { presignS3URL } = require("./Utility/PresignDocs");
-const { storeTimeStatus } = require("./Utility/Utils");
+const { storeTimeStatus, searchProducts } = require("./Utility/Utils");
 const CatalogueModel = require("./models/CatalogueModel");
 
 function SendSMSTo(phone_number, message) {
@@ -249,6 +251,16 @@ const getStores = async () => {
   try {
     let redisKey = "get-stores";
 
+    let cachedData = await Redis.get(redisKey);
+
+    if (cachedData) {
+      try {
+        return { response: JSON.parse(cachedData) };
+      } catch (error) {
+        logger.error(error);
+      }
+    }
+
     const stores = await StoreModel.scan().all().exec();
 
     if (stores.length > 0) {
@@ -347,7 +359,7 @@ const getStores = async () => {
         redisKey,
         JSON.stringify(STORES_MODEL),
         "EX",
-        parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400
+        parseInt(process.env.REDIS_EXPIRATION_5MIN) * 5
       );
 
       return { response: STORES_MODEL };
@@ -368,6 +380,14 @@ const getStores = async () => {
  */
 const getCatalogueFor = async (body) => {
   let redisKey = `${JSON.stringify(body)}-catalogue`;
+
+  let cachedData = await Redis.get(redisKey);
+
+  if (cachedData) {
+    cachedData = JSON.parse(cachedData);
+  } else {
+    cachedData = [];
+  }
 
   const { store: storeFp, category, subcategory, structured } = body;
 
@@ -396,10 +416,15 @@ const getCatalogueFor = async (body) => {
       .eq(subcategory.toUpperCase().trim());
   }
 
-  const catalogue = await reformulateQuery.exec();
+  const catalogue =
+    cachedData.length > 0 ? cachedData : await reformulateQuery.exec();
   const productsData = catalogue;
 
-  if (productsData.count > 0) {
+  if (cachedData.length <= 0) {
+    Redis.set(redisKey, JSON.stringify(productsData), "EX", 3600);
+  }
+
+  if (productsData?.count > 0 || productsData?.length > 0) {
     //Has data
     //Reformat the data
     let reformatted_data = productsData.map((product, index) => {
@@ -423,7 +448,6 @@ const getCatalogueFor = async (body) => {
     //...
     //! Reorganize based on if the data is structured
     if (structured) {
-      logger.info("Structured data");
       let structured = {};
       reformatted_data.map((p) => {
         if (
@@ -438,7 +462,6 @@ const getCatalogueFor = async (body) => {
           structured[p.meta.category] = structured[p.meta.category].slice(0, 3);
         } //Not yet set
         else {
-          logger.error(p);
           structured[p.meta.category] = [];
           structured[p.meta.category].push(p);
         }
@@ -447,7 +470,6 @@ const getCatalogueFor = async (body) => {
       return { response: structured, store: storeFp };
     } //Unstructured data
     else {
-      logger.info("Unstructured data");
       return { response: reformatted_data, store: storeFp };
     }
   } //No products
@@ -516,325 +538,6 @@ function checkIndices(index_name, resolve) {
 }
 
 /**
- * @func searchProductsFor
- * Search the product based on a key word in a specific store
- * ! do not forget the store_fp
- * @param req: request meta (store, key)
- * @param resolve
- */
-function searchProductsFor(req, resolve) {
-  let redisKey = `${req.store}-${req.key}-productFiltered`;
-
-  logger.warn(redisKey);
-
-  // new Promise((resCompute) => {
-  //   execSearchProductsFor(req, redisKey, resCompute);
-  // })
-  //   .then((result) => {
-  //     resolve(result);
-  //   })
-  //   .catch((error) => {
-  //     logger.error(error);
-  //     resolve({ response: [] });
-  //   });
-
-  redisGet(redisKey)
-    .then((resp) => {
-      if (resp !== null) {
-        //Has data
-        try {
-          resp = JSON.parse(resp);
-          resolve(resp);
-        } catch (error) {
-          logger.error(error);
-          new Promise((resCompute) => {
-            execSearchProductsFor(req, redisKey, resCompute);
-          })
-            .then((result) => {
-              resolve(result);
-            })
-            .catch((error) => {
-              logger.error(error);
-              resolve({ response: [] });
-            });
-        }
-      } //No  data
-      else {
-        new Promise((resCompute) => {
-          execSearchProductsFor(req, redisKey, resCompute);
-        })
-          .then((result) => {
-            resolve(result);
-          })
-          .catch((error) => {
-            logger.error(error);
-            resolve({ response: [] });
-          });
-      }
-    })
-    .catch((error) => {
-      logger.error(error);
-      new Promise((resCompute) => {
-        execSearchProductsFor(req, redisKey, resCompute);
-      })
-        .then((result) => {
-          resolve(result);
-        })
-        .catch((error) => {
-          logger.error(error);
-          resolve({ response: [] });
-        });
-    });
-}
-
-function execSearchProductsFor(req, redisKey, resolve) {
-  resolveDate();
-  logger.info(req);
-  //1. Get all the  product from the store
-  let checkQuery =
-    req.category !== null && req.category !== undefined
-      ? {
-          table_name: "catalogue_central",
-          IndexName: "shop_fp",
-          KeyConditionExpression: "shop_fp = :val1",
-          FilterExpression: "#m.#s = :val2 and #m.#c = :val3",
-          ExpressionAttributeValues: {
-            ":val1": req.store_fp,
-            ":val2": req.store,
-            ":val3": req.category,
-          },
-          ExpressionAttributeNames: {
-            "#m": "meta",
-            "#s": "shop_name",
-            "#c": "category",
-          },
-        }
-      : req.subcategory !== null && req.subcategory !== undefined
-      ? {
-          table_name: "catalogue_central",
-          IndexName: "shop_fp",
-          KeyConditionExpression: "shop_fp = :val1",
-          FilterExpression: "#m.#sub = :val2",
-          ExpressionAttributeValues: {
-            ":val1": req.store_fp,
-            ":val2": req.subcategory,
-          },
-          ExpressionAttributeNames: {
-            "#m": "meta",
-            "#sub": "subcategory",
-          },
-        }
-      : req.category !== null &&
-        req.category !== undefined &&
-        req.subcategory !== null &&
-        req.subcategory !== undefined
-      ? {
-          table_name: "catalogue_central",
-          IndexName: "shop_fp",
-          KeyConditionExpression: "shop_fp = :val1",
-          FilterExpression:
-            "#m.#s = :val2 AND #m.#c = :val3 AND #m.#sub = :val4",
-          ExpressionAttributeValues: {
-            ":val1": req.store_fp,
-            ":val2": req.store,
-            ":val3": req.category,
-            ":val4": req.subcategory,
-          },
-          ExpressionAttributeNames: {
-            "#m": "meta",
-            "#s": "shop_name",
-            "#c": "category",
-            "#sub": "subcategory",
-          },
-        }
-      : {
-          table_name: "catalogue_central",
-          IndexName: "shop_fp",
-          KeyConditionExpression: "shop_fp = :val1",
-          FilterExpression: "#m.#s = :val2",
-          ExpressionAttributeValues: {
-            ":val1": req.store_fp,
-            ":val2": req.store,
-          },
-          ExpressionAttributeNames: {
-            "#m": "meta",
-            "#s": "shop_name",
-          },
-        };
-
-  dynamo_find_query(checkQuery)
-    .then((productsAll) => {
-      if (productsAll !== undefined && productsAll.length > 0) {
-        //Has data
-        //! Filter based on the key word
-        new Promise((resCompute) => {
-          //? Create the search index if not yet set
-          //? Create mapping if not yet created
-          let index_name = `${req.store}_${req.key}`
-            .toLowerCase()
-            .trim()
-            .replace(/ /g, "_");
-          let index_type = "products";
-
-          new Promise((resCheckIndices) => {
-            checkIndices(index_name, resCheckIndices);
-
-            //Isolate the names
-            // let productNames = productsAll.map((el) => el.product_name);
-            // let setProducts = FuzzySet(productNames, false);
-            // let filterProducts = setProducts.get(req.key);
-            // filterProducts = filterProducts.map((el, index) => el[1]);
-            // //! Only get the strings
-            // //! Get back the original objects for the found keywords
-            // let x = productsAll.filter((el) =>
-            //   filterProducts.includes(el.product_name)
-            // );
-            // //Order the arrays
-            // let ordered = [];
-            // filterProducts.map((l1) => {
-            //   x.map((l2) => {
-            //     if (l1 === l2.product_name) {
-            //       ordered.push(l2);
-            //     }
-            //   });
-            // });
-            // //...
-            // resCompute(ordered);
-          })
-            .then((resultIndices) => {
-              if (resultIndices) {
-                let dataToIngest = [];
-                //Isolate the names
-                productsAll.map((el) => {
-                  let header = {
-                    index: {
-                      _index: index_name,
-                      _id: el.id,
-                    },
-                  };
-
-                  let dataTmp = { product_name: el.product_name };
-                  //...Save
-                  dataToIngest.push(header);
-                  dataToIngest.push(dataTmp);
-                });
-
-                console.log(dataToIngest.length);
-                //! INGEST INTO ELASTIC SEARCH
-                ElasticSearch_client.bulk({ body: dataToIngest })
-                  .then((result) => {
-                    ElasticSearch_client.indices
-                      .refresh({ index: index_name })
-                      .then((r) => {
-                        // console.log(r);
-                        // logger.warn(result);
-                        //? All in order for indices
-                        // ElasticSearch_client.ref;
-                        //? Search
-                        ElasticSearch_client.search({
-                          size: 10000,
-                          index: index_name,
-                          body: {
-                            query: {
-                              match_phrase_prefix: {
-                                product_name: {
-                                  query: req.key,
-                                  // fuzziness: "auto",
-                                  // zero_terms_query: "all",
-                                  // fuzziness: "AUTO",
-                                  // max_expansions: 200,
-                                  // prefix_length: 0,
-                                  // transpositions: true,
-                                  // rewrite: "constant_score",
-                                },
-                              },
-                            },
-                          },
-                        }).then(
-                          function (resp) {
-                            let filterProducts = resp.hits.hits.map(
-                              (el, index) => el._source.product_name
-                            );
-                            //! Only get the strings
-                            //! Get back the original objects for the found keywords
-                            let x = productsAll.filter((el) =>
-                              filterProducts.includes(el.product_name)
-                            );
-                            //Order the arrays
-                            let ordered = [];
-                            filterProducts.map((l1) => {
-                              x.map((l2) => {
-                                if (l1 === l2.product_name) {
-                                  l2.product_price = l2.product_price.replace(
-                                    "R",
-                                    "N$"
-                                  );
-                                  ordered.push(l2);
-                                }
-                              });
-                            });
-
-                            //?DONE
-                            // console.log(resp.hits.hits);
-                            // console.log(ordered);
-                            resCompute(ordered);
-                          },
-                          function (err) {
-                            logger.error(err.message);
-                            resCompute(false);
-                          }
-                        );
-                      })
-                      .catch((error) => {
-                        logger.error(error);
-                        resCompute(false);
-                      });
-                  })
-                  .catch((error) => {
-                    logger.error(error);
-                    resCompute(false);
-                  });
-              } //!Problem resolving indices
-              else {
-                resCompute(false);
-              }
-            })
-            .catch((error) => {
-              logger.error(error);
-              resCompute(false);
-            });
-        }).then((result) => {
-          if (result !== false && result.length > 0) {
-            //Removee all the false
-            result = result.filter(
-              (el) => el !== false && el !== null && el !== undefined
-            );
-            let final = { response: result };
-            //! Cache
-            redisCluster.setex(
-              redisKey,
-              parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
-              JSON.stringify(final)
-            );
-            //...
-            resolve(final);
-          } //No results
-          else {
-            resolve({ response: [] });
-          }
-        });
-      } //No data
-      else {
-        resolve({ response: [] });
-      }
-    })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: [] });
-    });
-}
-
-/**
  * @func getRequestDataClient
  * responsible for getting the realtime shopping requests for clients.
  * @param requestData: user_identifier mainly
@@ -846,6 +549,9 @@ const getRequestDataClient = async (requestData) => {
   const requests = await RequestsModel.query("client_id")
     .eq(user_identifier)
     .filter("date_completedDropoff")
+    .not()
+    .exists()
+    .filter("date_cancelled")
     .not()
     .exists()
     .exec();
@@ -1942,10 +1648,7 @@ ElasticSearch_client.ping(
         try {
           const { body } = req;
 
-          console.log(body);
-
           const products = await getCatalogueFor(body);
-          console.log(products);
           res.json(products);
         } catch (error) {
           logger.error(error);
@@ -1954,32 +1657,43 @@ ElasticSearch_client.ping(
       });
 
       //?3. Search in  the catalogue of a  specific shop
-      //? EFFIENCY A
-      app.post("/getResultsForKeywords", function (req, res) {
-        req = req.body;
-        logger.info(req);
-        if (
-          req.key !== undefined &&
-          req.key !== null &&
-          req.store !== undefined &&
-          req.store !== null &&
-          req.store_fp !== undefined &&
-          req.store_fp !== null
-        ) {
-          new Promise((resolve) => {
-            searchProductsFor(req, resolve);
-          })
-            .then((result) => {
-              //! Limit to 5
-              // result = result.response.splice(0, 5);
-              res.send(result);
-            })
-            .catch((error) => {
-              logger.error(error);
-              res.send({ response: [] });
+      app.post("/getResultsForKeywords", async (req, res) => {
+        try {
+          const {
+            category,
+            subcategory,
+            store_fp: shop_fp,
+            store: shop_name,
+            key,
+          } = req.body;
+
+          if (key && shop_fp) {
+            const products = await searchProducts(process.env.CATALOGUE_INDEX, {
+              shop_fp,
+              shop_name,
+              product_name: key,
+              category,
+              subcategory,
             });
-        } //No valid data
-        else {
+
+            const privateKeys = [
+              "website_link",
+              "used_link",
+              "local_images_registry",
+              "createdAt",
+            ];
+
+            const safeProducts = _.map(products, (obj) =>
+              _.omit(obj, privateKeys)
+            );
+
+            res.send({ count: products.length, response: safeProducts });
+          } //No valid data
+          else {
+            res.send({ response: [] });
+          }
+        } catch (error) {
+          logger.error(error);
           res.send({ response: [] });
         }
       });
@@ -2100,25 +1814,7 @@ ElasticSearch_client.ping(
         //   });
       });
 
-      //?5. Get the user location geocoded
-      //? EFFIENCY A
-      // app.post("/geocode_this_point", function (req, res) {
-      //   let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/geocode_this_point`;
-
-      //   requestAPI.post(
-      //     { url: urlRequest, form: req.body },
-      //     function (err, response, body) {
-      //       if (err) {
-      //         logger.error(err);
-      //       }
-      //       //...
-      //       res.send(body);
-      //     }
-      //   );
-      // });
-
       //?5. Get location search suggestions
-      //? EFFIENCY A
       app.post("/getSearchedLocations", async (req, res) => {
         try {
           const results = await getSearchedLocations(req.body);
@@ -2130,7 +1826,6 @@ ElasticSearch_client.ping(
       });
 
       //?6. Request for shopping
-      //? EFFIENCY A
       app.post("/requestForShopping", async (req, res) => {
         try {
           const {
@@ -2165,6 +1860,9 @@ ElasticSearch_client.ping(
             const previousRequest = await RequestsModel.query("client_id")
               .eq(user_identifier)
               .filter("date_clientRatedShopping")
+              .not()
+              .exists()
+              .filter("date_cancelled")
               .not()
               .exists()
               .exec();
@@ -2213,7 +1911,6 @@ ElasticSearch_client.ping(
       });
 
       //?6. Request for delivery or ride
-      //? EFFIENCY A
       app.post("/requestForRideOrDelivery", async (req, res) => {
         try {
           req = req.body;
@@ -2246,6 +1943,9 @@ ElasticSearch_client.ping(
             const previousRequest = await RequestsModel.query("client_id")
               .eq(req.user_identifier)
               .filter("date_clientRatedRide")
+              .not()
+              .exists()
+              .filter("date_cancelled")
               .not()
               .exists()
               .exec();
@@ -2470,109 +2170,42 @@ ElasticSearch_client.ping(
       });
 
       //?9. Cancel request - user
-      //? EFFIENCY A
-      app.post("/cancel_request_user", function (req, res) {
-        new Promise((resolve) => {
-          req = req.body;
-          logger.info(req);
+      app.post("/cancel_request_user", async (req, res) => {
+        try {
+          const { request_fp, user_identifier } = req.body;
 
-          if (
-            req.request_fp !== undefined &&
-            req.request_fp !== null &&
-            req.user_identifier !== undefined &&
-            req.user_identifier !== null
-          ) {
+          if (request_fp && user_identifier) {
             //Check if there is such request
-            let checkRequest = {
-              request_fp: req.request_fp,
-              client_id: req.user_identifier,
-            };
-            //...
-            dynamo_find_query({
-              table_name: "requests_central",
-              IndexName: "request_fp",
-              KeyConditionExpression: "request_fp = :val1",
-              FilterExpression: "client_id = :val2",
-              ExpressionAttributeValues: {
-                ":val1": req.request_fp,
-                ":val2": req.user_identifier,
-              },
-            })
-              .then((requestData) => {
-                if (requestData !== undefined && requestData.length > 0) {
-                  requestData = requestData[0];
-                  // logger.error(requestData);
-                  //!...Delete and save in the cancelled
-                  dynamo_delete("requests_central", requestData.id)
-                    .then((result) => {
-                      //! Delete previous cache
-                      let redisKey = `${req.user_identifier}-shoppings`;
-                      redisCluster.del(redisKey);
-                      //...
+            const request = await RequestsModel.query("id")
+              .eq(request_fp)
+              .filter("client_id")
+              .eq(user_identifier)
+              .exec();
 
-                      if (result) {
-                        //Success
-                        //!add the date cancelled
-                        requestData["date_cancelled"] = new Date(
-                          chaineDateUTC
-                        ).toISOString();
+            if (request.count > 0) {
+              const requestData = request[0];
 
-                        dynamo_insert("cancelled_requests_central", requestData)
-                          .then((result) => {
-                            if (result) {
-                              //Success
-                              //! Clear the request cached list for all the drivers in the same city
-                              new Promise((resClearRedis) => {
-                                clearCityDriversCacheLists({
-                                  city: requestData.locations.pickup.city,
-                                  requestType: requestData.ride_mode,
-                                  resolve: resClearRedis,
-                                });
-                              })
-                                .then()
-                                .catch((error) => logger.error(error));
-                              //...
-                              resolve([{ response: "success" }]);
-                            } //Failure
-                            else {
-                              resolve([{ response: "error" }]);
-                            }
-                          })
-                          .catch((error) => {
-                            logger.error(error);
-                            resolve([{ response: "error" }]);
-                          });
-                      } //Failure
-                      else {
-                        resolve([{ response: "error" }]);
-                      }
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve([{ response: "error" }]);
-                    });
-                } //No request?
-                else {
-                  resolve([{ response: "error" }]);
+              //Cancel the request
+              await RequestsModel.update(
+                { id: requestData.id },
+                {
+                  date_cancelled: Date.now(),
                 }
-              })
-              .catch((error) => {
-                logger.error(error);
-                resolve([{ response: "error" }]);
-              });
+              );
+
+              res.send([{ response: "success" }]);
+            } //No request?
+            else {
+              res.send([{ response: "error" }]);
+            }
           } //Invalid data
           else {
-            resolve([{ response: "error" }]);
-          }
-        })
-          .then((result) => {
-            logger.info(result);
-            res.send(result);
-          })
-          .catch((error) => {
-            logger.error(error);
             res.send([{ response: "error" }]);
-          });
+          }
+        } catch (error) {
+          logger.error(error);
+          res.send([{ response: "error" }]);
+        }
       });
 
       //?10. Search for stores

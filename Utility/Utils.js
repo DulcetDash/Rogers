@@ -1,6 +1,7 @@
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
+const { ESClient } = require("./ESClient");
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -54,5 +55,73 @@ exports.storeTimeStatus = (opening_time, closing_time) => {
   } else {
     openingDateTime = openingDateTime.add(1, "day");
     return `Opening in ${Math.ceil(openingDateTime.diff(now, "hour", true))}h`;
+  }
+};
+
+exports.searchProducts = async (index, criteria) => {
+  const { category, subcategory, product_name, shop_fp } = criteria;
+
+  let boolArray = [
+    {
+      match_phrase_prefix: {
+        product_name: {
+          query: product_name,
+        },
+      },
+    },
+    {
+      term: {
+        shop_fp: {
+          value: shop_fp,
+        },
+      },
+    },
+  ];
+
+  if (category) {
+    boolArray.push({
+      term: {
+        category: {
+          value: category,
+        },
+      },
+    });
+  }
+
+  if (subcategory) {
+    boolArray.push({
+      term: {
+        subcategory: {
+          value: subcategory,
+        },
+      },
+    });
+  }
+
+  try {
+    const response = await ESClient.search({
+      size: 10000,
+      index: index,
+      body: {
+        query: {
+          bool: {
+            must: boolArray,
+          },
+        },
+      },
+    });
+
+    let results = response?.hits?.hits ?? [];
+
+    if (results.length > 0) {
+      results = results
+        .map((result) => result?._source ?? null)
+        .filter((result) => result);
+    }
+
+    return results;
+  } catch (error) {
+    console.error("Error searching in Elasticsearch:", error);
+    throw error;
   }
 };
