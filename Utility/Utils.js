@@ -80,9 +80,9 @@ exports.searchProducts = async (index, criteria) => {
 
   if (category) {
     boolArray.push({
-      term: {
+      match_phrase_prefix: {
         category: {
-          value: category,
+          query: category,
         },
       },
     });
@@ -90,9 +90,9 @@ exports.searchProducts = async (index, criteria) => {
 
   if (subcategory) {
     boolArray.push({
-      term: {
+      match_phrase_prefix: {
         subcategory: {
-          value: subcategory,
+          query: subcategory,
         },
       },
     });
