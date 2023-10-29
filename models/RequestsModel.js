@@ -87,6 +87,11 @@ const requestSchema = new dynamoose.Schema(
         inRouteToDropoff: false,
         completedDropoff: false,
         completedRatingClient: false,
+        //Shopping
+        inRouteToShop: false,
+        inRouteToDelivery: false,
+        completedShopping: false,
+        //...
         rating_data: {
           rating: null,
           comments: null,
@@ -97,8 +102,17 @@ const requestSchema = new dynamoose.Schema(
         isAccepted: { type: Boolean, default: false },
         inRouteToPickupCash: { type: Boolean, default: false },
         didPickupCash: { type: Boolean, default: false },
+
+        //For delivery
         inRouteToDropoff: { type: Boolean, default: false },
         completedDropoff: { type: Boolean, default: false },
+
+        //For Shopping
+        inRouteToShop: { type: Boolean, default: false }, //If the shopper is in route to the shop(s)
+        inRouteToDelivery: { type: Boolean, default: false }, //If the shopper is on his(her) way to delivery the shopped items
+        completedShopping: { type: Boolean, default: false }, //If the shopper is done shopping
+
+        //Generic
         completedRatingClient: { type: Boolean, default: false },
         rating_data: {
           type: Object,
@@ -119,6 +133,12 @@ const requestSchema = new dynamoose.Schema(
     date_routeToDropoff: { type: Date, default: null },
     date_completedDropoff: { type: Date, default: null },
     date_clientRatedRide: { type: Date, default: null },
+    date_cancelled: { type: Date, default: null },
+    //....Shopping
+    date_routeToShop: { type: Date, default: null }, //The time when the shopper started going to the shops
+    date_completedShopping: { type: Date, default: null }, //The time when the shopper was done shopping
+    date_routeToDelivery: { type: Date, default: null }, //The time when the shopper started going to delivery the shopped items
+    date_clientRatedShopping: { type: Date, default: null }, //The time when the client rated the shopper
   },
   {
     timestamps: true,

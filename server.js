@@ -16,6 +16,7 @@ const Redis = require("./Utility/redisConnector");
 const { logger } = require("./LogService");
 const { sendSMS } = require("./SendSMS");
 const AWS = require("aws-sdk");
+
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_S3_ID,
   secretAccessKey: process.env.AWS_S3_SECRET,
@@ -143,6 +144,10 @@ const {
 } = require("./searchService");
 const RequestsModel = require("./models/RequestsModel");
 const DriversModel = require("./models/DriversModel");
+const StoreModel = require("./models/StoreModel");
+const { presignS3URL } = require("./Utility/PresignDocs");
+const { storeTimeStatus } = require("./Utility/Utils");
+const CatalogueModel = require("./models/CatalogueModel");
 
 function SendSMSTo(phone_number, message) {
   // Load the AWS SDK for Node.js
@@ -240,170 +245,120 @@ function generateUniqueFingerprint(str, encryption = false, resolve) {
  * Will get all the stores available and their closing times relative to now.
  * @param resolve
  */
-function getStores(resolve) {
-  let redisKey = "get-stores";
+const getStores = async () => {
+  try {
+    let redisKey = "get-stores";
 
-  new Promise((resCompute) => {
-    execGetStores(redisKey, resCompute);
-  })
-    .then((result) => {
-      resolve(result);
-    })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: [] });
-    });
+    const stores = await StoreModel.scan().all().exec();
 
-  // redisGet(redisKey)
-  //   .then((resp) => {
-  //     if (resp !== null) {
-  //       //Has some data
-  //       try {
-  //         resp = JSON.parse(resp);
-  //         resolve(resp);
-  //       } catch (error) {
-  //         logger.error(error);
-  //         new Promise((resCompute) => {
-  //           execGetStores(redisKey, resCompute);
-  //         })
-  //           .then((result) => {
-  //             resolve(result);
-  //           })
-  //           .catch((error) => {
-  //             logger.error(error);
-  //             resolve({ response: [] });
-  //           });
-  //       }
-  //     } //No data
-  //     else {
-  //       new Promise((resCompute) => {
-  //         execGetStores(redisKey, resCompute);
-  //       })
-  //         .then((result) => {
-  //           resolve(result);
-  //         })
-  //         .catch((error) => {
-  //           logger.error(error);
-  //           resolve({ response: [] });
-  //         });
-  //     }
-  //   })
-  //   .catch((error) => {
-  //     logger.error(error);
-  //     //No data
-  //     new Promise((resCompute) => {
-  //       execGetStores(redisKey, resCompute);
-  //     })
-  //       .then((result) => {
-  //         resolve(result);
-  //       })
-  //       .catch((error) => {
-  //         logger.error(error);
-  //         resolve({ response: [] });
-  //       });
-  //   });
-}
-
-function execGetStores(redisKey, resolve) {
-  dynamo_get_all({ table_name: "shops_central" })
-    .then((storesData) => {
-      if (storesData !== undefined && storesData.length > 0) {
-        let STORES_MODEL = [];
-        storesData.map((store) => {
-          if (
-            store.publish === undefined ||
-            store.publish === null ||
-            store.publish
-          ) {
-            logger.info(store);
-            let tmpStore = {
-              name: store.name,
-              fd_name: store.friendly_name,
-              type: store.shop_type,
-              description: store.description,
-              background: store.shop_background_color,
-              border: store.border_color,
-              logo: `${process.env.AWS_S3_SHOPS_LOGO_PATH}/${store.shop_logo}`,
-              fp: store.shop_fp,
-              structured: store.structured_shopping,
-              times: {
-                target_state: null, //two values: opening or closing
-                string: null, //something like: opening in ...min or closing in ...h
-              },
-              date_added: new Date(store.date_added).getTime(),
-            };
-            //...
-            //? Determine the times
-            let store_opening_ref =
-              parseInt(
-                store.opening_time.split(":")[0].replace(/^0/, "").trim()
-              ) *
-                60 +
-              parseInt(
-                store.opening_time.split(":")[1].replace(/^0/, "").trim()
-              ); //All in minutes
-            let store_closing_ref =
-              parseInt(
-                store.closing_time.split(":")[0].replace(/^0/, "").trim()
-              ) *
-                60 +
-              parseInt(
-                store.closing_time.split(":")[1].replace(/^0/, "").trim()
-              ); //All in minutes
-            //...
-            let ref_time =
-              new Date(chaineDateUTC).getHours() * 60 +
-              new Date(chaineDateUTC).getMinutes();
-
-            if (
-              ref_time >= store_opening_ref &&
-              ref_time <= store_closing_ref
-            ) {
-              //Target: closing
-              let time_left = Math.abs(store_closing_ref - ref_time);
-              time_left =
-                time_left >= 60
-                  ? `Closing in ${Math.round(time_left / 60)}hours`
-                  : `Closing in ${time_left}min`;
+    if (stores.length > 0) {
+      const STORES_MODEL = (
+        await Promise.all(
+          stores.map(async (store) => {
+            if (store.publish) {
+              logger.info(store);
+              let logo;
+              try {
+                logo = await presignS3URL(store.shop_logo);
+              } catch (error) {
+                logger.error(error);
+                logo = "logo.png";
+              }
+              let tmpStore = {
+                name: store.name,
+                fd_name: store.friendly_name,
+                type: store.shop_type,
+                description: store.description,
+                background: store.shop_background_color,
+                border: store.border_color,
+                logo,
+                fp: store.id,
+                structured: store.structured_shopping,
+                times: {
+                  target_state: null, //two values: opening or closing
+                  string: null, //something like: opening in ...min or closing in ...h
+                },
+                date_added: new Date(store.createdAt).getTime(),
+              };
               //...
-              tmpStore.times.target_state = "Closing";
-              tmpStore.times.string = time_left;
-            } //Target: opening
-            else {
-              let time_left = Math.abs(store_opening_ref - ref_time);
-              time_left =
-                time_left >= 60
-                  ? `Opening in ${Math.round(time_left / 60)}hours`
-                  : `Opening in ${time_left}min`;
+              //? Determine the times
+              let store_opening_ref =
+                parseInt(
+                  store.opening_time.split(":")[0].replace(/^0/, "").trim()
+                ) *
+                  60 +
+                parseInt(
+                  store.opening_time.split(":")[1].replace(/^0/, "").trim()
+                ); //All in minutes
+              let store_closing_ref =
+                parseInt(
+                  store.closing_time.split(":")[0].replace(/^0/, "").trim()
+                ) *
+                  60 +
+                parseInt(
+                  store.closing_time.split(":")[1].replace(/^0/, "").trim()
+                ); //All in minutes
               //...
+              let ref_time =
+                new Date(chaineDateUTC).getHours() * 60 +
+                new Date(chaineDateUTC).getMinutes();
+
+              if (
+                ref_time >= store_opening_ref &&
+                ref_time <= store_closing_ref
+              ) {
+                //Target: closing
+                let time_left = Math.abs(store_closing_ref - ref_time);
+                time_left =
+                  time_left >= 60
+                    ? `Closing in ${Math.round(time_left / 60)}hours`
+                    : `Closing in ${time_left}min`;
+                //...
+                tmpStore.times.target_state = "Closing";
+                tmpStore.times.string = time_left;
+              } //Target: opening
+              else {
+                let time_left = Math.abs(store_opening_ref - ref_time);
+                time_left =
+                  time_left >= 60
+                    ? `Opening in ${Math.round(time_left / 60)}hours`
+                    : `Opening in ${time_left}min`;
+                //...
+                tmpStore.times.target_state = "Opening";
+                tmpStore.times.string = time_left;
+              }
+
               tmpStore.times.target_state = "Opening";
-              tmpStore.times.string = time_left;
+              tmpStore.times.string = storeTimeStatus(
+                store.opening_time,
+                store.closing_time
+              );
+              //? DONE - SAVE
+              return tmpStore;
+            } else {
+              return null;
             }
-            //? DONE - SAVE
-            STORES_MODEL.push(tmpStore);
-          }
-        });
-        //...
-        console.log(redisKey);
-        console.log(parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400);
-        console.log(JSON.stringify(STORES_MODEL));
-        //! Cache
-        redisCluster.setex(
-          redisKey,
-          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
-          JSON.stringify(STORES_MODEL)
-        );
-        resolve({ response: STORES_MODEL });
-      } //No stores
-      else {
-        resolve({ response: [] });
-      }
-    })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: [] });
-    });
-}
+          })
+        )
+      ).filter((el) => el);
+      //...
+      //! Cache
+      Redis.set(
+        redisKey,
+        JSON.stringify(STORES_MODEL),
+        "EX",
+        parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400
+      );
+
+      return { response: STORES_MODEL };
+    } else {
+      return { response: [] };
+    }
+  } catch (error) {
+    logger.error(error);
+    return { response: [] };
+  }
+};
 
 /**
  * @func getCatalogueFor
@@ -411,58 +366,95 @@ function execGetStores(redisKey, resolve) {
  * @param req: store infos
  * @param resolve
  */
-function getCatalogueFor(req, resolve) {
-  let redisKey = `${JSON.stringify(req)}-catalogue`;
+const getCatalogueFor = async (body) => {
+  let redisKey = `${JSON.stringify(body)}-catalogue`;
 
-  redisGet(redisKey)
-    .then((resp) => {
-      if (resp !== null) {
-        //Has products
-        try {
-          resp = JSON.parse(resp);
-          resolve(resp);
-        } catch (error) {
-          logger.error(error);
-          new Promise((resCompute) => {
-            execGetCatalogueFor(req, redisKey, resCompute);
-          })
-            .then((result) => {
-              resolve(result);
-            })
-            .catch((error) => {
-              logger.error(error);
-              resolve({ response: {}, store: req.store });
-            });
-        }
-      } //No data
-      else {
-        new Promise((resCompute) => {
-          execGetCatalogueFor(req, redisKey, resCompute);
-        })
-          .then((result) => {
-            resolve(result);
-          })
-          .catch((error) => {
-            logger.error(error);
-            resolve({ response: {}, store: req.store });
-          });
-      }
-    })
-    .catch((error) => {
-      //No data
-      logger.error(error);
-      new Promise((resCompute) => {
-        execGetCatalogueFor(req, redisKey, resCompute);
-      })
-        .then((result) => {
-          resolve(result);
-        })
-        .catch((error) => {
-          logger.error(error);
-          resolve({ response: {}, store: req.store });
-        });
+  const { store: storeFp, category, subcategory, structured } = body;
+
+  const shop = await StoreModel.get(storeFp);
+
+  if (!shop) return { response: {}, store: null };
+
+  const storeData = shop;
+
+  let reformulateQuery;
+
+  //Level 1
+  if (category) {
+    reformulateQuery = CatalogueModel.query("shop_fp")
+      .eq(storeFp)
+      .filter("category")
+      .eq(category.toUpperCase().trim());
+  } else {
+    reformulateQuery = CatalogueModel.query("shop_fp").eq(storeFp);
+  }
+
+  //Level 2 - Add subcategory
+  if (subcategory) {
+    reformulateQuery = reformulateQuery
+      .filter("subcategory")
+      .eq(subcategory.toUpperCase().trim());
+  }
+
+  const catalogue = await reformulateQuery.exec();
+  const productsData = catalogue;
+
+  if (productsData.count > 0) {
+    //Has data
+    //Reformat the data
+    let reformatted_data = productsData.map((product, index) => {
+      let tmpData = {
+        index: index,
+        name: product.product_name,
+        price: product.product_price.replace("R", "N$"),
+        pictures: [product.product_picture],
+        sku: product.sku,
+        meta: {
+          category: product.category,
+          subcategory: product.subcategory,
+          store: product.shop_name,
+          store_fp: storeFp,
+          structured: storeData.structured_shopping,
+        },
+      };
+      //...
+      return tmpData;
     });
-}
+    //...
+    //! Reorganize based on if the data is structured
+    if (structured) {
+      logger.info("Structured data");
+      let structured = {};
+      reformatted_data.map((p) => {
+        if (
+          structured[p.meta.category] !== undefined &&
+          structured[p.meta.category] !== null
+        ) {
+          //Already set
+          structured[p.meta.category].push(p);
+          //! Shuffle
+          structured[p.meta.category] = shuffle(structured[p.meta.category]);
+          //! Always limit to 3
+          structured[p.meta.category] = structured[p.meta.category].slice(0, 3);
+        } //Not yet set
+        else {
+          logger.error(p);
+          structured[p.meta.category] = [];
+          structured[p.meta.category].push(p);
+        }
+      });
+      //....
+      return { response: structured, store: storeFp };
+    } //Unstructured data
+    else {
+      logger.info("Unstructured data");
+      return { response: reformatted_data, store: storeFp };
+    }
+  } //No products
+  else {
+    return { response: {}, store: storeFp };
+  }
+};
 
 //? ARRAY SHUFFLER
 function shuffle(array) {
@@ -483,198 +475,6 @@ function shuffle(array) {
   }
 
   return array;
-}
-
-function execGetCatalogueFor(req, redisKey, resolve) {
-  //Get the store name first
-  dynamo_find_query({
-    table_name: "shops_central",
-    IndexName: "shop_fp",
-    KeyConditionExpression: "shop_fp = :val1",
-    ExpressionAttributeValues: {
-      ":val1": req.store,
-    },
-  })
-    .then((storeData) => {
-      if (storeData !== undefined && storeData.length > 0) {
-        logger.info(storeData);
-        //Found
-        storeData = storeData[0];
-
-        let reformulateQuery =
-          req.category !== undefined
-            ? {
-                table_name: "catalogue_central",
-                IndexName: "shop_fp",
-                KeyConditionExpression: "shop_fp = :val1",
-                FilterExpression: "#m.#s = :val2 and #m.#c = :val3",
-                ExpressionAttributeValues: {
-                  ":val1": req.store,
-                  ":val2": storeData.name.toUpperCase().trim(),
-                  ":val3": req.category.toUpperCase().trim(),
-                },
-                ExpressionAttributeNames: {
-                  "#m": "meta",
-                  "#s": "shop_name",
-                  "#c": "category",
-                },
-              }
-            : {
-                table_name: "catalogue_central",
-                IndexName: "shop_fp",
-                KeyConditionExpression: "shop_fp = :val1",
-                FilterExpression: "#m.#s = :val2",
-                ExpressionAttributeValues: {
-                  ":val1": req.store,
-                  ":val2": storeData.name.toUpperCase().trim(),
-                },
-                ExpressionAttributeNames: {
-                  "#m": "meta",
-                  "#s": "shop_name",
-                },
-              };
-        //! Add subcategory
-        reformulateQuery =
-          req.subcategory !== undefined
-            ? {
-                table_name: "catalogue_central",
-                IndexName: "shop_fp",
-                KeyConditionExpression: "shop_fp = :val1",
-                FilterExpression:
-                  "#m.#s = :val2 and #m.#c = :val3 and #m.#sub = :val4",
-                ExpressionAttributeValues: {
-                  ":val1": req.store,
-                  ":val2": storeData.name.toUpperCase().trim(),
-                  ":val3": req.category.toUpperCase().trim(),
-                  ":val4": req.subcategory.toUpperCase().trim(),
-                },
-                ExpressionAttributeNames: {
-                  "#m": "meta",
-                  "#s": "shop_name",
-                  "#c": "category",
-                  "#sub": "subcategory",
-                },
-              }
-            : reformulateQuery;
-        //! Cancel all the filtering - if a structured argument is set
-        reformulateQuery =
-          req.structured !== undefined && req.structured === "true"
-            ? {
-                table_name: "catalogue_central",
-                IndexName: "shop_fp",
-                KeyConditionExpression: "shop_fp = :val1",
-                FilterExpression: "#m.#s = :val2",
-                ExpressionAttributeValues: {
-                  ":val1": req.store,
-                  ":val2": storeData.name.toUpperCase().trim(),
-                },
-                ExpressionAttributeNames: {
-                  "#m": "meta",
-                  "#s": "shop_name",
-                },
-              }
-            : reformulateQuery;
-
-        logger.warn(reformulateQuery);
-
-        dynamo_find_query(reformulateQuery)
-          .then((productsData) => {
-            if (productsData !== undefined && productsData.length > 0) {
-              //Has data
-              //Reformat the data
-              let reformatted_data = [];
-              productsData.map((product, index) => {
-                let tmpData = {
-                  index: index,
-                  name: product.product_name,
-                  price: product.product_price.replace("R", "N$"),
-                  pictures: [product.product_picture],
-                  sku: product.sku,
-                  meta: {
-                    category: product.meta.category,
-                    subcategory: product.meta.subcategory,
-                    store: product.meta.shop_name,
-                    store_fp: req.store,
-                    structured:
-                      storeData.structured_shopping !== undefined &&
-                      storeData.structured_shopping !== null
-                        ? storeData.structured_shopping
-                          ? "true"
-                          : "false"
-                        : "false",
-                  },
-                };
-                //...
-                reformatted_data.push(tmpData);
-              });
-              //...
-              //! Reorganize based on if the data is structured
-              new Promise((resOrganize) => {
-                if (req.structured !== undefined && req.structured === "true") {
-                  logger.info("Structured data");
-                  let structured = {};
-                  reformatted_data.map((p) => {
-                    if (
-                      structured[p.meta.category] !== undefined &&
-                      structured[p.meta.category] !== null
-                    ) {
-                      //Already set
-                      structured[p.meta.category].push(p);
-                      //! Shuffle
-                      structured[p.meta.category] = shuffle(
-                        structured[p.meta.category]
-                      );
-                      //! Always limit to 3
-                      structured[p.meta.category] = structured[
-                        p.meta.category
-                      ].slice(0, 3);
-                    } //Not yet set
-                    else {
-                      structured[p.meta.category] = [];
-                      structured[p.meta.category].push(p);
-                    }
-                  });
-                  //....
-                  resOrganize(structured);
-                } //Unstructured data
-                else {
-                  logger.info("Unstructured data");
-                  resOrganize(reformatted_data);
-                }
-              })
-                .then((result) => {
-                  //! Cache
-                  let final = { response: result };
-                  redisCluster.setex(
-                    redisKey,
-                    parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
-                    JSON.stringify(final)
-                  );
-                  resolve(final);
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  resolve({ response: {}, store: req.store });
-                });
-            } //No products
-            else {
-              resolve({ response: {}, store: req.store });
-            }
-          })
-          .catch((error) => {
-            logger.warn("Here");
-            logger.error(error);
-            resolve({ response: {}, store: req.store });
-          });
-      } //Invalid store
-      else {
-        resolve({ response: {}, store: req.store });
-      }
-    })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: {}, store: req.store });
-    });
 }
 
 //? SEARCH LOGIC
@@ -2072,41 +1872,83 @@ ElasticSearch_client.ping(
         .use(AdminsBackgroundCheck)
         .use(cors())
         .use(helmet());
+
       //?1. Get all the available stores in the app.
-      //? EFFIENCY A
       //Get the main ones (4) and the new ones (X)
-      app.post("/getStores", function (req, res) {
-        new Promise((resolve) => {
-          getStores(resolve);
-        })
-          .then((result) => {
-            res.send(result);
-          })
-          .catch((error) => {
-            logger.error(error);
-            res.send({ response: [] });
+      app.post("/getStores", async (req, res) => {
+        try {
+          const stores = await getStores();
+
+          res.json(stores);
+        } catch (error) {
+          logger.error(error);
+          res.send({ response: [] });
+        }
+      });
+
+      app.post("/api/v1/store", async (req, res) => {
+        try {
+          const {
+            fp,
+            publish,
+            name,
+            friendly_name,
+            shop_type,
+            description,
+            shop_background_color,
+            border_color,
+            shop_logo,
+            structured_shopping,
+            opening_time,
+            closing_time,
+          } = req.body;
+
+          const checkStore = await StoreModel.get({ id: fp });
+
+          if (checkStore)
+            return res.status(500).json({
+              status: "fail",
+              error: "Store already exist",
+            });
+
+          const newStore = await StoreModel.create({
+            id: fp,
+            publish,
+            name,
+            friendly_name,
+            shop_type,
+            description,
+            shop_background_color,
+            border_color,
+            shop_logo,
+            structured_shopping,
+            opening_time,
+            closing_time,
           });
+
+          res.json({
+            status: "created",
+            id: newStore.id,
+          });
+        } catch (error) {
+          res.status(500).json({
+            status: "fail",
+          });
+        }
       });
 
       //?2. Get all the products based on a store
-      //? EFFIENCY A
-      app.post("/getCatalogueFor", function (req, res) {
-        req = req.body;
-        if (req.store !== undefined && req.store !== null) {
-          req.store = req.store;
-          //Ok
-          new Promise((resolve) => {
-            getCatalogueFor(req, resolve);
-          })
-            .then((result) => {
-              res.send(result);
-            })
-            .catch((error) => {
-              logger.error(error);
-              res.send({ response: "no_products" });
-            });
-        } //No valid data
-        else {
+      app.post("/getCatalogueFor", async (req, res) => {
+        try {
+          const { body } = req;
+
+          console.log(body);
+
+          const products = await getCatalogueFor(body);
+          console.log(products);
+          res.json(products);
+        } catch (error) {
+          logger.error(error);
           res.send({ response: "no_products" });
         }
       });
@@ -2289,23 +2131,25 @@ ElasticSearch_client.ping(
 
       //?6. Request for shopping
       //? EFFIENCY A
-      app.post("/requestForShopping", function (req, res) {
-        new Promise((resolve) => {
-          req = req.body;
+      app.post("/requestForShopping", async (req, res) => {
+        try {
+          const {
+            user_identifier,
+            shopping_list,
+            totals,
+            locations,
+            ride_mode,
+            note,
+            payment_method,
+          } = req.body;
           //! Check for the user identifier, shopping_list and totals
           if (
-            req.user_identifier !== undefined &&
-            req.user_identifier !== null &&
-            req.shopping_list !== undefined &&
-            req.shopping_list !== null &&
-            req.totals !== undefined &&
-            req.totals !== null &&
-            req.locations !== undefined &&
-            req.locations !== null &&
-            req.ride_mode !== undefined &&
-            req.ride_mode !== null
+            user_identifier &&
+            shopping_list &&
+            totals &&
+            locations &&
+            ride_mode
           ) {
-            logger.info(req);
             let security_pin = otpGenerator.generate(6, {
               lowerCaseAlphabets: false,
               upperCaseAlphabets: false,
@@ -2317,150 +2161,55 @@ ElasticSearch_client.ping(
                 ? parseInt(security_pin) * 10
                 : security_pin;
 
-            try {
-              //! Check if the user has no unconfirmed shoppings
-              let checkUnconfirmed = {
-                client_id: req.user_identifier,
-                "request_state_vars.completedRatingClient": false,
-              };
+            //! Check if the user has no unconfirmed shoppings
+            const previousRequest = await RequestsModel.query("client_id")
+              .eq(user_identifier)
+              .filter("date_clientRatedShopping")
+              .not()
+              .exists()
+              .exec();
 
-              dynamo_find_query({
-                table_name: "requests_central",
-                IndexName: "client_id",
-                KeyConditionExpression: "client_id = :val1",
-                FilterExpression: "#r.#c = :val2",
-                ExpressionAttributeValues: {
-                  ":val1": req.user_identifier,
-                  ":val2": false,
-                },
-                ExpressionAttributeNames: {
-                  "#r": "request_state_vars",
-                  "#c": "completedRatingClient",
-                },
-              })
-                .then((prevShopping) => {
-                  //! Delete previous cache
-                  let redisKey = `${req.user_identifier}-shoppings`;
-                  redisCluster.del(redisKey);
-                  //...
-                  if (prevShopping !== undefined && prevShopping.length <= 0) {
-                    //No unconfirmed shopping - okay
-                    //! Perform the conversions
-                    req.shopping_list =
-                      req.shopping_list !== undefined
-                        ? JSON.parse(req.shopping_list)
-                        : null;
-                    req.totals =
-                      req.totals !== undefined ? JSON.parse(req.totals) : null;
-                    req.locations =
-                      req.locations !== undefined
-                        ? JSON.parse(req.locations)
-                        : null;
+            if (previousRequest.count <= 0) {
+              let parsedTotals = JSON.parse(totals);
 
-                    //...
-                    let REQUEST_TEMPLATE = {
-                      request_fp: null,
-                      client_id: req.user_identifier, //the user identifier - requester
-                      shopper_id: "false", //The id of the shopper
-                      payment_method: req.payment_method, //mobile_money or cash
-                      locations: req.locations, //Has the pickup and delivery locations
-                      totals_request: req.totals, //Has the cart details in terms of fees
-                      request_type: "immediate", //scheduled or immediate
-                      request_documentation: {
-                        note: req.note,
-                      },
-                      shopping_list: req.shopping_list, //! The list of items to shop for
-                      ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
-                      request_state_vars: {
-                        isAccepted: false, //If the shopping request is accepted
-                        inRouteToPickupCash: false, //If the shopper is in route to pickup the cash
-                        didPickupCash: false, //If the shopper picked up the cash
-                        inRouteToShop: false, //If the shopper is in route to the shop(s)
-                        inRouteToDelivery: false, //If the shopper is on his(her) way to delivery the shopped items
-                        completedShopping: false, //If the shopper is done shopping
-                        completedRatingClient: false, //If the client has completed the rating of the shopped items
-                        rating_data: {
-                          rating: false, //Out of 5
-                          comments: false, //The clients comments
-                          compliments: [], //The service badges
-                        }, //The rating infos
-                      },
-                      security: {
-                        pin: security_pin, //Will be used to check the request
-                      },
-                      date_requested: new Date(chaineDateUTC).toISOString(), //The time of the request
-                      date_pickedupCash: null, //The time when the shopper picked up the cash from the client
-                      date_routeToShop: null, //The time when the shopper started going to the shops
-                      date_completedShopping: null, //The time when the shopper was done shopping
-                      date_routeToDelivery: null, //The time when the shopper started going to delivery the shopped items
-                      date_clientRatedShopping: null, //The time when the client rated the shopper
-                    };
-                    //...
-                    //?1. Get the request_fp
-                    new Promise((resCompute) => {
-                      generateUniqueFingerprint(
-                        `${JSON.stringify(req)}`,
-                        "basic",
-                        resCompute
-                      );
-                    })
-                      .then((result) => {
-                        REQUEST_TEMPLATE.request_fp = result;
-                      })
-                      .catch((error) => {
-                        logger.error(error);
-                        REQUEST_TEMPLATE.request_fp = `${req.user_identifier.subtr(
-                          0,
-                          10
-                        )}${Math.round(new Date(chaineDateUTC).getTime())}`;
-                      })
-                      .finally(() => {
-                        //?Continue here
-                        dynamo_insert("requests_central", REQUEST_TEMPLATE)
-                          .then((result) => {
-                            //....DONE
-                            //! Clear the request cached list for all the drivers in the same city
-                            new Promise((resClearRedis) => {
-                              clearCityDriversCacheLists({
-                                city: REQUEST_TEMPLATE.locations.pickup.city,
-                                requestType: REQUEST_TEMPLATE.ride_mode,
-                                resolve: resClearRedis,
-                              });
-                            })
-                              .then()
-                              .catch((error) => logger.error(error));
-                            //...
-                            resolve({ response: "successful" });
-                          })
-                          .catch((error) => {
-                            logger.error(error);
-                            resolve({ response: "unable_to_request" });
-                          });
-                      });
-                  } //Has an unconfirmed shopping - block
-                  else {
-                    resolve({ response: "has_a_pending_shopping" });
-                  }
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  resolve({ response: "unable_to_request" });
-                });
-            } catch (error) {
-              logger.error(error);
-              resolve({ response: "unable_to_request" });
+              parsedTotals.cart = parseFloat(
+                parsedTotals.cart.replace("N$", "")
+              );
+              parsedTotals.service_fee = parseFloat(
+                parsedTotals.service_fee.replace("N$", "")
+              );
+              parsedTotals.total = parseFloat(
+                parsedTotals.total.replace("N$", "")
+              );
+              parsedTotals.cash_pickup_fee = parseFloat(
+                parsedTotals.cash_pickup_fee.replace("N$", "")
+              );
+
+              const newRequest = await RequestsModel.create({
+                id: uuidv4(),
+                client_id: user_identifier, //the user identifier - requester
+                payment_method: payment_method, //mobile_money or cash
+                locations: JSON.parse(locations), //Has the pickup and delivery locations
+                totals_request: parsedTotals, //Has the cart details in terms of fees
+                request_documentation: note,
+                shopping_list: JSON.parse(shopping_list), //! The list of items to shop for
+                ride_mode: ride_mode.toUpperCase().trim(), //ride, delivery or shopping
+                security: security_pin, //Will be used to check the request,
+              });
+
+              console.log(newRequest);
+
+              res.json({ response: "successful" });
+            } else {
+              res.json({ response: "has_a_pending_shopping" });
             }
           } else {
             resolve({ response: "unable_to_request" });
           }
-        })
-          .then((result) => {
-            res.send(result);
-          })
-          .catch((error) => {
-            logger.error(error);
-            res.send({ response: "unable_to_request" });
-          });
+        } catch (error) {
+          logger.error(error);
+          res.send({ response: "unable_to_request" });
+        }
       });
 
       //?6. Request for delivery or ride
@@ -2496,7 +2245,7 @@ ElasticSearch_client.ping(
             //! Check if the user has no unconfirmed shoppings
             const previousRequest = await RequestsModel.query("client_id")
               .eq(req.user_identifier)
-              .filter("date_completedDropoff")
+              .filter("date_clientRatedRide")
               .not()
               .exists()
               .exec();
