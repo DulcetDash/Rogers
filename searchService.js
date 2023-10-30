@@ -593,7 +593,7 @@ const getLocationList_five = async (
 
   const cachedData = await Redis.get(keyREDIS);
 
-  if (cachedData) {
+  if (cachedData && JSON.parse(cachedData)?.result) {
     const cachedProcessed = JSON.parse(cachedData);
     //Exceptions check
     cachedProcessed.result = cachedProcessed.result.map((location) => {
