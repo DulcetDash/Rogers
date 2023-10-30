@@ -249,7 +249,7 @@ const initializeFreshGetOfLocations = async (
 
         const searches = await axios.get(urlRequest);
 
-        body = searches?.data;
+        const body = searches?.data;
         logger.error(body);
 
         if (body?.predictions && body?.predictions?.length > 0) {
@@ -549,7 +549,7 @@ const doFreshGoogleSearchAndReturn = async (littlePack, redisKey) => {
         } else {
             const results = await axios.get(urlRequest);
 
-            body = results?.data;
+            const body = results?.data;
 
             if (body?.result?.address_components && body?.result?.geometry) {
                 let refinedExtractions = arrangeAndExtractSuburbAndStateOrMore(
