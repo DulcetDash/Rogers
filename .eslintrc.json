@@ -1,0 +1,135 @@
+{
+  "settings": {
+    "import/extensions": [
+      ".js",
+      ".ts"
+    ],
+    "import/parsers": {
+      "@typescript-eslint/parser": [
+        ".ts",
+        ".tsx"
+      ]
+    },
+    "import/reslover": {
+      "alias": {
+        "map": [
+          [
+            "@types",
+            "./@types/*"
+          ]
+        ]
+      },
+      "node": {
+        "extensions": [
+          ".js",
+          ".ts"
+        ]
+      },
+      "typescript": {
+        "alwaysTryTypes": true, // always try to resolve types under `<root>@types` directory even it doesn't contain any source code, like `@types/unist`
+        // Choose from one of the "project" configs below or omit to use <root>/tsconfig.json by default
+        // use <root>/path/to/folder/tsconfig.json
+        "project": "./"
+      }
+    }
+    // "import/ignore": [
+    //   ".ts"
+    // ]
+  },
+  "extends": [
+    "airbnb",
+    "prettier",
+    "plugin:node/recommended",
+    "plugin:@typescript-eslint/recommended",
+    "plugin:import/typescript"
+  ],
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "tsconfigRootDir": "./",
+    "project": "./tsconfig.json"
+  },
+  "parser": "@typescript-eslint/parser",
+  "plugins": [
+    "prettier",
+    "@typescript-eslint"
+  ],
+  "root": true,
+  "ignorePatterns": [
+    "dist/**/*"
+  ],
+  "rules": {
+    "prettier/prettier": "error",
+    "spaced-comment": "off",
+    "no-console": "warn",
+    "consistent-return": "off",
+    "func-names": "off",
+    "object-shorthand": "off",
+    "no-process-exit": "off",
+    "no-param-reassign": "off",
+    "no-return-await": "off",
+    "no-underscore-dangle": "off",
+    "class-methods-use-this": "off",
+    "prefer-destructuring": [
+      "error",
+      {
+        "object": true,
+        "array": false
+      }
+    ],
+    "no-unused-vars": "off",
+    "node/no-unsupported-features/es-syntax": [
+      "off",
+      {
+        "version": ">=16.0.0",
+        "ignores": []
+      }
+    ],
+    "node/no-missing-require": [
+      "error",
+      {
+        "resolvePaths": [
+          "@types",
+          "./@types/*"
+        ],
+        "tryExtensions": [
+          ".js",
+          ".ts",
+          ".json",
+          ".node"
+        ]
+      }
+    ],
+    "node/no-missing-import": [
+      "error",
+      {
+        "allowModules": [],
+        "resolvePaths": [
+          "@types",
+          "./@types/*"
+        ],
+        "tryExtensions": [
+          ".js",
+          ".ts"
+        ]
+      }
+    ],
+    "@typescript-eslint/no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "req|res|next|val|_"
+      }
+    ],
+    "@typescript-eslint/no-var-requires": "off",
+    "@typescript-eslint/ban-ts-comment": "off",
+    "import/extensions": [
+      "warn",
+      {
+        "js": "never",
+        "ts": "never"
+      }
+    ],
+    "import/no-import-module-exports": "off",
+    "no-shadow": "off",
+    "@typescript-eslint/no-shadow": "error"
+  }
+}

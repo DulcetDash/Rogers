@@ -19,3 +19,5 @@ yarn.lock
 Drivers_profile_pictures/
 *.zip
 .env
+dist/
+coverage/
