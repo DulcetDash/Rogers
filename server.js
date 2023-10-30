@@ -14,7 +14,7 @@ const { v4: uuidv4 } = require("uuid");
 const Redis = require("./Utility/redisConnector");
 
 const { logger } = require("./LogService");
-const { sendSMS } = require("./SendSMS");
+const { sendSMS, uploadBase64ToS3 } = require("./Utility/Utils");
 const AWS = require("aws-sdk");
 const _ = require("lodash");
 
@@ -148,7 +148,11 @@ const RequestsModel = require("./models/RequestsModel");
 const DriversModel = require("./models/DriversModel");
 const StoreModel = require("./models/StoreModel");
 const { presignS3URL } = require("./Utility/PresignDocs");
-const { storeTimeStatus, searchProducts } = require("./Utility/Utils");
+const {
+  storeTimeStatus,
+  searchProducts,
+  uploadToS3,
+} = require("./Utility/Utils");
 const CatalogueModel = require("./models/CatalogueModel");
 
 function SendSMSTo(phone_number, message) {
@@ -676,7 +680,12 @@ const shouldSendNewSMS = async (user, phone_number) => {
   let message = `Your DulcetDash code is ${otp}. Never share this code.`;
 
   if (!user) {
-    console.log(message);
+    logger.warn(message);
+    const didSentSMS = true;
+    // const didSentSMS = await sendSMS(message, phone_number);
+
+    if (!didSentSMS) return false;
+
     //New user
     await OTPModel.create({
       id: uuidv4(),
@@ -686,7 +695,7 @@ const shouldSendNewSMS = async (user, phone_number) => {
     return true;
   } //Existing user
   else {
-    console.log(message);
+    logger.error(message);
     const startOfDay = moment().startOf("day").valueOf(); // Start of today
     const endOfDay = moment().endOf("day").valueOf(); // End of today
 
@@ -698,6 +707,11 @@ const shouldSendNewSMS = async (user, phone_number) => {
 
     if (otpData.count <= DAILY_THRESHOLD) {
       //Can still send the SMS
+      const didSentSMS = true;
+      // const didSentSMS = await sendSMS(message, phone_number);
+
+      if (!didSentSMS) return false;
+
       await OTPModel.create({
         id: uuidv4(),
         phone_number: user.phone_number,
@@ -718,90 +732,6 @@ const shouldSendNewSMS = async (user, phone_number) => {
     }
   }
 };
-
-/**
- * @func clearCityDriversCacheLists
- * Responsible for clearing the requests list for all the drivers in the city to update it
- * to the current state based on a driver performing alterations to a specific request.
- * @param city: the city in which the operation should me performed.
- * @param requestType: RIDE, DELIVERY or SHOPPING
- * @param resolve
- */
-function clearCityDriversCacheLists({ city = false, requestType, resolve }) {
-  if (city !== false) {
-    //? 1 . Get all the drivers from the city
-    dynamo_get_all({
-      table_name: "drivers_shoppers_central",
-      FilterExpression: "contains(regional_clearances, :val1)",
-      ExpressionAttributeValues: {
-        ":val1": city,
-      },
-    }).then((driversListData) => {
-      if (driversListData !== undefined && driversListData.length > 0) {
-        //Found some drivers in the city
-        //? 2. Assemble each redis keys for their request list
-        let parentPromises = driversListData.map((driver) => {
-          return new Promise((resCompute) => {
-            let redisKeyReformed = `${driver.driver_fingerprint}-rideDeliveryMade-holder-${requestType}`;
-            logger.info(redisKeyReformed);
-
-            //! CLEAR
-            redisCluster.del(redisKeyReformed, function (err, resp) {
-              console.log(err, resp);
-              //DONE
-              resCompute(true);
-            });
-          });
-        });
-        //...
-        Promise.all(parentPromises)
-          .then((result) => {
-            logger.warn(result);
-            resolve(true);
-          })
-          .catch((error) => {
-            logger.error(error);
-            resolve(false);
-          });
-      } //No no drivers found in this city
-      else {
-        resolve(false);
-      }
-    });
-  } //No city specified
-  else {
-    logger.warn("No cities specified for the clearing operation.");
-    resolve(false);
-  }
-}
-
-/**
- * @func isUserValid
- * Responsible for checking if a user account is valid or not based on the Primary key
- * which is in this case the user_identifier.
- * @param user_identifier
- * @param resolve
- */
-function isUserValid(user_identifier, resolve) {
-  dynamo_find_query({
-    table_name: "users_central",
-    IndexName: "user_identifier",
-    KeyConditionExpression: "user_identifier = :val1",
-    ExpressionAttributeValues: {
-      ":val1": user_identifier,
-    },
-  })
-    .then((result) => {
-      resolve({
-        status: result !== undefined && result.length > 0,
-        _id: result !== undefined && result.length > 0 ? result[0].id : null,
-      });
-    })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ status: false, _id: null });
-    });
-}
 
 /**
  * @func getRecentlyVisitedShops
@@ -1044,13 +974,6 @@ function updateRidersPushNotifToken(req, redisKey, resolve) {
 //S3 COPY files
 function copyFile(s3Params) {
   return s3.copyObject(s3Params).promise();
-}
-
-//S3 DELETE files
-function deleteFile(s3Params) {
-  return s3
-    .deleteObject({ Bucket: s3Params.Bucket, Key: s3Params.Key })
-    .promise();
 }
 
 //Check if it's today
@@ -2144,274 +2067,59 @@ ElasticSearch_client.ping(
       });
 
       //?12. Update the users information
-      //? EFFIENCY A
-      app.post("/updateUsersInformation", function (req, res) {
-        new Promise((resolve) => {
-          req = req.body;
-          logger.info(req);
+      app.post("/updateUsersInformation", async (req, res) => {
+        try {
+          const { user_identifier, data_type, data_value, extension } =
+            req.body;
 
-          if (
-            req.user_identifier !== undefined &&
-            req.user_identifier !== null &&
-            req.data_type !== undefined &&
-            req.data_type !== null &&
-            req.data_value !== undefined &&
-            req.data_value !== null
-          ) {
-            dynamo_find_query({
-              table_name: "users_central",
-              IndexName: "user_identifier",
-              KeyConditionExpression: "user_identifier = :val1",
-              ExpressionAttributeValues: {
-                ":val1": req.user_identifier,
-              },
-            })
-              .then((userData) => {
-                if (userData !== undefined && userData.length > 0) {
-                  //!Check the user
-                  switch (req.data_type) {
-                    case "name":
-                      //Update the name
-                      dynamo_update({
-                        table_name: "users_central",
-                        _idKey: userData[0].id,
-                        UpdateExpression: "set #name_word = :val1",
-                        ExpressionAttributeValues: {
-                          ":val1": req.data_value,
-                        },
-                        ExpressionAttributeNames: {
-                          "#name_word": "name",
-                        },
-                      })
-                        .then((result) => {
-                          if (result === false) {
-                            resolve({ response: "error" });
-                          }
-                          //...Success
-                          resolve({ response: "success" });
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          resolve({ response: "error" });
-                        });
-                      break;
-                    case "surname":
-                      //Update the surname
-                      dynamo_update({
-                        table_name: "users_central",
-                        _idKey: userData[0].id,
-                        UpdateExpression: "set surname = :val1",
-                        ExpressionAttributeValues: {
-                          ":val1": req.data_value,
-                        },
-                      })
-                        .then((result) => {
-                          if (result === false) {
-                            resolve({ response: "error" });
-                          }
-                          //...Success
-                          resolve({ response: "success" });
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          resolve({ response: "error" });
-                        });
-                      break;
-                    case "email":
-                      //Update the email
-                      dynamo_update({
-                        table_name: "users_central",
-                        _idKey: userData[0].id,
-                        UpdateExpression: "set email = :val1",
-                        ExpressionAttributeValues: {
-                          ":val1": req.data_value,
-                        },
-                      })
-                        .then((result) => {
-                          if (result === false) {
-                            resolve({ response: "error" });
-                          }
-                          //...Success
-                          resolve({ response: "success" });
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          resolve({ response: "error" });
-                        });
-                    case "gender":
-                      //Update the gender
-                      dynamo_update({
-                        table_name: "users_central",
-                        _idKey: userData[0].id,
-                        UpdateExpression: "set gender = :val1",
-                        ExpressionAttributeValues: {
-                          ":val1": req.data_value,
-                        },
-                      })
-                        .then((result) => {
-                          if (result === false) {
-                            resolve({ response: "error" });
-                          }
-                          //...Success
-                          resolve({ response: "success" });
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          resolve({ response: "error" });
-                        });
-                      break;
-                    case "phone":
-                      //Update the phone
-                      dynamo_update({
-                        table_name: "users_central",
-                        _idKey: userData[0].id,
-                        UpdateExpression: "set phone_number = :val1",
-                        ExpressionAttributeValues: {
-                          ":val1": req.data_value,
-                        },
-                      })
-                        .then((result) => {
-                          if (result === false) {
-                            resolve({ response: "error" });
-                          }
-                          //...Success
-                          resolve({ response: "success" });
-                        })
-                        .catch((error) => {
-                          logger.error(error);
-                          resolve({ response: "error" });
-                        });
-                      break;
+          if (user_identifier && data_type && data_value) {
+            const user = await UserModel.get(user_identifier);
 
-                    case "profile_picture":
-                      let localFileName = `.profile_photo${req.user_identifier}.${req.extension}`;
-                      //? Write the file locally
-                      fs.writeFile(
-                        localFileName,
-                        String(req.data_value),
-                        "base64",
-                        function (err) {
-                          if (err) {
-                            logger.error(err);
-                            resolve({ response: "error" });
-                          }
-                          //...success
-                          // Read content from the file
-                          const fileContentUploaded_locally =
-                            fs.readFileSync(localFileName);
+            if (!user) res.send({ response: "error" });
 
-                          // Setting up S3 upload parameters
-                          let fileUploadName = `profile_${req.user_identifier}.${req.extension}`;
-                          const params = {
-                            Bucket: `${process.env.AWS_S3_CLIENTS_PROFILES_BUCKET_NAME}/clients_profiles`,
-                            Key: fileUploadName, // File name you want to save as in S3
-                            Body: fileContentUploaded_locally,
-                          };
+            const userData = user;
 
-                          // Uploading files to the bucket
-                          s3.upload(params, function (err, data) {
-                            if (err) {
-                              logger.info(err);
-                              resolve({ response: "error" });
-                            }
-                            logger.info(
-                              `[USER]${localFileName} -> Successfully uploaded.`
-                            );
-                            //! Update the database
-                            dynamo_update({
-                              table_name: "users_central",
-                              _idKey: userData[0].id,
-                              UpdateExpression: "set #m.#p = :val1",
-                              ExpressionAttributeValues: {
-                                ":val1": fileUploadName,
-                              },
-                              ExpressionAttributeNames: {
-                                "#m": "media",
-                                "#p": "profile_picture",
-                              },
-                            })
-                              .then((result) => {
-                                if (result === false) {
-                                  logger.error(err);
-                                  resolve({ response: "error" });
-                                }
-                                //...Success
-                                resolve({ response: "success" });
-                              })
-                              .catch((error) => {
-                                logger.error(error);
-                                resolve({ response: "error" });
-                              });
-                          });
-                        }
-                      );
-                      break;
-                    default:
-                      resolve({ response: "error" });
-                      break;
-                  }
-                } //No valid user
-                else {
-                  res.send({ response: "error" });
-                }
-              })
-              .catch((error) => {
-                logger.error(error);
-                res.send({ response: "error" });
-              });
+            let updateObject = {};
+
+            if (data_type === "name") updateObject["name"] = data_value;
+            if (data_type === "surname") updateObject["surname"] = data_value;
+            if (data_type === "email") updateObject["email"] = data_value;
+            if (data_type === "gender") updateObject["gender"] = data_value;
+            if (data_type === "phone")
+              updateObject["phone_number"] = data_value;
+            if (data_type === "profile_picture") {
+              let fileUploadName = `profile_${uuidv4()}.${extension}`;
+              const uploadProfile = await uploadBase64ToS3(
+                data_value,
+                process.env.AWS_S3_CLIENTS_PROFILES_BUCKET_NAME,
+                fileUploadName
+              );
+
+              if (uploadProfile) {
+                updateObject["profile_picture"] = uploadProfile;
+              } else {
+                return res.send({ response: "error" });
+              }
+            }
+
+            //...
+            const updatedUser = await UserModel.update(
+              { id: userData.id },
+              updateObject
+            );
+
+            res.send({ response: "success" });
           } //Invalid data
           else {
             resolve({ response: "error" });
           }
-        })
-          .then((result) => {
-            logger.info(result);
-            if (result.response == "success") {
-              //- update the cached data
-              let redisKey = `${req.user_identifier}-cachedProfile-data`;
-              //! Delete previous cache
-              // redisCluster.del(redisKey);
-              //...
-              dynamo_find_query({
-                table_name: "users_central",
-                IndexName: "user_identifier",
-                KeyConditionExpression: "user_identifier = :val1",
-                ExpressionAttributeValues: {
-                  ":val1": req.user_identifier,
-                },
-              })
-                .then((userData) => {
-                  if (userData !== undefined && userData.length > 0) {
-                    //Valid info
-                    redisCluster.setex(
-                      redisKey,
-                      parseInt(process.env.REDIS_EXPIRATION_5MIN) * 404,
-                      JSON.stringify(userData)
-                    );
-                    //...
-                    res.send({ response: "success" });
-                  } //No valid user
-                  else {
-                    res.send({ response: "error" });
-                  }
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  res.send({ response: "error" });
-                });
-            } //!error
-            else {
-              res.send({ response: "error" });
-            }
-          })
-          .catch((error) => {
-            logger.error(error);
-            res.send({ response: "error" });
-          });
+        } catch (error) {
+          logger.error(error);
+          res.send({ response: "error" });
+        }
       });
 
       //?13. Get the user data
-      //? EFFIENCY A
       app.post("/getGenericUserData", async (req, res) => {
         try {
           const { user_identifier } = req.body;
@@ -2425,12 +2133,46 @@ ElasticSearch_client.ping(
             return res.send({ status: "success", response: [] });
           }
 
+          const profilePicKey = `userprofile-image-${user.id}`;
+          let cachedProfilePicture = await Redis.get(profilePicKey);
+
+          let userProfilePicture = "user.png";
+
+          if (cachedProfilePicture) {
+            cachedProfilePicture = JSON.parse(cachedProfilePicture);
+
+            if (
+              user?.updatedAt.toISOString() ===
+              `${cachedProfilePicture?.updatedAt}`
+            ) {
+              userProfilePicture = cachedProfilePicture.presigned;
+            } else {
+              cachedProfilePicture = null;
+            }
+          }
+
+          if (!cachedProfilePicture && user?.profile_picture !== "user.png") {
+            const freshPresigning = await presignS3URL(user?.profile_picture);
+            userProfilePicture = freshPresigning;
+            //...
+            Redis.set(
+              profilePicKey,
+              JSON.stringify({
+                bare: user?.profile_picture,
+                presigned: freshPresigning,
+                updatedAt: user.updatedAt,
+              }),
+              "EX",
+              60 * 60 * 24 * 7
+            );
+          }
+
           const userProfile = {
             name: user.name,
             surname: user.surname,
             gender: user.gender,
             account_state: user.account_state,
-            profile_picture: `${process.env.AWS_S3_CLIENTS_PROFILES_PATH}/clients_profiles/${user?.profile_picture}`,
+            profile_picture: userProfilePicture,
             is_accountVerified: user?.is_accountVerified,
             phone: user.phone_number,
             email: user.email,
@@ -2495,7 +2237,9 @@ ElasticSearch_client.ping(
                 surname: userData.surname,
                 gender: userData.gender,
                 account_state: userData.account_state,
-                profile_picture: `${process.env.AWS_S3_CLIENTS_PROFILES_PATH}/clients_profiles/${userData?.profile_picture}`,
+                profile_picture: userData?.profile_picture
+                  ? await presignS3URL(userData?.profile_picture)
+                  : "user.png",
                 is_accountVerified: userData?.is_accountVerified,
                 phone: userData.phone_number,
                 email: userData.email,
@@ -2536,7 +2280,6 @@ ElasticSearch_client.ping(
       });
 
       //?16. Create a basic account quickly
-      //? EFFIENCY A
       app.post("/createBasicUserAccount", async (req, res) => {
         try {
           const { phone } = req.body;
@@ -2644,226 +2387,92 @@ ElasticSearch_client.ping(
       });
 
       //?19. Check the user's phone number and send the code and the account status back
-      //? * FOR CHANGING USERS PHONE NUMBERS
-      //? EFFIENCY A
+      //! * FOR CHANGING USERS PHONE NUMBERS
       app.post(
         "/checkPhoneAndSendOTP_changeNumber_status",
-        function (req, res) {
-          new Promise((resolve) => {
-            req = req.body;
-            logger.info(req);
-            if (
-              req.phone !== undefined &&
-              req.phone !== null &&
-              req.user_identifier !== undefined &&
-              req.user_identifier !== null
-            ) {
-              //1. Check if the here another user having that same number
-              dynamo_find_query({
-                table_name: "users_central",
-                IndexName: "phone_number",
-                KeyConditionExpression: "phone_number = :val1",
-                ExpressionAttributeValues: {
-                  ":val1": req.phone,
-                },
-              })
-                .then((userData) => {
-                  if (userData !== undefined && userData.length > 0) {
-                    //!Another user has the same number
-                    resolve({
-                      response: { status: "already_linked_toAnother" },
-                    });
-                  } //Unregistered user
-                  else {
-                    //Get the user details
-                    dynamo_find_query({
-                      table_name: "users_central",
-                      IndexName: "user_identifier",
-                      KeyConditionExpression: "user_identifier = :val1",
-                      ExpressionAttributeValues: {
-                        ":val1": req.user_identifier,
-                      },
-                    })
-                      .then((ownerUserData) => {
-                        if (
-                          ownerUserData !== undefined &&
-                          ownerUserData.length > 0
-                        ) {
-                          //valid user
-                          req["_id"] = ownerUserData[0].id;
+        async (req, res) => {
+          try {
+            const { phone, user_identifier } = req.body;
 
-                          new Promise((resCompute) => {
-                            shouldSendNewSMS({
-                              req: req,
-                              hasAccount: true,
-                              user_identifier: req.user_identifier,
-                              resolve: resCompute,
-                            });
-                          })
-                            .then((didSendOTP) => {
-                              resolve({
-                                response: {
-                                  status: "success",
-                                  didSendOTP: didSendOTP,
-                                  hasAccount: true, //!Has account
-                                  user_identifier: req.user_identifier,
-                                },
-                              });
-                            })
-                            .catch((error) => {
-                              logger.error(error);
-                              resolve({ response: { status: "error" } });
-                            });
-                        } //Invalid user
-                        else {
-                          resolve({ response: { status: "error" } });
-                        }
-                      })
-                      .catch((error) => {
-                        logger.error(error);
-                        resolve({ response: { status: "error" } });
-                      });
-                  }
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  resolve({ response: { status: "error" } });
+            if (phone && user_identifier) {
+              //1. Check if the here another user having that same number
+              const userWithSamePhone = await UserModel.query("phone_number")
+                .eq(phone)
+                .exec();
+
+              if (userWithSamePhone.count <= 0) {
+                //Free number
+                const user = await UserModel.get(user_identifier);
+
+                if (!user) res.send({ response: "error" });
+
+                const sentSMS = await shouldSendNewSMS(user, phone);
+
+                if (sentSMS) {
+                  return res.json({
+                    response: {
+                      status: "success",
+                      didSendOTP: sentSMS,
+                      hasAccount: true,
+                      user_identifier: user_identifier,
+                    },
+                  });
+                }
+
+                res.send({ response: { status: "error" } });
+              } //Number already in use
+              else {
+                res.send({
+                  response: { status: "already_linked_toAnother" },
                 });
+              }
             } //Invalid data
             else {
-              resolve({ response: { status: "error" } });
-            }
-          })
-            .then((result) => {
-              // logger.info(result);
-              res.send(result);
-            })
-            .catch((error) => {
-              logger.error(error);
               res.send({ response: { status: "error" } });
-            });
+            }
+          } catch (error) {
+            logger.error(error);
+            res.send({ response: { status: "error" } });
+          }
         }
       );
 
       //?20. Validate user OTP
-      //? * FOR CHANGING USERS PHONE NUMBERS
-      //? EFFIENCY A
-      app.post("/validateUserOTP_changeNumber", function (req, res) {
-        new Promise((resolve) => {
-          resolveDate();
-          req = req.body;
+      //! * FOR CHANGING USERS PHONE NUMBERS
+      app.post("/validateUserOTP_changeNumber", async (req, res) => {
+        try {
+          const { phone, user_identifier } = req.body;
 
-          logger.info(req);
+          let { otp } = req.body;
 
-          if (
-            req.phone !== undefined &&
-            req.phone !== null &&
-            req.hasAccount !== undefined &&
-            req.hasAccount !== null &&
-            req.otp !== undefined &&
-            req.otp !== null &&
-            req.user_identifier !== undefined &&
-            req.user_identifier !== null &&
-            req.user_identifier !== "false"
-          ) {
-            req.hasAccount =
-              req.hasAccount === true || req.hasAccount === "true"
-                ? true
-                : false;
-            req.otp = parseInt(req.otp);
-            //...
-            dynamo_find_query({
-              table_name: "users_central",
-              IndexName: "user_identifier",
-              KeyConditionExpression: "user_identifier = :val1",
-              FilterExpression: "#a.#p.#o = :val2",
-              ExpressionAttributeValues: {
-                ":val1": req.user_identifier,
-                ":val2": parseInt(req.otp),
+          if (phone && otp && user_identifier) {
+            otp = parseInt(otp);
+
+            const user = await UserModel.get(user_identifier);
+
+            if (!user) res.send({ response: { status: "error" } });
+
+            if (user.otp !== otp)
+              res.send({ response: { status: "wrong_otp" } });
+
+            await UserModel.update(
+              {
+                id: user_identifier,
               },
-              ExpressionAttributeNames: {
-                "#a": "account_verifications",
-                "#p": "phone_verification_secrets",
-                "#o": "otp",
-              },
-            })
-              .then((userData) => {
-                if (userData !== undefined && userData.length > 0) {
-                  //?Found the account
-                  let url = `http://localhost:${process.env.SERVER_MOTHER_PORT}/getGenericUserData`;
-                  requestAPI.post(
-                    {
-                      url,
-                      form: req,
-                    },
-                    function (error, response, body) {
-                      // console.log(error, body);
-                      if (error === null) {
-                        //Success
-                        try {
-                          body = JSON.parse(body);
-                          //? Change the phone details
-                          dynamo_update({
-                            table_name: "users_central",
-                            _idKey: userData[0].id,
-                            UpdateExpression:
-                              "set phone_number = :val1, last_updated = :val2",
-                            ExpressionAttributeValues: {
-                              ":val1": req.phone,
-                              ":val2": new Date(chaineDateUTC).toISOString(),
-                            },
-                          })
-                            .then((result) => {
-                              if (result) {
-                                //Success
-                                //! Delete the user profile cache
-                                let redisKey = `${req.user_identifier}-cachedProfile-data`;
-                                redisCluster.del(redisKey);
-                                //DONE
-                                resolve({
-                                  response: { status: "success" },
-                                });
-                              } //failed
-                              else {
-                                resolve({ response: { status: "error" } });
-                              }
-                            })
-                            .catch((error) => {
-                              logger.error(error);
-                              resolve({ response: { status: "error" } });
-                            });
-                        } catch (error) {
-                          logger.error(error);
-                          resolve({ response: { status: "error" } });
-                        }
-                      } //Failed
-                      else {
-                        resolve({ response: { status: "error" } });
-                      }
-                    }
-                  );
-                } //No account found?
-                else {
-                  resolve({ response: { status: "wrong_otp" } });
-                }
-              })
-              .catch((error) => {
-                logger.error(error);
-                resolve({ response: { status: "error" } });
-              });
+              {
+                phone_number: phone,
+              }
+            );
+
+            res.send({ response: { status: "success" } });
           } //Invalid data
           else {
-            resolve({ response: { status: "error" } });
-          }
-        })
-          .then((result) => {
-            // logger.info(result);
-            res.send(result);
-          })
-          .catch((error) => {
-            logger.error(error);
             res.send({ response: { status: "error" } });
-          });
+          }
+        } catch (error) {
+          logger.error(error);
+          res.send({ response: { status: "error" } });
+        }
       });
 
       //?21. Upload the riders' or drivers pushnotif_token

@@ -2,6 +2,15 @@ const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
 const { ESClient } = require("./ESClient");
+const AWS = require("aws-sdk");
+const { default: axios } = require("axios");
+
+// Configure AWS with your access and secret key.
+AWS.config.update({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: "us-east-1",
+});
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -123,5 +132,57 @@ exports.searchProducts = async (index, criteria) => {
   } catch (error) {
     console.error("Error searching in Elasticsearch:", error);
     throw error;
+  }
+};
+
+exports.uploadBase64ToS3 = async (base64OrFile, bucketName, objectKey) => {
+  const s3 = new AWS.S3();
+
+  try {
+    var buffer = Buffer.from(
+      base64OrFile.replace(/^data:image\/\w+;base64,/, ""),
+      "base64"
+    );
+    var data = {
+      Bucket: bucketName,
+      Key: objectKey,
+      Body: buffer,
+      ContentEncoding: "base64",
+      ContentType: "image/jpeg",
+    };
+
+    const upload = await s3.putObject(data).promise();
+
+    if (!upload.VersionId) return false;
+
+    return `s3://${bucketName}/${encodeURIComponent(objectKey)}`;
+  } catch (error) {
+    console.error("Error in uploading file:", error);
+    return false;
+  }
+};
+
+exports.sendSMS = async (message, phone_number) => {
+  try {
+    const response = await axios.post(
+      process.env.BULKSMS_ENDPOINT,
+      {
+        body: message,
+        to: phone_number.replace("+", "").trim(),
+      },
+      {
+        headers: {
+          Authorization: process.env.BULKSMS_BASIC_AUTH,
+        },
+      }
+    );
+
+    console.log(response.data);
+
+    if (response.status === 200) return true;
+    return false;
+  } catch (error) {
+    logger.error(error);
+    return false;
   }
 };
