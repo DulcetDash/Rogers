@@ -251,16 +251,6 @@ const getStores = async () => {
   try {
     let redisKey = "get-stores";
 
-    let cachedData = await Redis.get(redisKey);
-
-    if (cachedData) {
-      try {
-        return { response: JSON.parse(cachedData) };
-      } catch (error) {
-        logger.error(error);
-      }
-    }
-
     const stores = await StoreModel.scan().all().exec();
 
     if (stores.length > 0) {
@@ -293,54 +283,6 @@ const getStores = async () => {
                 date_added: new Date(store.createdAt).getTime(),
               };
               //...
-              //? Determine the times
-              let store_opening_ref =
-                parseInt(
-                  store.opening_time.split(":")[0].replace(/^0/, "").trim()
-                ) *
-                  60 +
-                parseInt(
-                  store.opening_time.split(":")[1].replace(/^0/, "").trim()
-                ); //All in minutes
-              let store_closing_ref =
-                parseInt(
-                  store.closing_time.split(":")[0].replace(/^0/, "").trim()
-                ) *
-                  60 +
-                parseInt(
-                  store.closing_time.split(":")[1].replace(/^0/, "").trim()
-                ); //All in minutes
-              //...
-              let ref_time =
-                new Date(chaineDateUTC).getHours() * 60 +
-                new Date(chaineDateUTC).getMinutes();
-
-              if (
-                ref_time >= store_opening_ref &&
-                ref_time <= store_closing_ref
-              ) {
-                //Target: closing
-                let time_left = Math.abs(store_closing_ref - ref_time);
-                time_left =
-                  time_left >= 60
-                    ? `Closing in ${Math.round(time_left / 60)}hours`
-                    : `Closing in ${time_left}min`;
-                //...
-                tmpStore.times.target_state = "Closing";
-                tmpStore.times.string = time_left;
-              } //Target: opening
-              else {
-                let time_left = Math.abs(store_opening_ref - ref_time);
-                time_left =
-                  time_left >= 60
-                    ? `Opening in ${Math.round(time_left / 60)}hours`
-                    : `Opening in ${time_left}min`;
-                //...
-                tmpStore.times.target_state = "Opening";
-                tmpStore.times.string = time_left;
-              }
-
-              tmpStore.times.target_state = "Opening";
               tmpStore.times.string = storeTimeStatus(
                 store.opening_time,
                 store.closing_time
@@ -864,204 +806,152 @@ function isUserValid(user_identifier, resolve) {
 /**
  * @func getRecentlyVisitedShops
  * Responsible to get the 3 latest visited shops by the user
- * @param req: the request data including the user_identifier
+ * @param user_identifier: the request data including the user_identifier
  * @param redisKey: the redis key to which the results will be cached.
  * @param resolve
  */
-function getRecentlyVisitedShops(req, redisKey, resolve) {
+const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
+  let cachedData = await Redis.get(redisKey);
+
+  if (cachedData) {
+    return JSON.parse(cachedData);
+  }
+
   //1. Get all the requests made by the user
-  dynamo_find_query({
-    table_name: "requests_central",
-    IndexName: "client_id",
-    KeyConditionExpression: "client_id = :val1",
-    ExpressionAttributeValues: {
-      ":val1": req.user_identifier,
-    },
-  })
-    .then((requestData) => {
-      // logger.warn(requestData);
-      if (requestData !== undefined && requestData.length > 0) {
-        //Has some requests
-        //?1. Reformat the dates
-        requestData = requestData.map((request) => {
-          request.date_requested = new Date(request.date_requested);
-          return request;
-        });
-        //?2. Sort in descending order
-        requestData.sort((a, b) =>
-          a.date_requested > b.date_requested
-            ? -1
-            : b.date_requested > a.date_requested
-            ? 1
-            : 0
-        );
-        //?3. Only take the shopping requests
-        requestData = requestData.filter(
-          (el) => el.ride_mode.toLowerCase().trim() === "shopping"
-        );
-        //?4. Only take the 2 first
-        requestData = requestData.slice(0, 1);
+  const requests = await RequestsModel.query("client_id")
+    .eq(user_identifier)
+    .exec();
+  let requestData = requests;
 
-        //! Get the stores
-        let parentPromises = requestData.map((request) => {
-          return new Promise((resGetStores) => {
-            dynamo_find_query({
-              table_name: "shops_central",
-              IndexName: "shop_fp",
-              KeyConditionExpression: "shop_fp = :val1",
-              ExpressionAttributeValues: {
-                ":val1": request.shopping_list[0].meta.store_fp,
-              },
-            })
-              .then((storeData) => {
-                if (storeData !== undefined && storeData !== null) {
-                  //Found the store
-                  store = storeData[0];
-                  //...
-                  let tmpStore = {
-                    name: store.name,
-                    fd_name: store.friendly_name,
-                    type: store.shop_type,
-                    description: store.description,
-                    background: store.shop_background_color,
-                    border: store.border_color,
-                    logo: `${process.env.AWS_S3_SHOPS_LOGO_PATH}/${store.shop_logo}`,
-                    fp: store.shop_fp,
-                    structured: store.structured_shopping,
-                    times: {
-                      target_state: null, //two values: opening or closing
-                      string: null, //something like: opening in ...min or closing in ...h
-                    },
-                    date_added: new Date(store.date_added).getTime(),
-                    date_requested_from_here: request.date_requested,
-                  };
-                  //...
-                  resGetStores(tmpStore);
-                } //Did not finf the store? - deleted, suspended or?
-                else {
-                  resGetStores(false);
-                }
-              })
-              .catch((error) => {
-                logger.error(error);
-                resGetStores(false);
-              });
-          });
-        });
-
-        Promise.all(parentPromises)
-          .then((resultStores) => {
-            //!5. Remove the false values
-            resultStores = resultStores.filter((el) => el !== false);
-            //?6. Sort based on when the user requested from here
-            resultStores.sort((a, b) =>
-              a.date_requested_from_here > b.date_requested_from_here
-                ? -1
-                : b.date_requested_from_here > a.date_requested_from_here
-                ? 1
-                : 0
-            );
-            //?7. Cache
-            let response = { response: resultStores };
-            redisCluster.setex(
-              redisKey,
-              parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
-              JSON.stringify(response)
-            );
-            //?3. DONE
-            resolve(response);
-          })
-          .catch((error) => {
-            logger.error(error);
-            let response = { response: [] };
-            //Cache
-            redisCluster.setex(
-              redisKey,
-              parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
-              JSON.stringify(response)
-            );
-            resolve(response);
-          });
-      } //No requests
-      else {
-        let response = { response: [] };
-        //Cache
-        redisCluster.setex(
-          redisKey,
-          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
-          JSON.stringify(response)
-        );
-        resolve(response);
-      }
-    })
-    .catch((error) => {
-      logger.error(error);
-      let response = { response: [] };
-      //Cache
-      redisCluster.setex(
-        redisKey,
-        parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
-        JSON.stringify(response)
-      );
-      resolve(response);
+  if (requests.count > 0) {
+    //Has some requests
+    //?1. Reformat the dates
+    requestData = requestData.map((request) => {
+      request.date_requested = new Date(request.date_requested);
+      return request;
     });
-}
+    //?2. Sort in descending order
+    requestData.sort((a, b) =>
+      a.date_requested > b.date_requested
+        ? -1
+        : b.date_requested > a.date_requested
+        ? 1
+        : 0
+    );
+    //?3. Only take the shopping requests
+    requestData = requestData.filter(
+      (el) => el.ride_mode.toLowerCase().trim() === "shopping"
+    );
+    //?4. Only take the 2 first
+    requestData = requestData.slice(0, 1);
+
+    //! Get the stores
+    const storesFP = [
+      ...new Set(
+        requestData
+          .map((request) => {
+            const tmp = request.shopping_list.map((shop) => ({
+              store_id: shop.meta.store_fp,
+              createdAt: request.createdAt,
+            }));
+            return tmp;
+          })
+          .flat()
+      ),
+    ];
+
+    const stores = (
+      await Promise.all(
+        storesFP.map(async (request) => {
+          const store = await StoreModel.get(request.store_id);
+
+          if (!store) return false;
+
+          const logo = await presignS3URL(store.shop_logo);
+
+          let tmpStore = {
+            name: store.name,
+            fd_name: store.friendly_name,
+            type: store.shop_type,
+            description: store.description,
+            background: store.shop_background_color,
+            border: store.border_color,
+            logo,
+            fp: store.id,
+            structured: store.structured_shopping,
+            times: {
+              target_state: null, //two values: opening or closing
+              string: null, //something like: opening in ...min or closing in ...h
+            },
+            date_added: new Date(request.createdAt).getTime(),
+            date_requested_from_here: request.createdAt,
+          };
+
+          tmpStore.times.string = storeTimeStatus(
+            store.opening_time,
+            store.closing_time
+          );
+
+          return tmpStore;
+        })
+      )
+    ).filter((el) => el);
+
+    //?6. Sort based on when the user requested from here
+    stores.sort((a, b) =>
+      a.date_requested_from_here > b.date_requested_from_here
+        ? -1
+        : b.date_requested_from_here > a.date_requested_from_here
+        ? 1
+        : 0
+    );
+    //?7. Cache
+    let response = { response: stores };
+
+    Redis.set(redisKey, JSON.stringify(response), "EX", 5 * 60);
+
+    return response;
+  } //No requests
+  else {
+    let response = { response: [] };
+    Redis.set(redisKey, JSON.stringify(response), "EX", 5 * 60);
+    return response;
+  }
+};
 
 /**
  * @func getRequestListDataUsers
  * Responsible for getting the request list for the users
- * @param req: the request data including the user_identifier
- * @param redisKey: the redis key to which the valid results will be cached
- * @param resolve
  */
-function getRequestListDataUsers(req, redisKey, resolve) {
-  dynamo_find_query({
-    table_name: "requests_central",
-    IndexName: "client_id",
-    KeyConditionExpression: "client_id = :val1",
-    ExpressionAttributeValues: {
-      ":val1": req.user_identifier,
-    },
-  })
-    .then((requestData) => {
-      logger.error(requestData);
-      //...
-      if (requestData !== undefined && requestData.length > 0) {
-        //Has some requests
-        let RETURN_DATA_TEMPLATE = [];
+const getRequestListDataUsers = async (user_identifier) => {
+  const requests = await RequestsModel.query("client_id")
+    .eq(user_identifier)
+    .exec();
 
-        requestData.map((request) => {
-          let tmpRequest = {
-            request_type: request.ride_mode,
-            date_requested: request.date_requested,
-            locations: request.locations,
-            shopping_list:
-              request.ride_mode.toLowerCase() === "shopping"
-                ? request.shopping_list
-                : null,
-          };
-          //...Save
-          RETURN_DATA_TEMPLATE.push(tmpRequest);
-        });
-        //...
-        let response = { response: RETURN_DATA_TEMPLATE };
-        //Cache
-        redisCluster.setex(
-          redisKey,
-          parseInt(process.env.REDIS_EXPIRATION_5MIN) * 400,
-          JSON.stringify(response)
-        );
-        resolve(response);
-      } //No requests
-      else {
-        resolve({ response: [] });
-      }
-    })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: [] });
+  if (requests.count > 0) {
+    //Has some requests
+
+    const RETURN_DATA_TEMPLATE = requests.map((request) => {
+      let tmpRequest = {
+        request_type: request.ride_mode,
+        date_requested: request.date_requested,
+        locations: request.locations,
+        shopping_list:
+          request.ride_mode.toLowerCase() === "shopping"
+            ? request.shopping_list
+            : null,
+        cancelled: !!request.date_cancelled,
+        createdAt: request.createdAt,
+      };
+      return tmpRequest;
     });
-}
+    //...
+
+    return { response: RETURN_DATA_TEMPLATE };
+  } else {
+    return { response: [] };
+  }
+};
 
 /**
  * @func updateRidersPushNotifToken
@@ -2240,65 +2130,17 @@ ElasticSearch_client.ping(
       // })
 
       //?11. get the list of requests for riders
-      //? EFFIENCY A
-      app.post("/getRequestListRiders", function (req, res) {
-        new Promise((resolve) => {
-          req = req.body;
+      app.post("/getRequestListRiders", async (req, res) => {
+        try {
+          const { user_identifier } = req.body;
 
-          if (
-            req.user_identifier !== undefined &&
-            req.user_identifier !== null
-          ) {
-            let redisKey = `${req.user_identifier}-requestListCached`;
+          const requestHistory = await getRequestListDataUsers(user_identifier);
 
-            //TODO: .sort({ date_requested: -1 })
-            redisGet(redisKey).then((resp) => {
-              if (resp !== null) {
-                //Has some data
-                try {
-                  resp = JSON.parse(resp);
-                  resolve(resp);
-                } catch (error) {
-                  //Make a fresh request
-                  logger.error(error);
-                  new Promise((resCompute) => {
-                    getRequestListDataUsers(req, redisKey, resCompute);
-                  })
-                    .then((result) => {
-                      resolve(result);
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve({ response: [] });
-                    });
-                }
-              } //No data - fresh request
-              else {
-                new Promise((resCompute) => {
-                  getRequestListDataUsers(req, redisKey, resCompute);
-                })
-                  .then((result) => {
-                    resolve(result);
-                  })
-                  .catch((error) => {
-                    logger.error(error);
-                    resolve({ response: [] });
-                  });
-              }
-            });
-          } //Invalid data
-          else {
-            resolve({ response: [] });
-          }
-        })
-          .then((result) => {
-            logger.info(result);
-            res.send(result);
-          })
-          .catch((error) => {
-            logger.error(error);
-            res.send({ response: [] });
-          });
+          res.send(requestHistory);
+        } catch (error) {
+          logger.error(error);
+          res.send({ response: [] });
+        }
       });
 
       //?12. Update the users information
@@ -2779,79 +2621,26 @@ ElasticSearch_client.ping(
       });
 
       //?18. Get the go again list of the 3 recently visited shops - only for users
-      //? EFFIENCY A
-      app.post("/getRecentlyVisitedShops", function (req, res) {
-        new Promise((resolve) => {
-          resolveDate();
+      app.post("/getRecentlyVisitedShops", async (req, res) => {
+        let redisKey = `${req.user_identifier}-cachedRecentlyVisited_shops`;
 
-          req = req.body;
-          logger.info(req);
+        try {
+          const { user_identifier } = req.body;
 
-          if (
-            req.user_identifier !== undefined &&
-            req.user_identifier !== null
-          ) {
-            let redisKey = `${req.user_identifier}-cachedRecentlyVisited_shops`;
+          if (user_identifier) {
+            const recentShops = await getRecentlyVisitedShops(
+              user_identifier,
+              redisKey
+            );
 
-            redisGet(redisKey)
-              .then((resp) => {
-                if (resp !== null) {
-                  //Has some cached data
-                  try {
-                    new Promise((resCompute) => {
-                      getRecentlyVisitedShops(req, redisKey, resCompute);
-                    })
-                      .then((result) => {})
-                      .catch((error) => {
-                        logger.error(error);
-                      });
-
-                    resp = JSON.parse(resp);
-                    resolve(resp);
-                  } catch (error) {
-                    //Make a fresh request
-                    new Promise((resCompute) => {
-                      getRecentlyVisitedShops(req, redisKey, resCompute);
-                    })
-                      .then((result) => {
-                        resolve(result);
-                      })
-                      .catch((error) => {
-                        logger.error(error);
-                        resolve({ response: [] });
-                      });
-                  }
-                } //No cached data - fresh request
-                else {
-                  new Promise((resCompute) => {
-                    getRecentlyVisitedShops(req, redisKey, resCompute);
-                  })
-                    .then((result) => {
-                      resolve(result);
-                    })
-                    .catch((error) => {
-                      logger.error(error);
-                      resolve({ response: [] });
-                    });
-                }
-              })
-              .catch((error) => {
-                logger.error(error);
-                resolve({ response: [] });
-              });
-          } //Invalid data
-          else {
-            resolve({ response: [] });
-          }
-        })
-          .then((result) => {
-            // logger.info(result);
-            res.send(result);
-          })
-          .catch((error) => {
-            logger.error(error);
+            res.send(recentShops);
+          } else {
             res.send({ response: [] });
-          });
+          }
+        } catch (error) {
+          logger.error(error);
+          res.send({ response: [] });
+        }
       });
 
       //?19. Check the user's phone number and send the code and the account status back
