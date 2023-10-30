@@ -451,7 +451,7 @@ const attachCoordinatesAndRegion = async (littlePack) => {
     if (
         cachedData &&
         cachedData !== 'false' &&
-        JSON.parse(cachedData)?.result
+        JSON.parse(cachedData)?.result?.geometry
     ) {
         const cachedProcessed = JSON.parse(cachedData);
         logger.warn('Using cached coordinates and region');
@@ -476,7 +476,7 @@ const attachCoordinatesAndRegion = async (littlePack) => {
         .eq(littlePack.location_id)
         .exec();
 
-    if (previousSearches.count > 0) {
+    if (previousSearches.count > 0 && previousSearches[0]?.result?.geometry) {
         //Found
         const previousData = previousSearches[0];
         //Has a previous record
@@ -528,7 +528,10 @@ const doFreshGoogleSearchAndReturn = async (littlePack, redisKey) => {
             .eq(littlePack.location_id)
             .exec();
 
-        if (enrichedLocation.count > 0 && enrichedLocation[0]?.result) {
+        if (
+            enrichedLocation.count > 0 &&
+            enrichedLocation[0]?.result?.geometry
+        ) {
             const enrichedLocationData = enrichedLocation[0];
             let refinedExtractions = arrangeAndExtractSuburbAndStateOrMore(
                 enrichedLocationData,
