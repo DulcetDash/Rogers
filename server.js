@@ -1,11 +1,9 @@
+require("newrelic");
 require("dotenv").config();
-//require("newrelic");
+
 var express = require("express");
 const http = require("http");
-const fs = require("fs");
 const path = require("path");
-var fastFilter = require("fast-filter");
-const FuzzySet = require("fuzzyset");
 const crypto = require("crypto");
 var otpGenerator = require("otp-generator");
 var elasticsearch = require("elasticsearch");

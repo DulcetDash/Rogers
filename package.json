@@ -2,9 +2,11 @@
   "name": "dulcetdash-server",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node -r newrelic server.js",
+    "dev": "nodemon server.js"
   },
   "dependencies": {
     "@elastic/elasticsearch": "^8.10.0",
@@ -20,7 +22,6 @@
     "express": "^4.17.1",
     "fast-filter": "^1.0.4",
     "flatted": "^3.1.1",
-    "fuzzyset": "^1.0.7",
     "helmet": "^4.6.0",
     "ioredis": "^5.3.2",
     "is-base64": "^1.1.0",
@@ -28,13 +29,12 @@
     "lodash": "^4.17.21",
     "moment": "^2.29.4",
     "morgan": "^1.10.0",
-    "newrelic": "^7.4.0",
+    "newrelic": "^7.5.2",
     "nodemailer": "^6.7.0",
     "otp-generator": "^4.0.0",
     "redis": "^4.6.10",
     "redis-clustr": "^1.4.3",
     "request": "^2.88.2",
-    "socket.io": "^4.0.1",
     "uuid": "^9.0.1",
     "winston": "^3.3.3"
   },
