@@ -1711,8 +1711,7 @@ app.post('/requestForRideOrDelivery', async (req, res) => {
 
                 console.log(newRequest);
 
-                // res.json({ response: "successful" });
-                res.json({ response: 'unable_to_request' });
+                res.json({ response: 'successful' });
             } //Has a pending request
             else {
                 res.json({ response: 'has_a_pending_shopping' });
