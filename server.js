@@ -2074,7 +2074,7 @@ app.post('/getGenericUserData', async (req, res) => {
                     updatedAt: user.updatedAt,
                 }),
                 'EX',
-                60 * 60 * 24 * 7
+                30 * 60
             );
         }
 
