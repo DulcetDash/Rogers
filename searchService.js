@@ -2163,13 +2163,11 @@ exports.getSearchedLocations = async (query) => {
         //..
         logger.info(query);
         //Update search timestamp
-        let search_timestamp = new Date(chaineDateUTC).getTime();
+        let search_timestamp = new Date().getTime();
         state =
             state !== undefined
                 ? state.replace(/ Region/i, '').trim()
                 : 'Khomas'; //Default to Khomas
-
-        let redisKeyConsistencyKeeper = `${user_fp}-autocompleteSearchRecordTime-${city}-${state}`;
 
         const result = await getLocationList_five(
             userQuery,
@@ -2179,36 +2177,7 @@ exports.getSearchedLocations = async (query) => {
             query
         );
 
-        //? Get the redis record time and compare
-        const cachedData = await Redis.get(redisKeyConsistencyKeeper);
-
-        if (cachedData) {
-            const resp = JSON.parse(cachedData);
-            if (result?.result && result?.result?.[0]?.query) {
-                // logger.warn(`Redis last time record: ${resp}`);
-                // logger.warn(`Request time record: ${result.result[0].query}`);
-                // logger.warn(
-                //   `Are search results consistent ? --> ${
-                //     resp === result.result[0].query
-                //   }`
-                // );
-                if (resp === result.result[0].query) {
-                    //Inconsistent - do not update
-                    //res.send(false);
-                    return { result };
-                } //Consistent - update
-                else {
-                    logger.info('Inconsistent');
-                    //logObject(result);
-                    return false;
-                }
-            } //Nothing the compare to
-            else {
-                return false;
-            }
-        } else {
-            return result;
-        }
+        return result;
     } catch (error) {
         console.error(error);
         return false;
