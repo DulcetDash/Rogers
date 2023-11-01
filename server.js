@@ -9,6 +9,7 @@ var otpGenerator = require('otp-generator');
 const morgan = require('morgan');
 const { v4: uuidv4 } = require('uuid');
 const Redis = require('./Utility/redisConnector');
+const bcrypt = require('bcrypt');
 
 const { logger } = require('./LogService');
 const { sendSMS, uploadBase64ToS3 } = require('./Utility/Utils');
@@ -109,6 +110,8 @@ const {
 } = require('./Utility/Utils');
 const CatalogueModel = require('./models/CatalogueModel');
 const { processCourierDrivers_application } = require('./serverAccounts');
+const AdminsModel = require('./models/AdminsModel');
+const sendEmail = require('./Utility/sendEmail');
 
 function SendSMSTo(phone_number, message) {
     // Load the AWS SDK for Node.js
@@ -5005,563 +5008,117 @@ app.post('/getSummaryData', function (req, res) {
 });
 
 //! 7. Login checks for the admins
-app.post('/loginOrChecksForAdmins', function (req, res) {
-    resolveDate();
+app.post('/loginOrChecksForAdmins', async (req, res) => {
+    try {
+        let { email, password, otp, id: adminId } = req.body;
 
-    req = req.body;
+        if (!email || !password) return res.send({ response: 'error' });
 
-    if (
-        req.email !== undefined &&
-        req.email !== null &&
-        req.password !== undefined &&
-        req.password !== null
-    ) {
+        const admin = await AdminsModel.query('corporate_email')
+            .eq(email)
+            .exec();
+
+        if (admin.count <= 0)
+            return res.send({ response: 'incorrect_credentials' });
+
+        const adminData = admin[0];
+
         //Valid set of data
-        if (req.otp === undefined) {
+        if (!otp) {
             //Check login credentials
-            req.email = req.email.trim();
-            req.password = req.password.trim();
-            //...
-            //Hash the password
-            new Promise((resolve) =>
-                generateUniqueFingerprint(
-                    req.password,
-                    'sha512WithRSAEncryption',
-                    resolve
-                )
-            )
-                .then((passwordHashed) => {
-                    //?Check the credentials
-                    dynamo_find_query({
-                        table_name: 'administration_central',
-                        IndexName: 'corporate_email',
-                        KeyConditionExpression: 'corporate_email = :val1',
-                        FilterExpression: 'password = :val2',
-                        ExpressionAttributeValues: {
-                            ':val1': req.email,
-                            ':val2': passwordHashed,
-                        },
-                    })
-                        .then((adminData) => {
-                            if (
-                                adminData !== undefined &&
-                                adminData !== false &&
-                                adminData.length > 0
-                            ) {
-                                //! Found the admin
-                                //Generate the otp - 8-digits
-                                let otp = otpGenerator.generate(8, {
-                                    lowerCaseAlphabets: false,
-                                    upperCaseAlphabets: false,
-                                    specialChars: false,
-                                });
-                                //! --------------
-                                otp =
-                                    String(otp).length < 8
-                                        ? parseInt(otp) * 10
-                                        : otp;
+            email = email.trim();
+            password = password.trim();
 
-                                //? Update the otp in the admin profile
-                                dynamo_update({
-                                    table_name: 'administration_central',
-                                    _idKey: adminData[0].id,
-                                    UpdateExpression:
-                                        'set #sec.#spin = :val1, #sec.#date_word = :val2',
-                                    ExpressionAttributeValues: {
-                                        ':val1': parseInt(otp),
-                                        ':val2': new Date(
-                                            chaineDateUTC
-                                        ).toISOString(),
-                                    },
-                                    ExpressionAttributeNames: {
-                                        '#sec': 'security_details',
-                                        '#spin': 'security_pin',
-                                        '#date_word': 'date_created',
-                                    },
-                                })
-                                    .then((result) => {
-                                        if (result) {
-                                            let emailTemplate = `<!doctype html>
-                      <html>
-          
-                      <head>
-                        <meta charset="utf-8">
-                        <meta http-equiv="x-ua-compatible" content="ie=edge">
-                        <title></title>
-                        <meta name="description" content="">
-                        <meta name="viewport" content="width=device-width, initial-scale=1">
-          
-          
-                        <style type="text/css">
-                          a {
-                            color: #0000ee;
-                            text-decoration: underline;
-                          }
-                          
-                          a:hover {
-                            color: #0000ee;
-                            text-decoration: underline;
-                          }
-                          
-                          .u-row {
-                            display: flex;
-                            flex-wrap: nowrap;
-                            margin-left: 0;
-                            margin-right: 0;
-                          }
-                          
-                          .u-row .u-col {
-                            position: relative;
-                            width: 100%;
-                            padding-right: 0;
-                            padding-left: 0;
-                          }
-                          
-                          .u-row .u-col.u-col-100 {
-                            flex: 0 0 100%;
-                            max-width: 100%;
-                          }
-                          
-                          @media (max-width: 767px) {
-                            .u-row:not(.no-stack) {
-                              flex-wrap: wrap;
-                            }
-                            .u-row:not(.no-stack) .u-col {
-                              flex: 0 0 100% !important;
-                              max-width: 100% !important;
-                            }
-                          }
-                          
-                          body,
-                          html {
-                            padding: 0;
-                            margin: 0;background-color:#fff;
-                          }
-                          
-                          html {
-                            box-sizing: border-box
-                          }
-                          
-                          *,
-                          :after,
-                          :before {
-                            box-sizing: inherit
-                          }
-                          
-                          html {
-                            font-size: 14px;
-                            -ms-overflow-style: scrollbar;
-                            -webkit-tap-highlight-color: rgba(0, 0, 0, 0)
-                          }
-                          
-                          body {
-                            font-family: Arial, Helvetica, sans-serif;
-                            font-size: 1rem;
-                            line-height: 1.5;
-                            color: #373a3c;
-                            background-color: #fff
-                          }
-                          
-                          p {
-                            margin: 0
-                          }
-                          
-                          .error-field {
-                            -webkit-animation-name: shake;
-                            animation-name: shake;
-                            -webkit-animation-duration: 1s;
-                            animation-duration: 1s;
-                            -webkit-animation-fill-mode: both;
-                            animation-fill-mode: both
-                          }
-                          
-                          .error-field input,
-                          .error-field textarea {
-                            border-color: #a94442!important;
-                            color: #a94442!important
-                          }
-                          
-                          .field-error {
-                            padding: 5px 10px;
-                            font-size: 14px;
-                            font-weight: 700;
-                            position: absolute;
-                            top: -20px;
-                            right: 10px
-                          }
-                          
-                          .field-error:after {
-                            top: 100%;
-                            left: 50%;
-                            border: solid transparent;
-                            content: " ";
-                            height: 0;
-                            width: 0;
-                            position: absolute;
-                            pointer-events: none;
-                            border-color: rgba(136, 183, 213, 0);
-                            border-top-color: #ebcccc;
-                            border-width: 5px;
-                            margin-left: -5px
-                          }
-                          
-                          .spinner {
-                            margin: 0 auto;
-                            width: 70px;
-                            text-align: center
-                          }
-                          
-                          .spinner>div {
-                            width: 12px;
-                            height: 12px;
-                            background-color: hsla(0, 0%, 100%, .5);
-                            margin: 0 2px;
-                            border-radius: 100%;
-                            display: inline-block;
-                            -webkit-animation: sk-bouncedelay 1.4s infinite ease-in-out both;
-                            animation: sk-bouncedelay 1.4s infinite ease-in-out both
-                          }
-                          
-                          .spinner .bounce1 {
-                            -webkit-animation-delay: -.32s;
-                            animation-delay: -.32s
-                          }
-                          
-                          .spinner .bounce2 {
-                            -webkit-animation-delay: -.16s;
-                            animation-delay: -.16s
-                          }
-                          
-                          @-webkit-keyframes sk-bouncedelay {
-                            0%,
-                            80%,
-                            to {
-                              -webkit-transform: scale(0)
-                            }
-                            40% {
-                              -webkit-transform: scale(1)
-                            }
-                          }
-                          
-                          @keyframes sk-bouncedelay {
-                            0%,
-                            80%,
-                            to {
-                              -webkit-transform: scale(0);
-                              transform: scale(0)
-                            }
-                            40% {
-                              -webkit-transform: scale(1);
-                              transform: scale(1)
-                            }
-                          }
-                          
-                          @-webkit-keyframes shake {
-                            0%,
-                            to {
-                              -webkit-transform: translateZ(0);
-                              transform: translateZ(0)
-                            }
-                            10%,
-                            30%,
-                            50%,
-                            70%,
-                            90% {
-                              -webkit-transform: translate3d(-10px, 0, 0);
-                              transform: translate3d(-10px, 0, 0)
-                            }
-                            20%,
-                            40%,
-                            60%,
-                            80% {
-                              -webkit-transform: translate3d(10px, 0, 0);
-                              transform: translate3d(10px, 0, 0)
-                            }
-                          }
-                          
-                          @keyframes shake {
-                            0%,
-                            to {
-                              -webkit-transform: translateZ(0);
-                              transform: translateZ(0)
-                            }
-                            10%,
-                            30%,
-                            50%,
-                            70%,
-                            90% {
-                              -webkit-transform: translate3d(-10px, 0, 0);
-                              transform: translate3d(-10px, 0, 0)
-                            }
-                            20%,
-                            40%,
-                            60%,
-                            80% {
-                              -webkit-transform: translate3d(10px, 0, 0);
-                              transform: translate3d(10px, 0, 0)
-                            }
-                          }
-                          
-                          @media only screen and (max-width:480px) {
-                            .container {
-                              max-width: 100%!important
-                            }
-                          }
-                          
-                          .container {
-                            width: 100%;
-                            padding-right: 0;
-                            padding-left: 0;
-                            margin-right: auto;
-                            margin-left: auto
-                          }
-                          
-                          
-                          
-                          a[onclick] {
-                            cursor: pointer;
-                          }
-                        </style>
-          
-          
-                      </head>
-          
-                      <body style="background-color:#fff;padding:30px;">
-          
-                        <div style="display:flex;flex-direction:row;height:70px;">
-                          <div style="border:1px solid transparent;height:70px;width:120px;"><img style="width:100%;height:100%;object-fit: contain;" alt="DulcetDash" src="https://orngeneralassets.s3.amazonaws.com/dulcetdash.png" /></div>
-                        </div>
-          
-                        <!-- Message -->
-                        <div style="font-family:'Consolas, Trebuchet MS', 'Lucida Sans Unicode', 'Consolas, Lucida Grande', 'Lucida Sans', Arial, sans-serif;font-size: 16px;margin-top: 40px;">
-                          Hi ${adminData[0].name}, your 8-digits verification code is:
-                        </div>
-          
-                        <!-- Confirm code -->
-                        <div style="font-weight:bold;text-align:center;padding-top:20px;padding-left:45px;border:1px solid #11A05A;width:200px;height:50px;display: flex;flex-direction: row; align-items: center;justify-content: center;letter-spacing: 4px;font-size: 25px;background-color: #11A05A;color:#fff;border-radius: 3px;margin-top: 30px;">
-                          ${otp}
-                        </div>
-          
-                         <!-- Notice -->
-                         <div style="font-family:'Consolas, Trebuchet MS', 'Lucida Sans Unicode', 'Consolas, Lucida Grande', 'Lucida Sans', Arial, sans-serif;font-size: 13px;margin-top: 25px;">
-                          Please make sure to keep it private to you, if you did not request it contact Dominique.
-                        </div>
-          
-                        <!-- Copyright -->
-                        <div style="border-top:1px solid #d0d0d0;padding-top:20px;font-family:'Consolas, Trebuchet MS', 'Lucida Sans Unicode', 'Consolas, Lucida Grande', 'Lucida Sans', Arial, sans-serif;font-size: 13px;margin-top: 75px;">
-                          © 2022 DulcetDash Technologies CC.
-                        </div>
-          
-                      </body>
-          
-                      </html>`;
+            //TODO: DEBUG - cleanup
+            // const salt = await bcrypt.genSalt(10);
+            // const hashedPassword = await bcrypt.hash('12345678', salt);
 
-                                            //Send the OTP email
-                                            //? Send email
-                                            let info =
-                                                transporterChecks.sendMail({
-                                                    from: process.env
-                                                        .EMAIL_CHECK, // sender address
-                                                    to: adminData[0]
-                                                        .corporate_email, // list of receivers
-                                                    subject: `Verification - Cesar`, // Subject line
-                                                    html: emailTemplate,
-                                                });
+            const validPassword = await bcrypt.compare(
+                password,
+                adminData.password
+            );
 
-                                            //?DONE
-                                            // logger.info(
-                                            //   `Sending receipt email...to ${adminData[0].corporate_email}`
-                                            // );
-                                            logger.info(info.messageId);
+            if (!validPassword)
+                return res.send({ response: 'incorrect_credentials' });
 
-                                            res.send({
-                                                response: 'valid_credentials',
-                                                id: adminData[0].id,
-                                            });
-                                        } //Error
-                                        else {
-                                            res.send({ response: 'error' });
-                                        }
-                                    })
-                                    .catch((error) => {
-                                        logger.error(error);
-                                        res.send({ response: 'error' });
-                                    });
-                            } //Incorrect credentials
-                            else {
-                                res.send({ response: 'incorrect_credentials' });
-                            }
-                        })
-                        .catch((error) => {
-                            logger.error(error);
-                            res.send({ response: 'error' });
-                        });
-                })
-                .catch((error) => {
-                    logger.error(error);
-                    res.send({ response: 'error' });
-                });
+            //Generate the otp - 8-digits
+            let otp = otpGenerator.generate(8, {
+                lowerCaseAlphabets: false,
+                upperCaseAlphabets: false,
+                specialChars: false,
+            });
+            otp = String(otp).length < 8 ? parseInt(otp) * 10 : parseInt(otp);
+
+            //Update security PIN
+            await AdminsModel.update(
+                { id: adminData.id },
+                {
+                    security_pin: otp,
+                }
+            );
+
+            //Send the OTP email
+            //? Send email
+            sendEmail({
+                email,
+                fromEmail: 'security@dulcetdash.com',
+                fromName: 'DulcetDash - Cesar',
+                subject: 'Admin Verification Code',
+                message: `Hi Admin\n\n Verification code: ${otp}`,
+            });
+
+            //?DONE
+            logger.info(`Sending receipt email...to ${adminData.email}`);
+
+            res.send({
+                response: 'valid_credentials',
+                id: adminData.id,
+            });
         } //Check logins with OTP for login
         else {
-            //Hash the password
-            //Check login credentials
-            req.email = req.email.trim();
-            req.password = req.password.trim();
-            req.id = req.id.trim();
+            otp = parseInt(otp.trim());
+            email = email.trim();
+            password = password.trim();
+            adminId = adminId.trim();
 
-            logger.error(req);
-            //...
-            //Hash the password
-            new Promise((resolve) =>
-                generateUniqueFingerprint(
-                    req.password,
-                    'sha512WithRSAEncryption',
-                    resolve
-                )
-            )
-                .then((passwordHashed) => {
-                    //!CHECK
-                    dynamo_find_query({
-                        table_name: 'administration_central',
-                        IndexName: 'corporate_email',
-                        KeyConditionExpression: 'corporate_email = :val1',
-                        FilterExpression:
-                            'password = :val2 AND #sec.#spin = :val3',
-                        ExpressionAttributeValues: {
-                            ':val1': req.email,
-                            ':val2': passwordHashed,
-                            ':val3': parseInt(req.otp),
-                        },
-                        ExpressionAttributeNames: {
-                            '#sec': 'security_details',
-                            '#spin': 'security_pin',
-                        },
-                    })
-                        .then((result) => {
-                            if (
-                                result !== undefined &&
-                                result !== null &&
-                                result.length > 0
-                            ) {
-                                //Found the admin
-                                //! Remove the password hash
-                                let adminData = result[0];
-                                adminData.password = null;
-                                //...
+            const validPassword = await bcrypt.compare(
+                password,
+                adminData.password
+            );
 
-                                //! Generate a fresh jwt for 5 days -> 120h
-                                jwt.sign(
-                                    {
-                                        data: req.email,
-                                    },
-                                    `${passwordHashed}-SALTFORJWTORNISS`,
-                                    { expiresIn: '120h' },
-                                    function (err, token) {
-                                        if (err) {
-                                            res.send({ response: 'error' });
-                                        }
-                                        //...
-                                        //! Update the token to the profile
-                                        dynamo_update({
-                                            table_name:
-                                                'administration_central',
-                                            _idKey: req.id,
-                                            UpdateExpression:
-                                                'set token_j = :val1',
-                                            ExpressionAttributeValues: {
-                                                ':val1': token,
-                                            },
-                                        })
-                                            .then((result) => {
-                                                if (result) {
-                                                    //!Get the latest data
-                                                    dynamo_find_query({
-                                                        table_name:
-                                                            'administration_central',
-                                                        IndexName:
-                                                            'corporate_email',
-                                                        KeyConditionExpression:
-                                                            'corporate_email = :val1',
-                                                        FilterExpression:
-                                                            'password = :val2 AND #sec.#spin = :val3',
-                                                        ExpressionAttributeValues:
-                                                            {
-                                                                ':val1':
-                                                                    req.email,
-                                                                ':val2':
-                                                                    passwordHashed,
-                                                                ':val3':
-                                                                    parseInt(
-                                                                        req.otp
-                                                                    ),
-                                                            },
-                                                        ExpressionAttributeNames:
-                                                            {
-                                                                '#sec': 'security_details',
-                                                                '#spin':
-                                                                    'security_pin',
-                                                            },
-                                                    })
-                                                        .then((updatedData) => {
-                                                            if (
-                                                                updatedData !==
-                                                                    undefined &&
-                                                                updatedData !==
-                                                                    null &&
-                                                                updatedData.length >
-                                                                    0
-                                                            ) {
-                                                                //Yea
-                                                                res.send({
-                                                                    response:
-                                                                        'success',
-                                                                    data: updatedData[0],
-                                                                });
-                                                            } //Error
-                                                            else {
-                                                                res.send({
-                                                                    response:
-                                                                        'error',
-                                                                });
-                                                            }
-                                                        })
-                                                        .catch((error) => {
-                                                            logger.error(error);
-                                                            res.send({
-                                                                response:
-                                                                    'error',
-                                                            });
-                                                        });
-                                                } //error
-                                                else {
-                                                    res.send({
-                                                        response: 'error',
-                                                    });
-                                                }
-                                            })
-                                            .catch((error) => {
-                                                logger.error(error);
-                                                res.send({ response: 'error' });
-                                            });
-                                    }
-                                );
-                            } //error
-                            else {
-                                res.send({ response: 'error' });
-                            }
-                        })
-                        .catch((error) => {
-                            logger.error(error);
-                            res.send({ response: 'error' });
-                        });
-                })
-                .catch((error) => {
-                    logger.error(error);
-                    res.send({ response: 'error' });
-                });
+            if (!validPassword)
+                return res.send({ response: 'incorrect_credentials' });
+
+            if (otp !== adminData.security_pin)
+                return res.send({ response: 'error' });
+
+            //! Generate a fresh jwt for 5 days -> 120h
+            const jwtKey = await jwt.sign(
+                {
+                    data: email,
+                    adminId,
+                },
+                process.env.ADMIN_PASSWORD_SECRET_KEY,
+                { expiresIn: '120h' }
+            );
+
+            const updatedAdmin = await AdminsModel.update(
+                {
+                    id: adminData.id,
+                },
+                {
+                    token_j: jwtKey,
+                }
+            );
+
+            //Done
+            res.send({
+                response: 'success',
+                data: updatedAdmin,
+            });
         }
-    } //Invalid data
-    else {
+    } catch (error) {
+        logger.error(error);
         res.send({ response: 'error' });
     }
 });
