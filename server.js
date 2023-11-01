@@ -108,6 +108,7 @@ const {
     uploadToS3,
 } = require('./Utility/Utils');
 const CatalogueModel = require('./models/CatalogueModel');
+const { processCourierDrivers_application } = require('./serverAccounts');
 
 function SendSMSTo(phone_number, message) {
     // Load the AWS SDK for Node.js
@@ -542,7 +543,7 @@ function ucFirst(stringData) {
  * @param hasAccount: true (is an existing user) or false (do not have an account yet)
  * @param resolve
  */
-const shouldSendNewSMS = async (user, phone_number) => {
+const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
     const DAILY_THRESHOLD = parseInt(process.env.DAILY_SMS_THRESHOLD_PER_USER);
 
     let onlyDigitsPhone = phone_number.replace('+', '').trim();
@@ -599,12 +600,22 @@ const shouldSendNewSMS = async (user, phone_number) => {
                 otp: parseInt(otp),
             });
 
-            await UserModel.update(
-                { id: user.id },
-                {
-                    otp: parseInt(otp),
-                }
-            );
+            if (!isDriver) {
+                await UserModel.update(
+                    { id: user.id },
+                    {
+                        otp: parseInt(otp),
+                    }
+                );
+            } //Driver
+            else {
+                await DriversModel.update(
+                    { id: user.id },
+                    {
+                        otp: parseInt(otp),
+                    }
+                );
+            }
 
             return true;
         } else {
@@ -2437,32 +2448,17 @@ app.post('/receivePushNotification_token', function (req, res) {
 /**
  * For the courier driver resgistration
  */
-app.post('/registerCourier_ppline', function (req, res) {
+app.post('/registerCourier_ppline', async (req, res) => {
     logger.info(String(req.body).length);
-    let url =
-        `${
-            /production/i.test(process.env.EVIRONMENT)
-                ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                : process.env.LOCAL_URL
-        }` +
-        ':' +
-        process.env.ACCOUNTS_SERVICE_PORT +
-        '/processCourierDrivers_application';
 
-    requestAPI.post({ url, form: req.body }, function (error, response, body) {
-        logger.info(url);
-        logger.info(body, error);
-        if (error === null) {
-            try {
-                body = JSON.parse(body);
-                res.send(body);
-            } catch (error) {
-                res.send({ response: 'error' });
-            }
-        } else {
-            res.send({ response: 'error' });
-        }
-    });
+    try {
+        const application = await processCourierDrivers_application(req);
+
+        res.send(application);
+    } catch (error) {
+        logger.error(error);
+        res.send({ response: 'error' });
+    }
 });
 
 /**
@@ -3158,103 +3154,98 @@ app.post('/computeDaily_amountMadeSoFar_io', function (req, res) {
     }
 });
 
-app.post('/sendOtpAndCheckerUserStatusTc', function (req, res) {
-    // logger.info(req);
-    req = req.body;
-    //...
-    if (req.phone_number !== undefined && req.phone_number !== null) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.ACCOUNTS_SERVICE_PORT +
-            '/sendOTPAndCheckUserStatus';
+//Drivers checking - Phone number
+app.post('/sendOtpAndCheckerUserStatusTc', async (req, res) => {
+    try {
+        const { phone_number } = req.body;
 
-        // if (req.smsHashLinker !== undefined && req.smsHashLinker !== null) {
-        //   //Attach an hash linker for auto verification
-        //   url += `&smsHashLinker=${encodeURIComponent(req.smsHashLinker)}`;
-        // }
-        // //Attach user nature
-        // if (req.user_nature !== undefined && req.user_nature !== null) {
-        //   url += `&user_nature=${req.user_nature}`;
-        // }
+        if (!phone_number)
+            return res.send({ response: 'error_phone_number_not_received' });
 
-        requestAPI.post({ url, form: req }, function (error, response, body) {
-            //logger.info(body, error);
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    //logger.info("HERE");
-                    res.send(body);
-                } catch (error) {
-                    res.send({
-                        response: 'error_checking_user',
-                    });
-                }
-            } else {
-                res.send({
-                    response: 'error_checking_user',
+        const driver = await DriversModel.query('phone_number')
+            .eq(phone_number)
+            .exec();
+
+        if (driver.count > 0) {
+            const driverData = driver[0];
+
+            const didSendOTP = await shouldSendNewSMS(
+                driverData,
+                phone_number,
+                true
+            );
+
+            if (didSendOTP) {
+                return res.send({
+                    _id: driverData.id,
+                    response: 'registered',
+                    user_fp: driverData.id,
+                    name: driverData.name,
+                    surname: driverData.surname,
+                    gender: driverData.gender,
+                    phone_number: driverData.phone_number,
+                    email: driverData.email,
+                    profile_picture: `${process.env.AWS_S3_DRIVERS_PROFILE_PICTURES_PATH}/${driverData.identification_data.profile_picture}`,
+                    account_state: driverData?.account_state ?? 'valid', //? By default - Valid
+                    pushnotif_token: driverData.pushnotif_token,
+                    suspension_message: driverData.suspension_message,
                 });
             }
-        });
-    } else {
-        res.send({
-            response: 'error_checking_user',
-        });
+
+            return res.send({ response: 'error_checking_user' });
+        } //Unregistered user
+        else {
+            //Get the last
+            const didSendOTP = await shouldSendNewSMS(null, phone_number, true);
+
+            if (didSendOTP) return res.send({ response: 'not_yet_registered' });
+
+            return res.send({ response: 'error_checking_user' });
+        }
+    } catch (error) {
+        logger.error(error);
+        res.send({ response: 'error_checking_user' });
     }
 });
 
-app.post('/checkThisOTP_SMS', function (req, res) {
-    req = req.body;
-    logger.info(req);
-    if (
-        req.phone_number !== undefined &&
-        req.phone_number !== null &&
-        req.otp !== undefined &&
-        req.otp !== null
-    ) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.ACCOUNTS_SERVICE_PORT +
-            '/checkSMSOTPTruly?phone_number=' +
-            req.phone_number +
-            '&otp=' +
-            req.otp;
+//For drivers only
+app.post('/checkThisOTP_SMS', async (req, res) => {
+    try {
+        const { phone_number, otp, user_nature } = req.body;
 
-        //Add the user nature : passengers (undefined) or drivers
-        if (req.user_nature !== undefined && req.user_nature !== null) {
-            url += `&user_nature=${req.user_nature}`;
+        if (!phone_number || !otp)
+            return res.send({ response: 'error_checking_otp' });
+
+        const driver = await DriversModel.query('phone_number')
+            .eq(phone_number)
+            .exec();
+
+        if (!driver) {
+            //Unregistered users
+            const otpCheck = await OTPModel.query('phone_number')
+                .eq(phone_number)
+                .filter('otp')
+                .eq(otp)
+                .exec();
+
+            if (otpCheck.count > 0) return res.send({ response: true });
+
+            return res.send({ response: false });
+        } //Checking for registered user - check the OTP secrets binded to the profile
+        else {
+            const driver = await DriversModel.query('phone_number')
+                .eq(phone_number)
+                .filter('otp')
+                .eq(otp)
+                .exec();
+
+            if (driver.count > 0) return res.send({ response: true });
+
+            res.send({ response: false });
         }
-
-        requestAPI.post({ url, form: req }, function (error, response, body) {
-            //logger.info(body);
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    res.send(body);
-                } catch (error) {
-                    res.send({
-                        response: 'error_checking_otp',
-                    });
-                }
-            } else {
-                res.send({
-                    response: 'error_checking_otp',
-                });
-            }
-        });
-    } else {
-        res.send({
-            response: 'error_checking_otp',
-        });
+    } catch (error) {
+        logger.error(error);
+        res.send({ response: 'error_checking_otp' });
     }
 });
 
