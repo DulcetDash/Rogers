@@ -6,6 +6,23 @@ const driverSchema = new dynamoose.Schema(
             type: String,
             hashKey: true,
         },
+        status: {
+            type: String,
+            enum: ['online', 'offline'],
+            default: 'offline',
+        },
+        operation_clearances: {
+            type: Array,
+            schema: [String],
+            validate: (array) =>
+                array.every((item) => ['DELIVERY'].includes(item)),
+        },
+        regional_clearances: {
+            type: Array,
+            schema: [String],
+            validate: (array) =>
+                array.every((item) => ['WINDHOEK'].includes(item)),
+        },
         name: String,
         surname: String,
         gender: {
@@ -15,13 +32,21 @@ const driverSchema = new dynamoose.Schema(
         },
         account_state: {
             type: String,
-            enum: ['valid', 'suspended', 'blocked', 'deactivated', 'expelled'],
+            enum: [
+                'valid',
+                'suspended',
+                'blocked',
+                'deactivated',
+                'expelled',
+                'online',
+                'offline',
+            ],
             default: 'valid',
         },
         profile_picture: String,
         rating: {
             type: Number,
-            default: 0,
+            default: 5,
         },
         phone_number: {
             type: String,
@@ -34,6 +59,7 @@ const driverSchema = new dynamoose.Schema(
                 throughput: 'ON_DEMAND',
             },
         },
+        email: String,
         identification_number: {
             type: String,
             required: true,
@@ -57,15 +83,19 @@ const driverSchema = new dynamoose.Schema(
             },
         },
         date_of_birth: {
-            type: Date,
+            type: String,
             required: true,
         },
         car_picture: String,
         car_brand: String,
         plate_number: String,
         car_vin: String,
-        pushnotif_token: dynamoose.type.ANY,
-        suspension_message: dynamoose.type.ANY,
+        pushnotif_token: Object,
+        suspension_message: String,
+        isDriverSuspended: {
+            type: Boolean,
+            default: false,
+        },
         otp: {
             type: Number,
         },

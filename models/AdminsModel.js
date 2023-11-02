@@ -23,6 +23,10 @@ const adminsSchema = new dynamoose.Schema(
         otp: Number,
         security_pin: Number,
         token_j: String,
+        isSuspended: {
+            type: Boolean,
+            default: false,
+        },
     },
     {
         timestamps: true,

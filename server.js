@@ -112,6 +112,8 @@ const CatalogueModel = require('./models/CatalogueModel');
 const { processCourierDrivers_application } = require('./serverAccounts');
 const AdminsModel = require('./models/AdminsModel');
 const sendEmail = require('./Utility/sendEmail');
+const DriversApplications = require('./models/DriversApplicationsModel');
+const DriversApplicationsModel = require('./models/DriversApplicationsModel');
 
 function SendSMSTo(phone_number, message) {
     // Load the AWS SDK for Node.js
@@ -1152,79 +1154,6 @@ function getDates(startDate, stopDate) {
     return dateArray;
 }
 
-//! Admininstrators background check before delivering any data
-const AdminsBackgroundCheck = function (req, res, next) {
-    //Isolate only the admins requests requiring data
-    let urlSource = req.url.replace('/', '').trim();
-
-    if (req.body.admin_fp !== undefined && req.body.admin_fp !== null) {
-        //Requests for data
-        let dataSource = req.body;
-
-        //Check if there is any token_j
-        if (dataSource.token_j !== undefined && req.token_j !== null) {
-            // logger.warn(req.body);
-            //Has a token
-            //`${passwordHashed}-SALTFORJWTORNISS`,
-            //?Check for the token's validity
-            dynamo_get_all({
-                table_name: 'administration_central',
-                FilterExpression: 'token_j = :val1',
-                ExpressionAttributeValues: {
-                    ':val1': dataSource.token_j,
-                },
-            })
-                .then((adminData) => {
-                    // logger.info(adminData);
-                    if (
-                        adminData !== undefined &&
-                        adminData !== null &&
-                        adminData.length > 0
-                    ) {
-                        adminData = adminData[0];
-
-                        //!Check the token's validity
-                        let secString = `${adminData.password}-SALTFORJWTORNISS`;
-
-                        jwt.verify(
-                            dataSource.token_j,
-                            secString,
-                            function (err, decoded) {
-                                if (err) {
-                                    res.send({ response: 'error_Logout' });
-                                }
-                                //...
-                                if (
-                                    decoded.data === adminData.corporate_email
-                                ) {
-                                    //Verified
-                                    logger.info('Verified admin');
-                                    next();
-                                } //Suspicious
-                                else {
-                                    res.send({ response: 'error_Logout' });
-                                }
-                            }
-                        );
-                    } //No admin found - log out
-                    else {
-                        res.send({ response: 'error_Logout' });
-                    }
-                })
-                .catch((error) => {
-                    logger.error(error);
-                    res.send({ response: 'error_Logout' });
-                });
-        } //! No token - log out
-        else {
-            res.send({ response: 'error_Logout' });
-        }
-    } //Skip
-    else {
-        next();
-    }
-};
-
 /**
  * @func sendTargetedPushNotifications
  * Responsible for sending push notifications for new requests (rides, deliveries of shopping)
@@ -1317,7 +1246,6 @@ app.use(
             extended: true,
         })
     )
-    .use(AdminsBackgroundCheck)
     .use(cors())
     .use(helmet());
 
@@ -3404,897 +3332,332 @@ app.post('/getRides_historyRiders_batchOrNot', function (req, res) {
  * ADMINISTRATIONS APIS
  */
 //1. Get the list of all the users
-app.post('/getUsersList', function (req, res) {
-    req = req.body;
+app.post('/getUsersList', async (req, res) => {
+    try {
+        const { admin_fp } = req.body;
 
-    if (req.admin_fp !== undefined && req.admin_fp !== null) {
-        dynamo_get_all({
-            table_name: 'users_central',
-        })
-            .then((usersData) => {
-                if (
-                    usersData !== undefined &&
-                    usersData !== null &&
-                    usersData.length > 0
-                ) {
-                    //Found some data
-                    // logger.info(usersData);
-                    //Sort based on the registration date
-                    usersData.sort((a, b) =>
-                        new Date(a.date_registered) >
-                        new Date(b.date_registered)
-                            ? -1
-                            : new Date(a.date_registered) >
-                              new Date(a.date_registered)
-                            ? 1
-                            : 0
-                    );
-                    //DONE
-                    res.send({ response: usersData });
-                } //No users
-                else {
-                    res.send({ response: [] });
-                }
-            })
-            .catch((error) => {
-                logger.error(error);
-                res.send({ response: [] });
+        if (!admin_fp)
+            return res.send({
+                response: [],
+                message: 'Error getting users list',
             });
-    } //Invalid data
-    else {
-        res.send({ response: [] });
+
+        const users = await UserModel.scan().all().exec();
+
+        //Sort based on the registration date
+        users.sort((a, b) =>
+            new Date(a.createdAt) > new Date(b.createdAt)
+                ? -1
+                : new Date(a.createdAt) > new Date(a.createdAt)
+                ? 1
+                : 0
+        );
+
+        res.send({ status: 'success', response: users });
+    } catch (error) {
+        logger.error(error);
+        res.send({
+            status: 'fail',
+            response: [],
+            message: 'Error getting users list',
+        });
     }
 });
 
 //2. Get the list of all the drivers
-app.post('/getDriversList', function (req, res) {
-    req = req.body;
+app.post('/getDriversList', async (req, res) => {
+    try {
+        const { admin_fp } = req.body;
 
-    if (req.admin_fp !== undefined && req.admin_fp !== null) {
-        //1. Get alll the applications
-        dynamo_get_all({
-            table_name: 'drivers_application_central',
-        })
-            .then((applicationData) => {
-                //Sort based on the registration date
-                applicationData.sort((a, b) =>
-                    new Date(a.date_applied) > new Date(b.date_applied)
-                        ? -1
-                        : new Date(a.date_applied) > new Date(a.date_applied)
-                        ? 1
-                        : 0
+        if (!admin_fp)
+            return res.send({ response: { registered: [], awaiting: [] } });
+
+        //1. Get all the applications
+        let applications = (
+            await DriversApplicationsModel.scan()
+                .all()
+                .filter('is_approved')
+                .eq(false)
+                .exec()
+        ).map((driver) => ({ driver_fingerprint: driver.id, ...driver }));
+
+        //Presign images
+        applications = await Promise.all(
+            applications.map(async (driver) => {
+                const driverKey = `${driver.id}-documents`;
+                const cachedImages = await Redis.get(driverKey);
+
+                if (cachedImages) {
+                    driver.documents = JSON.parse(cachedImages);
+                    return driver;
+                }
+
+                let documents = await Promise.all(
+                    Object.keys(driver.documents).map(async (key) => {
+                        const image = driver.documents[key];
+                        const presignedUrl = await presignS3URL(image);
+                        return { [key]: presignedUrl };
+                    })
                 );
 
-                dynamo_get_all({
-                    table_name: 'drivers_shoppers_central',
-                })
-                    .then((usersData) => {
-                        if (
-                            usersData !== undefined &&
-                            usersData !== null &&
-                            usersData.length > 0
-                        ) {
-                            //Found some data
-                            // logger.info(usersData);
-                            //Sort based on the registration date
-                            usersData.sort((a, b) =>
-                                new Date(a.date_registered) >
-                                new Date(b.date_registered)
-                                    ? -1
-                                    : new Date(a.date_registered) >
-                                      new Date(a.date_registered)
-                                    ? 1
-                                    : 0
-                            );
-                            //DONE
-                            res.send({
-                                response: {
-                                    registered: usersData,
-                                    awaiting: applicationData,
-                                },
-                            });
-                        } //No users
-                        else {
-                            res.send({
-                                response: {
-                                    registered: [],
-                                    awaiting: applicationData,
-                                },
-                            });
-                        }
-                    })
-                    .catch((error) => {
-                        logger.error(error);
-                        res.send({
-                            response: {
-                                registered: [],
-                                awaiting: applicationData,
-                            },
-                        });
-                    });
+                documents = documents.reduce((accumulator, current) => {
+                    return { ...accumulator, ...current };
+                }, {});
+
+                driver.documents = documents;
+
+                Redis.set(driverKey, JSON.stringify(documents), 'EX', 30 * 60);
+
+                return driver;
             })
-            .catch((error) => {
-                logger.error(error);
-                res.send({ response: { registered: [], awaiting: [] } });
-            });
-    } //Invalid data
-    else {
+        );
+
+        //Sort based on the registration date
+        applications.sort((a, b) =>
+            new Date(a.date_applied) > new Date(b.date_applied)
+                ? -1
+                : new Date(a.date_applied) > new Date(a.date_applied)
+                ? 1
+                : 0
+        );
+
+        let drivers = (await DriversModel.scan().all().exec()).map(
+            (driver) => ({ driver_fingerprint: driver.id, ...driver })
+        );
+
+        //Add the documents and pictures
+        drivers = await Promise.all(
+            drivers.map(async (driver) => {
+                let driverApplication = await DriversApplicationsModel.get(
+                    driver.id
+                );
+
+                const driverKey = `${driver.id}-documents`;
+                const cachedImages = await Redis.get(driverKey);
+
+                driver.vehicle_details = driverApplication.vehicle_details;
+
+                if (cachedImages) {
+                    driver.documents = JSON.parse(cachedImages);
+                    return driver;
+                }
+
+                let documents = await Promise.all(
+                    Object.keys(driverApplication.documents).map(
+                        async (key) => {
+                            const image = driverApplication.documents[key];
+                            const presignedUrl = await presignS3URL(image);
+                            return { [key]: presignedUrl };
+                        }
+                    )
+                );
+
+                documents = documents.reduce((accumulator, current) => {
+                    return { ...accumulator, ...current };
+                }, {});
+
+                driver.documents = documents;
+
+                Redis.set(driverKey, JSON.stringify(documents), 'EX', 30 * 60);
+
+                return driver;
+            })
+        );
+
+        //Sort based on the registration date
+        drivers.sort((a, b) =>
+            new Date(a.date_registered) > new Date(b.date_registered)
+                ? -1
+                : new Date(a.date_registered) > new Date(a.date_registered)
+                ? 1
+                : 0
+        );
+        //DONE
+        res.send({
+            response: {
+                registered: drivers,
+                awaiting: applications,
+            },
+        });
+    } catch (error) {
+        logger.error(error);
         res.send({ response: { registered: [], awaiting: [] } });
     }
 });
 
 //3. suspended or unsuspend a driver
-app.post('/suspendUnsuspendDriver', function (req, res) {
-    resolveDate();
+app.post('/suspendUnsuspendDriver', async (req, res) => {
+    try {
+        const { admin_fp, operation, driver_id } = req.body;
 
-    req = req.body;
+        if (!admin_fp || !operation || !driver_id)
+            return res.send({ response: 'error' });
 
-    //? Get the _id
-    if (
-        req.admin_fp !== undefined &&
-        req.admin_fp !== null &&
-        req.operation !== undefined &&
-        req.operation !== null &&
-        req.driver_id !== undefined &&
-        req.driver_id !== null
-    ) {
-        dynamo_update({
-            table_name: 'drivers_shoppers_central',
-            _idKey: req.driver_id,
-            UpdateExpression:
-                'set isDriverSuspended = :val1, #idData.#dateUp = :val2, #opState.#st = :val3',
-            ExpressionAttributeValues: {
-                ':val1': req.operation === 'suspend',
-                ':val2': new Date(chaineDateUTC).toISOString(),
-                ':val3': req.operation === 'suspend' ? 'offline' : 'online',
+        await DriversModel.update(
+            {
+                id: driver_id,
             },
-            ExpressionAttributeNames: {
-                '#idData': 'identification_data',
-                '#dateUp': 'date_updated',
-                '#opState': 'operational_state',
-                '#st': 'status',
-            },
-        }).then((result) => {
-            if (result === false) {
-                //Error
-                res.send({ response: 'error' });
+            {
+                isDriverSuspended: operation === 'suspend',
+                account_state: operation === 'suspend' ? 'offline' : 'online',
             }
-            //....
-            res.send({ response: 'success' });
-        });
-    } //Invalid data
-    else {
+        );
+
+        res.send({ response: 'success' });
+    } catch (error) {
+        logger.error(error);
         res.send({ response: 'error' });
     }
 });
 
 //4. Approve driver account
-app.post('/approveDriverAccount', function (req, res) {
-    resolveDate();
-    req = req.body;
+app.post('/approveDriverAccount', async (req, res) => {
+    try {
+        const { admin_fp, driverData } = req.body;
 
-    if (
-        req.admin_fp !== undefined &&
-        req.admin_fp !== null &&
-        req.driverData !== undefined &&
-        req.driverData !== null
-    ) {
-        let driverData = req.driverData;
-        //1. Create a fresh driver object
-        let templateDRIVER = {
-            identification_data: {
-                date_updated: new Date(chaineDateUTC).toISOString(), //Done
-                rating: 5, //Done
-                copy_id_paper: driverData.documents.id_photo, //Done
-                profile_picture: driverData.documents.driver_photo, //Done
-                banking_details: {}, //Done
-                driver_licence_doc: driverData.documents.license_photo, //Done
-                title: 'Mr', //Done
-                copy_blue_paper:
-                    driverData.documents.blue_paper_photo !== undefined
-                        ? driverData.documents.blue_paper_photo
-                        : null, //Done
-                copy_public_permit:
-                    driverData.documents.permit_photo !== undefined
-                        ? driverData.documents.permit_photo
-                        : null, //Done
-                isAccount_verified: true,
-                copy_white_paper:
-                    driverData.documents.white_paper_photo !== undefined
-                        ? driverData.documents.white_paper_photo
-                        : null, //Done
-                paymentNumber: otpGenerator.generate(6, {
-                    lowerCaseAlphabets: false,
-                    upperCaseAlphabets: false,
-                    specialChars: false,
-                }), //Done
-                personal_id_number: 'Not set', //Done
-            },
-            date_updated: new Date(chaineDateUTC).toISOString(), //DOne
-            gender: 'Not set', //Done
-            account_verifications: {},
-            payments_information: {},
-            date_registered: new Date(chaineDateUTC).toISOString(), //Done
-            operation_clearances:
-                driverData.nature_driver === 'COURIER' ? 'DELIVERY' : 'RIDE', //Done
-            passwod: `${otpGenerator.generate(7, {
-                lowerCaseAlphabets: false,
-                upperCaseAlphabets: false,
-                specialChars: false,
-            })}`, //Done
-            owners_information: false, //DOne
-            surname: driverData.surname, //Done
-            driver_fingerprint: driverData.driver_fingerprint, //Done
-            suspension_infos: [], //Done
-            suspension_message: 'false', //Done
-            name: driverData.name, //Done
-            phone_number: /\+/i.test(driverData.phone_number)
-                ? driverData.phone_number
-                : `+${driverData.phone_number}`, //Done
-            cars_data: [
-                {
-                    date_updated: new Date(chaineDateUTC).toISOString(), //Done
-                    permit_number: driverData.vehicle_details.permit_number, //Done
-                    taxi_number: driverData.vehicle_details.taxi_number, //DOne
-                    max_passengers: 4, //Done
-                    taxi_picture: driverData.documents.vehicle_photo, //DOne
-                    car_brand: driverData.vehicle_details.brand_name, //DOne
-                    vehicle_type: 'normalTaxiEconomy', //Done
-                    plate_number: driverData.vehicle_details.plate_number, //Done
-                    car_fingerprint: driverData.id, //Done
-                    model_name: driverData.vehicle_details.model_name, //DOne
-                    color: driverData.vehicle_details.color, //Done
-                    date_registered: new Date(chaineDateUTC).toISOString(), //Done
-                },
-            ],
-            isDriverSuspended: false, //Done
-            operational_state: {
-                last_location: new Date(chaineDateUTC).toISOString(), //Done
-                push_notification_token: 'abc', //Done
-                default_selected_car: {
-                    vehicle_type: 'normalTaxiEconomy', //Done
-                    date_Selected: new Date(chaineDateUTC).toISOString(), //Done
-                    car_fingerprint: driverData.id, //Done
-                    max_passengers: 4, //Done
-                },
-                status: 'online', //Done
-            },
-            regional_clearances: [ucFirst(driverData['city'])], //Done
-            email: driverData['email'], //Done
-        };
+        if (!admin_fp)
+            return res.send({
+                response: 'error',
+                message: 'You are not logged in.',
+            });
 
-        //2. Move all the documents from the application folder to the approved one on S3
-        // logger.warn(templateDRIVER);
-        let filesMap = [
-            {
-                filename: templateDRIVER.identification_data.copy_id_paper,
-                dest_folder: 'Drivers_documents',
-            },
-            {
-                filename: templateDRIVER.identification_data.profile_picture,
-                dest_folder: 'Profiles_pictures',
-            },
-            {
-                filename: templateDRIVER.identification_data.driver_licence_doc,
-                dest_folder: 'Drivers_documents',
-            },
-            {
-                filename: templateDRIVER.identification_data.copy_blue_paper,
-                dest_folder: 'Drivers_documents',
-            },
-            {
-                filename: templateDRIVER.identification_data.copy_public_permit,
-                dest_folder: 'Drivers_documents',
-            },
-            {
-                filename: templateDRIVER.identification_data.copy_white_paper,
-                dest_folder: 'Drivers_documents',
-            },
-            {
-                filename: templateDRIVER.cars_data[0].taxi_picture,
-                dest_folder: 'Drivers_documents',
-            },
-        ];
-
-        //! remove all invalid file names
-        filesMap = filesMap.filter(
-            (file) =>
-                file.filename !== undefined &&
-                file.filename !== null &&
-                file.filename.length > 0
+        const driver = await DriversApplicationsModel.get(
+            driverData.driver_fingerprint
         );
 
-        logger.warn(filesMap);
-        //...
-        let parentPromises = filesMap.map((document) => {
-            return new Promise(async (resMove) => {
-                let s3Params = {
-                    Bucket: process.env.AWS_S3_DRIVERS_BUCKET_NAME,
-                    CopySource: `${process.env.AWS_S3_DRIVERS_BUCKET_NAME}/Drivers_Applications/${document.filename}`,
-                    Key: `${document.dest_folder}/${document.filename}`,
-                };
-
-                try {
-                    await copyFile(s3Params).then((r) => console.log(r));
-                    console.log('All good');
-                    resMove(true);
-                } catch (ex) {
-                    console.log(`Failed with the following exception : ${ex}`);
-                    resMove(false);
-                }
+        if (!driver)
+            return res.send({
+                response: 'error',
+                message: 'Could not register the driver officially.',
             });
+
+        //1. Create a fresh driver
+        await DriversModel.create({
+            id: driver.id,
+            gender: driver.gender,
+            operation_clearances: ['DELIVERY'],
+            surname: driver.surname,
+            name: driver.name,
+            phone_number: driver.phone_number,
+            regional_clearances: [driver.city],
+            date_of_birth: '12-09-2020',
+            identification_number: 'AAAA',
+            driving_license_number: 'BBBB',
+            email: driverData.email,
         });
-        //DONE
-        Promise.all(parentPromises)
-            .then((resultMoving) => {
-                logger.info(resultMoving);
-                //! Check if there are any error
-                let areThereErrors = resultMoving.filter((el) => el === false);
 
-                if (areThereErrors.length === 0) {
-                    //? No errors - all good
-                    //Migrate the driver record in the database of registered drivers and delete the application record
-                    //1. Move to official table
-                    dynamo_insert('drivers_shoppers_central', templateDRIVER)
-                        .then((result) => {
-                            if (result === false) {
-                                res.send({
-                                    response: 'error',
-                                    message:
-                                        'Could not register the driver officially.',
-                                });
-                            }
-                            //....
-                            //4. Delete the record
-                            dynamo_delete(
-                                'drivers_application_central',
-                                req.driverData.id
-                            )
-                                .then((resultDel) => {
-                                    //3. Register the event
-                                    let approveEvent = {
-                                        date: new Date(
-                                            chaineDateUTC
-                                        ).toISOString(),
-                                        event_name:
-                                            'driver_approval_registration',
-                                        registration_id: `${otpGenerator.generate(
-                                            128,
-                                            {
-                                                lowerCaseAlphabets: true,
-                                                upperCaseAlphabets: true,
-                                                specialChars: false,
-                                            }
-                                        )}`,
-                                        driver_fingerprint:
-                                            templateDRIVER.driver_fingerprint,
-                                        recordData: req.driverData,
-                                    };
-                                    //...
-                                    dynamo_insert(
-                                        'global_events',
-                                        approveEvent
-                                    ).then((resultApprove) => {
-                                        res.send({ response: 'success' });
-                                    });
-                                })
-                                .catch((error) => {
-                                    logger.error(error);
-                                    res.send({ response: 'success' });
-                                });
-                        })
-                        .catch((error) => {
-                            logger.error(error);
-                            res.send({
-                                response: 'error',
-                                message:
-                                    'Could not register the driver officially.',
-                            });
-                        });
-                } //Has some errors
-                else {
-                    res.send({
-                        response: 'error',
-                        message: "Could not migrate the driver's documents.",
-                    });
-                }
-            })
-            .catch((error) => {
-                logger.error(error);
-                res.send({ response: 'error' });
-            });
-    } //Invalid data
-    else {
+        //2. Update the application to approved
+        await DriversApplicationsModel.update(
+            {
+                id: driver.id,
+            },
+            {
+                is_approved: true,
+            }
+        );
+
+        // return res.send({ response: 'success' });
+        res.send({ response: 'error' });
+    } catch (error) {
+        logger.error(error);
         res.send({ response: 'error' });
     }
 });
 
 //5. Get the requests list for the admin
 //Needs to be well segmented.
-app.post('/getGeneralRequestsList', function (req, res) {
-    resolveDate();
+app.post('/getGeneralRequestsList', async (req, res) => {
+    try {
+        const { admin_fp } = req.body;
 
-    req = req.body;
+        if (!admin_fp) return res.send({ response: 'error' });
 
-    //? Get the _id
-    if (req.admin_fp !== undefined && req.admin_fp !== null) {
-        //Get all the requests
-        dynamo_get_all({
-            table_name: 'requests_central',
-        })
-            .then((allRequests) => {
-                if (allRequests !== undefined && allRequests.length > 0) {
-                    //Found some requests
-                    //?Sort based on the requested date
-                    allRequests.sort((a, b) =>
-                        new Date(a.date_requested) > new Date(b.date_requested)
-                            ? -1
-                            : new Date(a.date_requested) >
-                              new Date(a.date_requested)
-                            ? 1
-                            : 0
-                    );
+        let requests = await RequestsModel.scan().all().exec();
 
-                    //! Attach the rider details
-                    let parentPromises1 = allRequests.map((request, index) => {
-                        return new Promise((resCompute) => {
-                            dynamo_find_query({
-                                table_name: 'users_central',
-                                IndexName: 'user_identifier',
-                                KeyConditionExpression:
-                                    'user_identifier = :val1',
-                                ExpressionAttributeValues: {
-                                    ':val1': request.client_id,
-                                },
-                            })
-                                .then((clientData) => {
-                                    if (
-                                        clientData !== undefined &&
-                                        clientData.length > 0
-                                    ) {
-                                        //Has some client data
-                                        //Save
-                                        allRequests[index]['clientData'] =
-                                            clientData[0];
-                                        resCompute(true);
-                                    } //No client?
-                                    else {
-                                        allRequests[index][
-                                            'clientData'
-                                        ] = false;
-                                        resCompute(false);
-                                    }
-                                })
-                                .catch((error) => {
-                                    logger.error(error);
-                                    allRequests[index]['clientData'] = false;
-                                    resCompute(false);
-                                });
-                        });
-                    });
+        if (requests.count <= 0) return res.send({ response: {} });
 
-                    //DONE
-                    Promise.all(parentPromises1)
-                        .then((result) => {
-                            // logger.info(result);
-                        })
-                        .catch((error) => {
-                            logger.error(error);
-                        })
-                        .finally(() => {
-                            //! Attach the driver details
-                            let parentPromises2 = allRequests.map(
-                                (request, index) => {
-                                    return new Promise((resCompute) => {
-                                        dynamo_find_query({
-                                            table_name:
-                                                'drivers_shoppers_central',
-                                            IndexName: 'driver_fingerprint',
-                                            KeyConditionExpression:
-                                                'driver_fingerprint = :val1',
-                                            ExpressionAttributeValues: {
-                                                ':val1': request.shopper_id,
-                                            },
-                                        })
-                                            .then((driverData) => {
-                                                if (
-                                                    driverData !== undefined &&
-                                                    driverData.length > 0
-                                                ) {
-                                                    //Has some driver data
-                                                    //Save
-                                                    allRequests[index][
-                                                        'driverData'
-                                                    ] = driverData[0];
-                                                    resCompute(true);
-                                                } //No client?
-                                                else {
-                                                    allRequests[index][
-                                                        'driverData'
-                                                    ] = false;
-                                                    resCompute(false);
-                                                }
-                                            })
-                                            .catch((error) => {
-                                                logger.error(error);
-                                                allRequests[index][
-                                                    'driverData'
-                                                ] = false;
-                                                resCompute(false);
-                                            });
-                                    });
-                                }
-                            );
+        requests = requests.toJSON();
 
-                            //DONE
-                            Promise.all(parentPromises2)
-                                .then((result) => {
-                                    // logger.info(result);
-                                })
-                                .catch((error) => {
-                                    logger.error(error);
-                                })
-                                .finally(() => {
-                                    //! Get all the cancelled data
-                                    dynamo_get_all({
-                                        table_name:
-                                            'cancelled_requests_central',
-                                    })
-                                        .then((allCancelledRequests) => {
-                                            allCancelledRequests =
-                                                allCancelledRequests !==
-                                                    undefined &&
-                                                allCancelledRequests !== null
-                                                    ? allCancelledRequests
-                                                    : []; //Check
+        //?Sort based on the requested date
+        requests.sort((a, b) =>
+            new Date(a.createdAt) > new Date(b.createdAt)
+                ? -1
+                : new Date(a.createdAt) > new Date(a.createdAt)
+                ? 1
+                : 0
+        );
 
-                                            //?Sort based on the cancelled date
-                                            allCancelledRequests.sort((a, b) =>
-                                                new Date(a.date_cancelled) >
-                                                new Date(b.date_cancelled)
-                                                    ? -1
-                                                    : new Date(
-                                                          a.date_cancelled
-                                                      ) >
-                                                      new Date(a.date_cancelled)
-                                                    ? 1
-                                                    : 0
-                                            );
+        //Attach the user and/or driver details
+        requests = await Promise.all(
+            requests.map(async (request) => {
+                const user = (await UserModel.get(request.client_id)) ?? false;
 
-                                            //! Attach the rider details
-                                            let parentPromises3 =
-                                                allCancelledRequests.map(
-                                                    (request, index) => {
-                                                        return new Promise(
-                                                            (resCompute) => {
-                                                                dynamo_find_query(
-                                                                    {
-                                                                        table_name:
-                                                                            'users_central',
-                                                                        IndexName:
-                                                                            'user_identifier',
-                                                                        KeyConditionExpression:
-                                                                            'user_identifier = :val1',
-                                                                        ExpressionAttributeValues:
-                                                                            {
-                                                                                ':val1':
-                                                                                    request.client_id,
-                                                                            },
-                                                                    }
-                                                                )
-                                                                    .then(
-                                                                        (
-                                                                            clientData
-                                                                        ) => {
-                                                                            if (
-                                                                                clientData !==
-                                                                                    undefined &&
-                                                                                clientData.length >
-                                                                                    0
-                                                                            ) {
-                                                                                //Has some client data
-                                                                                //Save
-                                                                                allCancelledRequests[
-                                                                                    index
-                                                                                ][
-                                                                                    'clientData'
-                                                                                ] =
-                                                                                    clientData[0];
-                                                                                resCompute(
-                                                                                    true
-                                                                                );
-                                                                            } //No client?
-                                                                            else {
-                                                                                allCancelledRequests[
-                                                                                    index
-                                                                                ][
-                                                                                    'clientData'
-                                                                                ] = false;
-                                                                                resCompute(
-                                                                                    false
-                                                                                );
-                                                                            }
-                                                                        }
-                                                                    )
-                                                                    .catch(
-                                                                        (
-                                                                            error
-                                                                        ) => {
-                                                                            logger.error(
-                                                                                error
-                                                                            );
-                                                                            allCancelledRequests[
-                                                                                index
-                                                                            ][
-                                                                                'clientData'
-                                                                            ] = false;
-                                                                            resCompute(
-                                                                                false
-                                                                            );
-                                                                        }
-                                                                    );
-                                                            }
-                                                        );
-                                                    }
-                                                );
+                request.clientData = user;
 
-                                            Promise.all(parentPromises3)
-                                                .then((result) => {
-                                                    // logger.info(result);
-                                                })
-                                                .catch((error) => {
-                                                    logger.error(error);
-                                                })
-                                                .finally(() => {
-                                                    //! Attach the driver details
-                                                    let parentPromises4 =
-                                                        allCancelledRequests.map(
-                                                            (
-                                                                request,
-                                                                index
-                                                            ) => {
-                                                                return new Promise(
-                                                                    (
-                                                                        resCompute
-                                                                    ) => {
-                                                                        dynamo_find_query(
-                                                                            {
-                                                                                table_name:
-                                                                                    'drivers_shoppers_central',
-                                                                                IndexName:
-                                                                                    'driver_fingerprint',
-                                                                                KeyConditionExpression:
-                                                                                    'driver_fingerprint = :val1',
-                                                                                ExpressionAttributeValues:
-                                                                                    {
-                                                                                        ':val1':
-                                                                                            request.shopper_id,
-                                                                                    },
-                                                                            }
-                                                                        )
-                                                                            .then(
-                                                                                (
-                                                                                    driverData
-                                                                                ) => {
-                                                                                    if (
-                                                                                        driverData !==
-                                                                                            undefined &&
-                                                                                        driverData.length >
-                                                                                            0
-                                                                                    ) {
-                                                                                        //Has some driver data
-                                                                                        //Save
-                                                                                        allCancelledRequests[
-                                                                                            index
-                                                                                        ][
-                                                                                            'driverData'
-                                                                                        ] =
-                                                                                            driverData[0];
-                                                                                        resCompute(
-                                                                                            true
-                                                                                        );
-                                                                                    } //No client?
-                                                                                    else {
-                                                                                        allCancelledRequests[
-                                                                                            index
-                                                                                        ][
-                                                                                            'driverData'
-                                                                                        ] = false;
-                                                                                        resCompute(
-                                                                                            false
-                                                                                        );
-                                                                                    }
-                                                                                }
-                                                                            )
-                                                                            .catch(
-                                                                                (
-                                                                                    error
-                                                                                ) => {
-                                                                                    logger.error(
-                                                                                        error
-                                                                                    );
-                                                                                    allCancelledRequests[
-                                                                                        index
-                                                                                    ][
-                                                                                        'driverData'
-                                                                                    ] = false;
-                                                                                    resCompute(
-                                                                                        false
-                                                                                    );
-                                                                                }
-                                                                            );
-                                                                    }
-                                                                );
-                                                            }
-                                                        );
+                const shopper =
+                    (await DriversModel.get(request.shopper_id)) ?? false;
 
-                                                    Promise.all(parentPromises4)
-                                                        .then((result) => {
-                                                            // logger.info(result);
-                                                        })
-                                                        .catch((error) => {
-                                                            logger.error(error);
-                                                        })
-                                                        .finally(() => {
-                                                            //? Assemble the response data
-                                                            let RESPONSE_TEMPLATE_DATA =
-                                                                {
-                                                                    ride: {
-                                                                        inprogress:
-                                                                            allRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                        'RIDE' &&
-                                                                                    el
-                                                                                        .request_state_vars
-                                                                                        .completedRatingClient ===
-                                                                                        false
-                                                                            ),
-                                                                        completed:
-                                                                            allRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                        'RIDE' &&
-                                                                                    el
-                                                                                        .request_state_vars
-                                                                                        .completedRatingClient
-                                                                            ),
-                                                                        cancelled:
-                                                                            allCancelledRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                    'RIDE'
-                                                                            ),
-                                                                    },
-                                                                    delivery: {
-                                                                        inprogress:
-                                                                            allRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                        'DELIVERY' &&
-                                                                                    el
-                                                                                        .request_state_vars
-                                                                                        .completedRatingClient ===
-                                                                                        false
-                                                                            ),
-                                                                        completed:
-                                                                            allRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                        'DELIVERY' &&
-                                                                                    el
-                                                                                        .request_state_vars
-                                                                                        .completedRatingClient
-                                                                            ),
-                                                                        cancelled:
-                                                                            allCancelledRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                    'DELIVERY'
-                                                                            ),
-                                                                    },
-                                                                    shopping: {
-                                                                        inprogress:
-                                                                            allRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                        'SHOPPING' &&
-                                                                                    el
-                                                                                        .request_state_vars
-                                                                                        .completedRatingClient ===
-                                                                                        false
-                                                                            ),
-                                                                        completed:
-                                                                            allRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                        'SHOPPING' &&
-                                                                                    el
-                                                                                        .request_state_vars
-                                                                                        .completedRatingClient
-                                                                            ),
-                                                                        cancelled:
-                                                                            allCancelledRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                    'SHOPPING'
-                                                                            ),
-                                                                    },
-                                                                    stats: {
-                                                                        total_sales_today:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allRequests,
-                                                                                    dataType:
-                                                                                        'sales',
-                                                                                }
-                                                                            ),
-                                                                        total_revenue_today:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allRequests,
-                                                                                    dataType:
-                                                                                        'revenue',
-                                                                                }
-                                                                            ),
-                                                                        total_requests_success:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allRequests,
-                                                                                    dataType:
-                                                                                        'requests',
-                                                                                }
-                                                                            ),
-                                                                    },
-                                                                };
+                request.shopperData = shopper;
 
-                                                            // logger.info(RESPONSE_TEMPLATE_DATA);
-                                                            //...
-                                                            res.send({
-                                                                response:
-                                                                    RESPONSE_TEMPLATE_DATA,
-                                                            });
-                                                        });
-                                                });
-                                        })
-                                        .catch((error) => {
-                                            logger.error(error);
-                                            res.send({ response: 'error' });
-                                        });
-                                });
-                        });
-                } //No requests
-                else {
-                    res.send({ response: {} });
-                }
+                return request;
             })
-            .catch((error) => {
-                logger.error(error);
-                res.send({ response: 'error' });
-            });
-    } //Invalid data
-    else {
+        );
+
+        //? Assemble the response data
+        const requestsAssembledData = {
+            delivery: {
+                inprogress: requests.filter(
+                    (el) =>
+                        el.ride_mode === 'DELIVERY' &&
+                        !el?.request_state_vars?.completedRatingClient
+                ),
+                completed: requests.filter(
+                    (el) =>
+                        el.ride_mode === 'DELIVERY' &&
+                        el?.request_state_vars?.completedRatingClient
+                ),
+                cancelled: requests.filter(
+                    (el) => el.ride_mode === 'DELIVERY' && el?.date_cancelled
+                ),
+            },
+            shopping: {
+                inprogress: requests.filter(
+                    (el) =>
+                        el.ride_mode === 'SHOPPING' &&
+                        !el?.request_state_vars?.completedRatingClient
+                ),
+                completed: requests.filter(
+                    (el) =>
+                        el.ride_mode === 'SHOPPING' &&
+                        el?.request_state_vars?.completedRatingClient
+                ),
+                cancelled: requests.filter(
+                    (el) => el.ride_mode === 'SHOPPING' && el?.date_cancelled
+                ),
+            },
+            stats: {
+                total_sales_today: getAmountsSums({
+                    arrayRequests: requests,
+                    dataType: 'sales',
+                }),
+                total_revenue_today: getAmountsSums({
+                    arrayRequests: requests,
+                    dataType: 'revenue',
+                }),
+                total_requests_success: getAmountsSums({
+                    arrayRequests: requests,
+                    dataType: 'requests',
+                }),
+            },
+        };
+
+        //...
+        res.send({
+            status: 'success',
+            response: requestsAssembledData,
+        });
+    } catch (error) {
+        logger.error(error);
         res.send({ response: 'error' });
     }
 });
@@ -4304,6 +3667,8 @@ app.post('/getSummaryData', function (req, res) {
     resolveDate();
 
     req = req.body;
+
+    return res.send({ response: 'error' });
 
     //Check the admin
     if (req.admin_fp !== undefined && req.admin_fp !== null) {
@@ -5114,7 +4479,11 @@ app.post('/loginOrChecksForAdmins', async (req, res) => {
             //Done
             res.send({
                 response: 'success',
-                data: updatedAdmin,
+                data: {
+                    admin_fp: updatedAdmin.id,
+                    isSuspended: !!updatedAdmin.isSuspended,
+                    ...updatedAdmin,
+                },
             });
         }
     } catch (error) {

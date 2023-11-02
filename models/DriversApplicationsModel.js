@@ -6,6 +6,10 @@ const driversApplicationsSchema = new dynamoose.Schema(
             type: String,
             hashKey: true,
         },
+        is_approved: {
+            type: Boolean,
+            default: false,
+        },
         nature_driver: String,
         city: {
             type: String,
@@ -20,6 +24,11 @@ const driversApplicationsSchema = new dynamoose.Schema(
         },
         name: String,
         surname: String,
+        gender: {
+            type: String,
+            enum: ['male', 'female', 'unknown'],
+            default: 'unknown',
+        },
         email: {
             type: String,
             required: true,
@@ -42,7 +51,15 @@ const driversApplicationsSchema = new dynamoose.Schema(
                 throughput: 'ON_DEMAND',
             },
         },
-        vehicle_details: dynamoose.type.ANY,
+        vehicle_details: {
+            type: Object,
+            schema: {
+                brand_name: String,
+                model_name: String,
+                color: String,
+                plate_number: String,
+            },
+        },
         documents: {
             type: Object,
             schema: {

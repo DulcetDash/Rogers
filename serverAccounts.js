@@ -69,7 +69,7 @@ const {
 var AWS_SMS = require('aws-sdk');
 const DriversModel = require('./models/DriversModel');
 const { uploadBase64ToS3, sendSMS } = require('./Utility/Utils');
-const DriversApplications = require('./models/DriversApplications');
+const DriversApplicationsModel = require('./models/DriversApplicationsModel');
 function SendSMSTo(phone_number, message) {
     // Load the AWS SDK for Node.js
     // Set region
@@ -7118,8 +7118,6 @@ exports.processCourierDrivers_application = async (req) => {
             did_certify_data_veracity,
         } = req.body;
 
-        logger.info(req.body);
-
         if (
             !phone ||
             !nature_driver ||
@@ -7192,8 +7190,7 @@ exports.processCourierDrivers_application = async (req) => {
             };
 
         //? Save
-
-        await DriversApplications.create({
+        await DriversApplicationsModel.create({
             id: uuidv4(),
             nature_driver: String(nature_driver).toUpperCase().trim(),
             city: city.toUpperCase().trim(),
