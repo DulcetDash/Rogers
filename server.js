@@ -861,7 +861,7 @@ function copyFile(s3Params) {
 
 //Check if it's today
 const isToday = (someDate) => {
-    const today = new Date(chaineDateUTC);
+    const today = new Date();
     return (
         someDate.getDate() == today.getDate() &&
         someDate.getMonth() == today.getMonth() &&
@@ -870,95 +870,101 @@ const isToday = (someDate) => {
 };
 
 //Get the sum of today for the requests
-const getAmountsSums = ({ arrayRequests = [], dataType = 'sales' }) => {
+const getAmountsSums = ({
+    arrayRequests = [],
+    dataType = 'sales',
+    today = true,
+}) => {
     switch (dataType) {
         case 'sales':
             return arrayRequests
-                .filter((el) => isToday(new Date(el.date_requested)))
-                .map((el) =>
-                    el.totals_request.fare !== undefined
-                        ? parseFloat(el.totals_request.fare)
-                        : parseFloat(el.totals_request.total.replace('N$', ''))
-                )
+                .filter((el) => isToday(new Date(el.createdAt)) === today)
+                .map((el) => {
+                    logger.warn(el);
+                    return el?.totals_request?.fare
+                        ? parseFloat(String(el.totals_request.fare))
+                        : parseFloat(
+                              String(el.totals_request.total).replace('N$', '')
+                          );
+                })
                 .reduce((partialSum, a) => partialSum + a, 0);
 
         case 'revenue':
             return arrayRequests
                 .filter(
                     (el) =>
-                        isToday(new Date(el.date_requested)) &&
+                        isToday(new Date(el.createdAt)) === today &&
                         el.ride_mode !== 'RIDE'
                 )
                 .map((el) => {
                     let tmpSum = 0;
-                    tmpSum +=
-                        el.totals_request.service_fee !== undefined
-                            ? parseFloat(
-                                  el.totals_request.service_fee.replace(
-                                      'N$',
-                                      ''
-                                  )
+                    tmpSum += el?.totals_request?.service_fee
+                        ? parseFloat(
+                              String(el.totals_request.service_fee).replace(
+                                  'N$',
+                                  ''
                               )
-                            : 0;
+                          )
+                        : 0;
 
-                    tmpSum +=
-                        el.totals_request.cart !== undefined
-                            ? parseFloat(
-                                  el.totals_request.cart.replace('N$', '')
-                              )
-                            : 0;
+                    tmpSum += el?.totals_request?.cart
+                        ? parseFloat(
+                              String(el.totals_request.cart).replace('N$', '')
+                          )
+                        : 0;
 
-                    tmpSum +=
-                        el.totals_request.delivery_fee !== undefined
-                            ? parseFloat(
-                                  el.totals_request.delivery_fee.replace(
-                                      'N$',
-                                      ''
-                                  )
+                    tmpSum += el?.totals_request?.delivery_fee
+                        ? parseFloat(
+                              String(el.totals_request.delivery_fee).replace(
+                                  'N$',
+                                  ''
                               )
-                            : 0;
+                          )
+                        : 0;
 
-                    tmpSum +=
-                        el.totals_request.cash_pickup_fee !== undefined
-                            ? parseFloat(
-                                  el.totals_request.cash_pickup_fee.replace(
-                                      'N$',
-                                      ''
-                                  )
+                    tmpSum += el?.totals_request?.cash_pickup_fee
+                        ? parseFloat(
+                              String(el.totals_request.cash_pickup_fee).replace(
+                                  'N$',
+                                  ''
                               )
-                            : 0;
+                          )
+                        : 0;
 
                     //...
-                    tmpSum +=
-                        el.totals_request.service_fee === undefined
-                            ? parseFloat(
-                                  el.totals_request.total.replace('N$', '')
-                              )
-                            : 0;
+                    tmpSum += el?.totals_request?.service_fee
+                        ? parseFloat(
+                              String(el.totals_request.total).replace('N$', '')
+                          )
+                        : 0;
 
                     return tmpSum;
                 })
                 .reduce((partialSum, a) => partialSum + a, 0);
 
         case 'requests':
-            return arrayRequests.filter((el) =>
-                isToday(new Date(el.date_requested))
+            return arrayRequests.filter(
+                (el) => isToday(new Date(el.createdAt)) === today
             ).length;
 
         case 'todayOnly':
-            return arrayRequests.filter((el) =>
-                isToday(new Date(el.date_requested))
+            return arrayRequests.filter(
+                (el) => isToday(new Date(el.createdAt)) === today
             );
 
         case 'gross_sum':
             return arrayRequests
-                .map((el) =>
-                    el.totals_request.fare !== undefined
+                .map((el) => {
+                    return el?.totals_request?.fare
                         ? parseFloat(
                               String(el.totals_request.fare).replace('N$', '')
                           )
-                        : parseFloat(el.totals_request.total.replace('N$', ''))
-                )
+                        : el?.totals_request?.total
+                        ? parseFloat(
+                              String(el.totals_request.total).replace('N$', '')
+                          )
+                        : 0;
+                })
                 .reduce((partialSum, a) => partialSum + a, 0);
 
         case 'net_sum':
@@ -966,50 +972,32 @@ const getAmountsSums = ({ arrayRequests = [], dataType = 'sales' }) => {
                 .filter((el) => el.ride_mode !== 'RIDE')
                 .map((el) => {
                     let tmpSum = 0;
-                    tmpSum +=
-                        el.totals_request.service_fee !== undefined
-                            ? parseFloat(
-                                  el.totals_request.service_fee.replace(
-                                      'N$',
-                                      ''
-                                  )
+                    tmpSum += el?.totals_request?.service_fee
+                        ? parseFloat(
+                              String(el.totals_request.service_fee).replace(
+                                  'N$',
+                                  ''
                               )
-                            : 0;
+                          )
+                        : 0;
 
-                    tmpSum +=
-                        el.totals_request.cart !== undefined
-                            ? parseFloat(
-                                  el.totals_request.cart.replace('N$', '')
+                    tmpSum += el?.totals_request?.delivery_fee
+                        ? parseFloat(
+                              String(el.totals_request.delivery_fee).replace(
+                                  'N$',
+                                  ''
                               )
-                            : 0;
+                          )
+                        : 0;
 
-                    tmpSum +=
-                        el.totals_request.delivery_fee !== undefined
-                            ? parseFloat(
-                                  el.totals_request.delivery_fee.replace(
-                                      'N$',
-                                      ''
-                                  )
+                    tmpSum += el?.totals_request?.cash_pickup_fee
+                        ? parseFloat(
+                              String(el.totals_request.cash_pickup_fee).replace(
+                                  'N$',
+                                  ''
                               )
-                            : 0;
-
-                    tmpSum +=
-                        el.totals_request.cash_pickup_fee !== undefined
-                            ? parseFloat(
-                                  el.totals_request.cash_pickup_fee.replace(
-                                      'N$',
-                                      ''
-                                  )
-                              )
-                            : 0;
-
-                    //...
-                    tmpSum +=
-                        el.totals_request.service_fee === undefined
-                            ? parseFloat(
-                                  el.totals_request.total.replace('N$', '')
-                              )
-                            : 0;
+                          )
+                        : 0;
 
                     return tmpSum;
                 })
@@ -2619,43 +2607,29 @@ app.post('/accept_request_io', function (req, res) {
  * event: cancel_request_driver_io
  * Cancel any request from the driver's side.
  */
-app.post('/cancel_request_driver_io', function (req, res) {
-    req = req.body;
-    //logger.info(req);
-    if (
-        req.driver_fingerprint !== undefined &&
-        req.driver_fingerprint !== null &&
-        req.request_fp !== undefined &&
-        req.request_fp !== null
-    ) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.DISPATCH_SERVICE_PORT +
-            '/cancel_request_driver';
+app.post('/cancel_request_driver_io', async (req, res) => {
+    try {
+        const { request_fp } = req.body;
 
-        requestAPI.post({ url, form: req }, function (error, response, body) {
-            //logger.info(body);
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    res.send(body);
-                } catch (error) {
-                    res.send({
-                        response: 'unable_to_cancel_request_error',
-                    });
-                }
-            } else {
-                res.send({
-                    response: 'unable_to_cancel_request_error',
-                });
+        if (!request_fp)
+            return res.send({
+                response: 'unable_to_cancel_request_error',
+            });
+
+        const cancelledRequest = await RequestsModel.update(
+            { id: request_fp },
+            {
+                date_cancelled: new Date(),
             }
+        );
+
+        res.json({
+            status: 'success',
+            response: 'successfully_cancelled',
+            rider_fp: cancelledRequest.client_id,
         });
-    } else {
+    } catch (error) {
+        logger.error(error);
         res.send({
             response: 'unable_to_cancel_request_error',
         });
@@ -3116,7 +3090,7 @@ app.post('/sendOtpAndCheckerUserStatusTc', async (req, res) => {
                     gender: driverData.gender,
                     phone_number: driverData.phone_number,
                     email: driverData.email,
-                    profile_picture: `${process.env.AWS_S3_DRIVERS_PROFILE_PICTURES_PATH}/${driverData.identification_data.profile_picture}`,
+                    profile_picture: driverData?.profile_picture,
                     account_state: driverData?.account_state ?? 'valid', //? By default - Valid
                     pushnotif_token: driverData.pushnotif_token,
                     suspension_message: driverData.suspension_message,
@@ -3143,6 +3117,8 @@ app.post('/sendOtpAndCheckerUserStatusTc', async (req, res) => {
 app.post('/checkThisOTP_SMS', async (req, res) => {
     try {
         const { phone_number, otp, user_nature } = req.body;
+
+        logger.warn(req.body);
 
         if (!phone_number || !otp)
             return res.send({ response: 'error_checking_otp' });
@@ -3435,26 +3411,30 @@ app.post('/getDriversList', async (req, res) => {
                 const driverKey = `${driver.id}-documents`;
                 const cachedImages = await Redis.get(driverKey);
 
-                driver.vehicle_details = driverApplication.vehicle_details;
+                driver.vehicle_details = driverApplication?.vehicle_details;
 
                 if (cachedImages) {
                     driver.documents = JSON.parse(cachedImages);
                     return driver;
                 }
 
-                let documents = await Promise.all(
-                    Object.keys(driverApplication.documents).map(
-                        async (key) => {
-                            const image = driverApplication.documents[key];
-                            const presignedUrl = await presignS3URL(image);
-                            return { [key]: presignedUrl };
-                        }
-                    )
-                );
+                let documents = {};
 
-                documents = documents.reduce((accumulator, current) => {
-                    return { ...accumulator, ...current };
-                }, {});
+                if (driverApplication?.documents) {
+                    documents = await Promise.all(
+                        Object.keys(driverApplication?.documents).map(
+                            async (key) => {
+                                const image = driverApplication.documents[key];
+                                const presignedUrl = await presignS3URL(image);
+                                return { [key]: presignedUrl };
+                            }
+                        )
+                    );
+
+                    documents = documents.reduce((accumulator, current) => {
+                        return { ...accumulator, ...current };
+                    }, {});
+                }
 
                 driver.documents = documents;
 
@@ -3609,7 +3589,8 @@ app.post('/getGeneralRequestsList', async (req, res) => {
                 inprogress: requests.filter(
                     (el) =>
                         el.ride_mode === 'DELIVERY' &&
-                        !el?.request_state_vars?.completedRatingClient
+                        !el?.request_state_vars?.completedRatingClient &&
+                        !el?.date_cancelled
                 ),
                 completed: requests.filter(
                     (el) =>
@@ -3624,7 +3605,8 @@ app.post('/getGeneralRequestsList', async (req, res) => {
                 inprogress: requests.filter(
                     (el) =>
                         el.ride_mode === 'SHOPPING' &&
-                        !el?.request_state_vars?.completedRatingClient
+                        !el?.request_state_vars?.completedRatingClient &&
+                        !el?.date_cancelled
                 ),
                 completed: requests.filter(
                     (el) =>
@@ -3663,711 +3645,264 @@ app.post('/getGeneralRequestsList', async (req, res) => {
 });
 
 // 6. Get the summary data
-app.post('/getSummaryData', function (req, res) {
-    resolveDate();
+app.post('/getSummaryData', async (req, res) => {
+    try {
+        const { admin_fp } = req.body;
+        const summaryKey = 'admin-summary-data';
 
-    req = req.body;
+        const cachedData = await Redis.get(summaryKey);
 
-    return res.send({ response: 'error' });
-
-    //Check the admin
-    if (req.admin_fp !== undefined && req.admin_fp !== null) {
-        //1. Get all the requests
-        dynamo_get_all({
-            table_name: 'requests_central',
-        })
-            .then((allRequests) => {
-                //2. Get al the cancelled requests
-                dynamo_get_all({
-                    table_name: 'cancelled_requests_central',
-                })
-                    .then((allCancelledRequests) => {
-                        //4. Get all the users
-                        dynamo_get_all({
-                            table_name: 'users_central',
-                        })
-                            .then((allUsers) => {
-                                //5. Get all the drivers
-                                dynamo_get_all({
-                                    table_name: 'drivers_shoppers_central',
-                                })
-                                    .then((allDrivers) => {
-                                        //6. Get all the stores
-                                        dynamo_get_all({
-                                            table_name: 'shops_central',
-                                        })
-                                            .then((allStores) => {
-                                                //7. Get all the catalogue
-                                                dynamo_get_all({
-                                                    table_name:
-                                                        'catalogue_central',
-                                                })
-                                                    .then((allCatalogue) => {
-                                                        //? Got all ther required data
-                                                        let TEMPLATE_SUMMARY_META =
-                                                            {
-                                                                today_graph_data:
-                                                                    {
-                                                                        successful_requests:
-                                                                            generateGraphDataFromRequestsData(
-                                                                                {
-                                                                                    requestData:
-                                                                                        allRequests,
-                                                                                }
-                                                                            ),
-                                                                        cancelled_requests:
-                                                                            generateGraphDataFromRequestsData(
-                                                                                {
-                                                                                    requestData:
-                                                                                        allCancelledRequests,
-                                                                                }
-                                                                            ),
-                                                                    },
-                                                                today: {
-                                                                    total_requests:
-                                                                        getAmountsSums(
-                                                                            {
-                                                                                arrayRequests:
-                                                                                    allRequests,
-                                                                                dataType:
-                                                                                    'todayOnly',
-                                                                            }
-                                                                        )
-                                                                            .length,
-                                                                    total_rides:
-                                                                        getAmountsSums(
-                                                                            {
-                                                                                arrayRequests:
-                                                                                    allRequests,
-                                                                                dataType:
-                                                                                    'todayOnly',
-                                                                            }
-                                                                        ).filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                el.ride_mode ===
-                                                                                'RIDE'
-                                                                        )
-                                                                            .length,
-                                                                    total_deliveries:
-                                                                        getAmountsSums(
-                                                                            {
-                                                                                arrayRequests:
-                                                                                    allRequests,
-                                                                                dataType:
-                                                                                    'todayOnly',
-                                                                            }
-                                                                        ).filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                el.ride_mode ===
-                                                                                'DELIVERY'
-                                                                        )
-                                                                            .length,
-                                                                    total_shoppings:
-                                                                        getAmountsSums(
-                                                                            {
-                                                                                arrayRequests:
-                                                                                    allRequests,
-                                                                                dataType:
-                                                                                    'todayOnly',
-                                                                            }
-                                                                        ).filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                el.ride_mode ===
-                                                                                'SHOPPING'
-                                                                        )
-                                                                            .length,
-                                                                    total_cancelled_requests:
-                                                                        getAmountsSums(
-                                                                            {
-                                                                                arrayRequests:
-                                                                                    allCancelledRequests,
-                                                                                dataType:
-                                                                                    'todayOnly',
-                                                                            }
-                                                                        )
-                                                                            .length,
-                                                                    total_cancelled_rides:
-                                                                        getAmountsSums(
-                                                                            {
-                                                                                arrayRequests:
-                                                                                    allCancelledRequests,
-                                                                                dataType:
-                                                                                    'todayOnly',
-                                                                            }
-                                                                        ).filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                el.ride_mode ===
-                                                                                'RIDE'
-                                                                        )
-                                                                            .length,
-                                                                    total_cancelled_deliveries:
-                                                                        getAmountsSums(
-                                                                            {
-                                                                                arrayRequests:
-                                                                                    allCancelledRequests,
-                                                                                dataType:
-                                                                                    'todayOnly',
-                                                                            }
-                                                                        ).filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                el.ride_mode ===
-                                                                                'DELIVERY'
-                                                                        )
-                                                                            .length,
-                                                                    total_cancelled_shoppings:
-                                                                        getAmountsSums(
-                                                                            {
-                                                                                arrayRequests:
-                                                                                    allCancelledRequests,
-                                                                                dataType:
-                                                                                    'todayOnly',
-                                                                            }
-                                                                        ).filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                el.ride_mode ===
-                                                                                'SHOPPING'
-                                                                        )
-                                                                            .length,
-                                                                    total_sales:
-                                                                        getAmountsSums(
-                                                                            {
-                                                                                arrayRequests:
-                                                                                    allRequests,
-                                                                                dataType:
-                                                                                    'sales',
-                                                                            }
-                                                                        ),
-                                                                    total_revenues:
-                                                                        getAmountsSums(
-                                                                            {
-                                                                                arrayRequests:
-                                                                                    allRequests,
-                                                                                dataType:
-                                                                                    'revenue',
-                                                                            }
-                                                                        ),
-                                                                    total_loss:
-                                                                        getAmountsSums(
-                                                                            {
-                                                                                arrayRequests:
-                                                                                    allCancelledRequests.filter(
-                                                                                        (
-                                                                                            el
-                                                                                        ) =>
-                                                                                            isToday(
-                                                                                                new Date(
-                                                                                                    el.date_requested
-                                                                                                )
-                                                                                            )
-                                                                                    ),
-                                                                                dataType:
-                                                                                    'gross_sum',
-                                                                            }
-                                                                        ),
-                                                                    percentage_handling: 0,
-                                                                },
-                                                                general_requests:
-                                                                    {
-                                                                        total_requests:
-                                                                            allRequests.length,
-                                                                        total_rides:
-                                                                            allRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                    'RIDE'
-                                                                            )
-                                                                                .length,
-                                                                        total_deliveries:
-                                                                            allRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                    'DELIVERY'
-                                                                            )
-                                                                                .length,
-                                                                        total_shoppings:
-                                                                            allRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                    'SHOPPING'
-                                                                            )
-                                                                                .length,
-                                                                        total_cancelled_requests:
-                                                                            allCancelledRequests.length,
-                                                                        total_cancelled_rides:
-                                                                            allCancelledRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                    'RIDE'
-                                                                            )
-                                                                                .length,
-                                                                        total_cancelled_deliveries:
-                                                                            allCancelledRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                    'DELIVERY'
-                                                                            )
-                                                                                .length,
-                                                                        total_cancelled_shoppings:
-                                                                            allCancelledRequests.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.ride_mode ===
-                                                                                    'SHOPPING'
-                                                                            )
-                                                                                .length,
-                                                                        percentage_handling: 0,
-                                                                    },
-                                                                general_finances:
-                                                                    {
-                                                                        total_sales:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allRequests,
-                                                                                    dataType:
-                                                                                        'gross_sum',
-                                                                                }
-                                                                            ),
-                                                                        total_revenues:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allRequests,
-                                                                                    dataType:
-                                                                                        'net_sum',
-                                                                                }
-                                                                            ),
-                                                                        total_rides_sales:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allRequests.filter(
-                                                                                            (
-                                                                                                el
-                                                                                            ) =>
-                                                                                                el.ride_mode ===
-                                                                                                'RIDE'
-                                                                                        ),
-                                                                                    dataType:
-                                                                                        'gross_sum',
-                                                                                }
-                                                                            ),
-                                                                        total_rides_revenues:
-                                                                            'Not considered',
-                                                                        total_deliveries_sales:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allRequests.filter(
-                                                                                            (
-                                                                                                el
-                                                                                            ) =>
-                                                                                                el.ride_mode ===
-                                                                                                'DELIVERY'
-                                                                                        ),
-                                                                                    dataType:
-                                                                                        'gross_sum',
-                                                                                }
-                                                                            ),
-                                                                        total_deliveries_revenues:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allRequests.filter(
-                                                                                            (
-                                                                                                el
-                                                                                            ) =>
-                                                                                                el.ride_mode ===
-                                                                                                'DELIVERY'
-                                                                                        ),
-                                                                                    dataType:
-                                                                                        'net_sum',
-                                                                                }
-                                                                            ),
-                                                                        total_shoppings_sales:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allRequests.filter(
-                                                                                            (
-                                                                                                el
-                                                                                            ) =>
-                                                                                                el.ride_mode ===
-                                                                                                'SHOPPING'
-                                                                                        ),
-                                                                                    dataType:
-                                                                                        'gross_sum',
-                                                                                }
-                                                                            ),
-                                                                        total_shoppings_revenues:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allRequests.filter(
-                                                                                            (
-                                                                                                el
-                                                                                            ) =>
-                                                                                                el.ride_mode ===
-                                                                                                'SHOPPING'
-                                                                                        ),
-                                                                                    dataType:
-                                                                                        'net_sum',
-                                                                                }
-                                                                            ),
-                                                                        total_loss:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allCancelledRequests,
-                                                                                    dataType:
-                                                                                        'gross_sum',
-                                                                                }
-                                                                            ),
-                                                                        total_net_loss:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allCancelledRequests,
-                                                                                    dataType:
-                                                                                        'net_sum',
-                                                                                }
-                                                                            ),
-                                                                        total_rides_loss:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allCancelledRequests.filter(
-                                                                                            (
-                                                                                                el
-                                                                                            ) =>
-                                                                                                el.ride_mode ===
-                                                                                                'RIDE'
-                                                                                        ),
-                                                                                    dataType:
-                                                                                        'gross_sum',
-                                                                                }
-                                                                            ),
-                                                                        total_deliveries_loss:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allCancelledRequests.filter(
-                                                                                            (
-                                                                                                el
-                                                                                            ) =>
-                                                                                                el.ride_mode ===
-                                                                                                'DELIVERY'
-                                                                                        ),
-                                                                                    dataType:
-                                                                                        'gross_sum',
-                                                                                }
-                                                                            ),
-                                                                        total_shoppings_loss:
-                                                                            getAmountsSums(
-                                                                                {
-                                                                                    arrayRequests:
-                                                                                        allCancelledRequests.filter(
-                                                                                            (
-                                                                                                el
-                                                                                            ) =>
-                                                                                                el.ride_mode ===
-                                                                                                'SHOPPING'
-                                                                                        ),
-                                                                                    dataType:
-                                                                                        'gross_sum',
-                                                                                }
-                                                                            ),
-                                                                        percentage_handling: 0,
-                                                                    },
-                                                                users: {
-                                                                    total_users:
-                                                                        allUsers.length,
-                                                                    total_male_users:
-                                                                        allUsers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /^m/i.test(
-                                                                                    el.gender
-                                                                                )
-                                                                        )
-                                                                            .length,
-                                                                    total_female_users:
-                                                                        allUsers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /^f/i.test(
-                                                                                    el.gender
-                                                                                )
-                                                                        )
-                                                                            .length,
-                                                                    total_unknown_gender_users:
-                                                                        allUsers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /^m/i.test(
-                                                                                    el.gender
-                                                                                ) ===
-                                                                                    false &&
-                                                                                /^f/i.test(
-                                                                                    el.gender
-                                                                                ) ===
-                                                                                    false
-                                                                        )
-                                                                            .length,
-                                                                    total_mtc_users:
-                                                                        allUsers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /26481/i.test(
-                                                                                    el.phone_number
-                                                                                )
-                                                                        )
-                                                                            .length,
-                                                                    total_tnmobile_users:
-                                                                        allUsers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /26485/i.test(
-                                                                                    el.phone_number
-                                                                                )
-                                                                        )
-                                                                            .length,
-                                                                },
-                                                                drivers: {
-                                                                    total_drivers:
-                                                                        allDrivers.length,
-                                                                    total_ride_drivers:
-                                                                        allDrivers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                el.operation_clearances ===
-                                                                                'RIDE'
-                                                                        )
-                                                                            .length,
-                                                                    total_delivery_drivers:
-                                                                        allDrivers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                el.operation_clearances ===
-                                                                                'DELIVERY'
-                                                                        )
-                                                                            .length,
-                                                                    total_shoppers:
-                                                                        allDrivers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                el.operation_clearances ===
-                                                                                'SHOPPING'
-                                                                        )
-                                                                            .length,
-                                                                    total_male_drivers:
-                                                                        allDrivers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /^m/i.test(
-                                                                                    el.gender
-                                                                                )
-                                                                        )
-                                                                            .length,
-                                                                    total_female_drivers:
-                                                                        allDrivers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /^f/i.test(
-                                                                                    el.gender
-                                                                                )
-                                                                        )
-                                                                            .length,
-                                                                    total_unknown_gender_drivers:
-                                                                        allDrivers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /^m/i.test(
-                                                                                    el.gender
-                                                                                ) ===
-                                                                                    false &&
-                                                                                /^f/i.test(
-                                                                                    el.gender
-                                                                                ) ===
-                                                                                    false
-                                                                        )
-                                                                            .length,
-                                                                    total_male_ride_drivers:
-                                                                        allDrivers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /^m/i.test(
-                                                                                    el.gender
-                                                                                ) &&
-                                                                                el.operation_clearances ===
-                                                                                    'RIDE'
-                                                                        )
-                                                                            .length,
-                                                                    total_female_ride_drivers:
-                                                                        allDrivers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /^f/i.test(
-                                                                                    el.gender
-                                                                                ) &&
-                                                                                el.operation_clearances ===
-                                                                                    'RIDE'
-                                                                        )
-                                                                            .length,
-                                                                    total_male_delivery_drivers:
-                                                                        allDrivers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /^m/i.test(
-                                                                                    el.gender
-                                                                                ) &&
-                                                                                el.operation_clearances ===
-                                                                                    'DELIVERY'
-                                                                        )
-                                                                            .length,
-                                                                    total_female_delivery_drivers:
-                                                                        allDrivers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /^f/i.test(
-                                                                                    el.gender
-                                                                                ) &&
-                                                                                el.operation_clearances ===
-                                                                                    'DELIVERY'
-                                                                        )
-                                                                            .length,
-                                                                    total_male_shoppers:
-                                                                        allDrivers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /^m/i.test(
-                                                                                    el.gender
-                                                                                ) &&
-                                                                                el.operation_clearances ===
-                                                                                    'SHOPPING'
-                                                                        )
-                                                                            .length,
-                                                                    total_female_shoppers:
-                                                                        allDrivers.filter(
-                                                                            (
-                                                                                el
-                                                                            ) =>
-                                                                                /^f/i.test(
-                                                                                    el.gender
-                                                                                ) &&
-                                                                                el.operation_clearances ===
-                                                                                    'SHOPPING'
-                                                                        )
-                                                                            .length,
-                                                                },
-                                                                shopping_details:
-                                                                    {
-                                                                        total_stores_registered:
-                                                                            allStores.length,
-                                                                        total_unpublished_stores:
-                                                                            allStores.filter(
-                                                                                (
-                                                                                    el
-                                                                                ) =>
-                                                                                    el.publish ===
-                                                                                        undefined ||
-                                                                                    el.publish ===
-                                                                                        null ||
-                                                                                    el.publish
-                                                                            )
-                                                                                .length,
-                                                                        total_products_in_catalogue:
-                                                                            allCatalogue.length,
-                                                                        interval_catalogue_update:
-                                                                            'Every 3 days',
-                                                                        last_updated:
-                                                                            allCatalogue[
-                                                                                allCatalogue.length -
-                                                                                    1
-                                                                            ]
-                                                                                .date_added,
-                                                                    },
-                                                            };
-
-                                                        //Start filling out
-                                                        // logger.info(TEMPLATE_SUMMARY_META);
-                                                        res.send({
-                                                            response:
-                                                                TEMPLATE_SUMMARY_META,
-                                                        });
-                                                    })
-                                                    .catch((error) => {
-                                                        logger.error(error);
-                                                        res.send({
-                                                            response: 'error',
-                                                        });
-                                                    });
-                                            })
-                                            .catch((error) => {
-                                                logger.error(error);
-                                                res.send({ response: 'error' });
-                                            });
-                                    })
-                                    .catch((error) => {
-                                        logger.error(error);
-                                        res.send({ response: 'error' });
-                                    });
-                            })
-                            .catch((error) => {
-                                logger.error(error);
-                                res.send({ response: 'error' });
-                            });
-                    })
-                    .catch((error) => {
-                        logger.error(error);
-                        res.send({ response: 'error' });
-                    });
-            })
-            .catch((error) => {
-                logger.error(error);
-                res.send({ response: 'error' });
+        if (cachedData) {
+            return res.send({
+                status: 'success',
+                response: JSON.parse(cachedData),
             });
-    } //Invalid data
-    else {
+        }
+
+        if (!admin_fp) return res.send({ response: 'error' });
+
+        let requests = (await RequestsModel.scan().all().exec()).toJSON();
+        const cancelledRequests = requests.filter((el) => el?.date_cancelled);
+        requests = requests.filter((el) => !el?.date_cancelled);
+        const drivers = await DriversModel.scan().all().exec();
+        const users = await UserModel.scan().all().exec();
+        const stores = await StoreModel.scan().all().exec();
+        const catalogue = await CatalogueModel.scan().all().exec();
+
+        let TEMPLATE_SUMMARY_META = {
+            today_graph_data: {
+                successful_requests: generateGraphDataFromRequestsData({
+                    requestData: requests,
+                }),
+                cancelled_requests: generateGraphDataFromRequestsData({
+                    requestData: requests.map((el) => el?.date_cancelled),
+                }),
+            },
+            today: {
+                total_requests: getAmountsSums({
+                    arrayRequests: requests,
+                    dataType: 'todayOnly',
+                }).length,
+                total_rides: getAmountsSums({
+                    arrayRequests: requests,
+                    dataType: 'todayOnly',
+                }).filter((el) => el.ride_mode === 'RIDE').length,
+                total_deliveries: getAmountsSums({
+                    arrayRequests: requests,
+                    dataType: 'todayOnly',
+                }).filter((el) => el.ride_mode === 'DELIVERY').length,
+                total_shoppings: getAmountsSums({
+                    arrayRequests: requests,
+                    dataType: 'todayOnly',
+                }).filter((el) => el.ride_mode === 'SHOPPING').length,
+                total_cancelled_requests: getAmountsSums({
+                    arrayRequests: cancelledRequests,
+                    dataType: 'todayOnly',
+                }).length,
+                total_cancelled_rides: getAmountsSums({
+                    arrayRequests: cancelledRequests,
+                    dataType: 'todayOnly',
+                }).filter((el) => el.ride_mode === 'RIDE').length,
+                total_cancelled_deliveries: getAmountsSums({
+                    arrayRequests: cancelledRequests,
+                    dataType: 'todayOnly',
+                }).filter((el) => el.ride_mode === 'DELIVERY').length,
+                total_cancelled_shoppings: getAmountsSums({
+                    arrayRequests: cancelledRequests,
+                    dataType: 'todayOnly',
+                }).filter((el) => el.ride_mode === 'SHOPPING').length,
+                total_sales: getAmountsSums({
+                    arrayRequests: requests,
+                    dataType: 'sales',
+                }),
+                total_revenues: getAmountsSums({
+                    arrayRequests: requests,
+                    dataType: 'revenue',
+                }),
+                total_loss: getAmountsSums({
+                    arrayRequests: cancelledRequests.filter((el) =>
+                        isToday(new Date(el.date_requested))
+                    ),
+                    dataType: 'gross_sum',
+                }),
+                percentage_handling: 0,
+            },
+            general_requests: {
+                total_requests: requests.length,
+                total_rides: requests.filter((el) => el.ride_mode === 'RIDE')
+                    .length,
+                total_deliveries: requests.filter(
+                    (el) => el.ride_mode === 'DELIVERY'
+                ).length,
+                total_shoppings: requests.filter(
+                    (el) => el.ride_mode === 'SHOPPING'
+                ).length,
+                total_cancelled_requests: cancelledRequests.length,
+                total_cancelled_rides: cancelledRequests.filter(
+                    (el) => el.ride_mode === 'RIDE'
+                ).length,
+                total_cancelled_deliveries: cancelledRequests.filter(
+                    (el) => el.ride_mode === 'DELIVERY'
+                ).length,
+                total_cancelled_shoppings: cancelledRequests.filter(
+                    (el) => el.ride_mode === 'SHOPPING'
+                ).length,
+                percentage_handling: 0,
+            },
+            general_finances: {
+                total_sales: getAmountsSums({
+                    arrayRequests: requests,
+                    dataType: 'gross_sum',
+                    today: false,
+                }),
+                total_revenues: getAmountsSums({
+                    arrayRequests: requests,
+                    dataType: 'net_sum',
+                    today: false,
+                }),
+                total_rides_sales: getAmountsSums({
+                    arrayRequests: requests.filter(
+                        (el) => el.ride_mode === 'RIDE'
+                    ),
+                    dataType: 'gross_sum',
+                    today: false,
+                }),
+                total_rides_revenues: 0,
+                total_deliveries_sales: getAmountsSums({
+                    arrayRequests: requests.filter(
+                        (el) => el.ride_mode === 'DELIVERY'
+                    ),
+                    dataType: 'gross_sum',
+                    today: false,
+                }),
+                total_deliveries_revenues: getAmountsSums({
+                    arrayRequests: requests.filter(
+                        (el) => el.ride_mode === 'DELIVERY'
+                    ),
+                    dataType: 'net_sum',
+                    today: false,
+                }),
+                total_shoppings_sales: getAmountsSums({
+                    arrayRequests: requests.filter(
+                        (el) => el.ride_mode === 'SHOPPING'
+                    ),
+                    dataType: 'gross_sum',
+                    today: false,
+                }),
+                total_shoppings_revenues: getAmountsSums({
+                    arrayRequests: requests.filter(
+                        (el) => el.ride_mode === 'SHOPPING'
+                    ),
+                    dataType: 'net_sum',
+                    today: false,
+                }),
+                total_loss: getAmountsSums({
+                    arrayRequests: cancelledRequests,
+                    dataType: 'sales',
+                    today: false,
+                }),
+                total_net_loss: 0,
+                total_rides_loss: 0,
+                total_deliveries_loss: getAmountsSums({
+                    arrayRequests: cancelledRequests.filter(
+                        (el) => el.ride_mode === 'DELIVERY'
+                    ),
+                    dataType: 'sales',
+                    today: false,
+                }),
+                total_shoppings_loss: getAmountsSums({
+                    arrayRequests: cancelledRequests.filter(
+                        (el) => el.ride_mode === 'SHOPPING'
+                    ),
+                    dataType: 'sales',
+                    today: false,
+                }),
+                percentage_handling: 0,
+            },
+            users: {
+                total_users: users.length,
+                total_male_users: users.filter((el) => /^m/i.test(el.gender))
+                    .length,
+                total_female_users: users.filter((el) => /^f/i.test(el.gender))
+                    .length,
+                total_unknown_gender_users: users.filter(
+                    (el) =>
+                        /^m/i.test(el.gender) === false &&
+                        /^f/i.test(el.gender) === false
+                ).length,
+                total_mtc_users: users.filter((el) =>
+                    /26481/i.test(el.phone_number)
+                ).length,
+                total_tnmobile_users: users.filter((el) =>
+                    /26485/i.test(el.phone_number)
+                ).length,
+            },
+            drivers: {
+                total_drivers: drivers.length,
+                total_ride_drivers: 0,
+                total_delivery_drivers: drivers.filter(
+                    (el) => el.operation_clearances === 'DELIVERY'
+                ).length,
+                total_shoppers: drivers.filter(
+                    (el) => el.operation_clearances === 'SHOPPING'
+                ).length,
+                total_male_drivers: drivers.filter((el) =>
+                    /^m/i.test(el.gender)
+                ).length,
+                total_female_drivers: drivers.filter((el) =>
+                    /^f/i.test(el.gender)
+                ).length,
+                total_unknown_gender_drivers: drivers.filter(
+                    (el) =>
+                        /^m/i.test(el.gender) === false &&
+                        /^f/i.test(el.gender) === false
+                ).length,
+                total_male_ride_drivers: 0,
+                total_female_ride_drivers: 0,
+                total_male_delivery_drivers: drivers.filter(
+                    (el) =>
+                        /^m/i.test(el.gender) &&
+                        el.operation_clearances === 'DELIVERY'
+                ).length,
+                total_female_delivery_drivers: drivers.filter(
+                    (el) =>
+                        /^f/i.test(el.gender) &&
+                        el.operation_clearances === 'DELIVERY'
+                ).length,
+                total_male_shoppers: drivers.filter(
+                    (el) =>
+                        /^m/i.test(el.gender) &&
+                        el.operation_clearances === 'SHOPPING'
+                ).length,
+                total_female_shoppers: drivers.filter(
+                    (el) =>
+                        /^f/i.test(el.gender) &&
+                        el.operation_clearances === 'SHOPPING'
+                ).length,
+            },
+            shopping_details: {
+                total_stores_registered: stores.length,
+                total_unpublished_stores: stores.filter((el) => !el?.publish)
+                    .length,
+                total_products_in_catalogue: catalogue.length,
+                interval_catalogue_update: 'Every 3 days',
+                last_updated: catalogue[catalogue.length - 1].createdAt,
+            },
+        };
+
+        await Redis.set(
+            summaryKey,
+            JSON.stringify(TEMPLATE_SUMMARY_META),
+            'EX',
+            5 * 60
+        );
+
+        //Start filling out
+        res.send({
+            response: TEMPLATE_SUMMARY_META,
+        });
+    } catch (error) {
+        logger.error(error);
         res.send({ response: 'error' });
     }
 });
