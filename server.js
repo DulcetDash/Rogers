@@ -2504,8 +2504,6 @@ app.post('/update_passenger_location', async (req, res) => {
     try {
         const { latitude, longitude, user_fingerprint: driverId } = req.body;
 
-        logger.info(req.body);
-
         const driver = await DriversModel.get(driverId);
 
         if (!driver) return false;
@@ -2585,43 +2583,69 @@ app.post('/update_passenger_location', async (req, res) => {
  * event: accept_request_io
  * Accept any request from the driver's side.
  */
-app.post('/accept_request_io', function (req, res) {
-    //logger.info(req);
-    req = req.body;
-    if (
-        req.driver_fingerprint !== undefined &&
-        req.driver_fingerprint !== null &&
-        req.request_fp !== undefined &&
-        req.request_fp !== null
-    ) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.DISPATCH_SERVICE_PORT +
-            '/accept_request';
+app.post('/accept_request_io', async (req, res) => {
+    try {
+        const { driver_fingerprint: driverId, request_fp: requestId } =
+            req.body;
 
-        requestAPI.post({ url, form: req }, function (error, response, body) {
-            //logger.info(body);
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    res.send(body);
-                } catch (error) {
-                    res.send({
-                        response: 'unable_to_accept_request_error',
-                    });
-                }
-            } else {
-                res.send({
-                    response: 'unable_to_accept_request_error',
-                });
+        const driver = await DriversModel.get(driverId);
+        const request = await RequestsModel.query('id')
+            .eq(requestId)
+            .filter('date_cancelled')
+            .not()
+            .exists()
+            .filter('date_completedJob')
+            .not()
+            .exists()
+            .filter('date_completedDropoff')
+            .not()
+            .exists()
+            .exec();
+
+        if (!driver || request.count <= 0)
+            return res.send({
+                response: 'unable_to_accept_request_error',
+            });
+
+        if (request[0].shopper_id !== 'false')
+            return res.send({
+                response: 'request_already_taken',
+            });
+
+        let acceptObject = {
+            shopper_id: driverId,
+            date_accepted: Date.now(),
+            request_state_vars: {
+                ...request[0].request_state_vars,
+                isAccepted: true,
+                inRouteToPickupCash: true,
+                didPickupCash: request[0]?.payment_method !== 'cash',
+            },
+        };
+
+        if (request[0].ride_mode === 'SHOPPING') {
+            if (request[0].payment_method !== 'cash') {
+                acceptObject = {
+                    ...acceptObject,
+                    ...{
+                        date_routeToShop: Date.now(),
+                    },
+                };
             }
+        }
+
+        const acceptedRequest = await RequestsModel.update(
+            { id: requestId },
+            acceptObject
+        );
+
+        res.json({
+            status: 'success',
+            response: 'successfully_accepted',
+            rider_fp: acceptedRequest.client_id,
         });
-    } else {
+    } catch (error) {
+        logger.error(error);
         res.send({
             response: 'unable_to_accept_request_error',
         });

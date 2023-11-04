@@ -54,7 +54,6 @@ export async function getItinaryInformation(
         //!!! --------------------------
         let url = `${process.env.URL_ROUTE_SERVICES}point=${passengerPosition.latitude},${passengerPosition.longitude}&point=${destinationPosition.latitude},${destinationPosition.longitude}&heading_penalty=0&avoid=residential&avoid=ferry&ch.disable=true&locale=en&details=street_name&details=time&optimize=true&points_encoded=false&details=max_speed&snap_prevention=ferry&profile=car&pass_through=true`;
 
-        logger.info(url);
         //Add instructions if specified so
         if (coordsInfos?.setIntructions) {
             url += '&instructions=true';

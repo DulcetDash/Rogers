@@ -89,8 +89,8 @@ const requestSchema = new dynamoose.Schema(
                 completedRatingClient: false,
                 //Shopping
                 inRouteToShop: false,
-                inRouteToDelivery: false,
-                completedShopping: false,
+                // inRouteToDelivery: false,
+                // completedShopping: false,
                 //...
                 rating_data: {
                     rating: null,
@@ -111,8 +111,8 @@ const requestSchema = new dynamoose.Schema(
 
                 //For Shopping
                 inRouteToShop: { type: Boolean, default: false }, //If the shopper is in route to the shop(s)
-                inRouteToDelivery: { type: Boolean, default: false }, //If the shopper is on his(her) way to delivery the shopped items
-                completedShopping: { type: Boolean, default: false }, //If the shopper is done shopping
+                // inRouteToDelivery: { type: Boolean, default: false }, //If the shopper is on his(her) way to delivery the shopped items
+                // completedShopping: { type: Boolean, default: false }, //If the shopper is done shopping
 
                 //Generic
                 completedRatingClient: { type: Boolean, default: false },
@@ -142,6 +142,7 @@ const requestSchema = new dynamoose.Schema(
         date_routeToDelivery: { type: Date, default: null }, //The time when the shopper started going to delivery the shopped items
         date_clientRatedShopping: { type: Date, default: null }, //The time when the client rated the shopper
         //...
+        date_accepted: { type: Date, default: null },
         date_completedJob: { type: Date, default: null },
     },
     {
