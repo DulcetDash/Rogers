@@ -2511,8 +2511,13 @@ app.post('/update_passenger_location', async (req, res) => {
         if (!driver) return false;
 
         //Update the last location
-        if (latitude && longitude) {
-            const updated = await DriversModel.update(
+        if (
+            latitude &&
+            longitude &&
+            !Number.isNaN(parseFloat(latitude)) &&
+            !Number.isNaN(parseFloat(longitude))
+        ) {
+            await DriversModel.update(
                 {
                     id: driverId,
                 },

@@ -394,7 +394,9 @@ exports.parseRequestsForShopperAppView = async (request, driverData) => {
                     eta: itinaryToDropoff?.eta ?? 'Awaiting',
                     distance: itinaryToDropoff?.distance ?? 'Awaiting',
                 },
-                destination_infos: [request.locations.delivery],
+                destination_infos: request?.locations?.delivery
+                    ? [request?.locations?.delivery]
+                    : request.locations.dropoff,
             },
             ...parsedRequestsArray.origin_destination_infos,
         };
