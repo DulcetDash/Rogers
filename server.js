@@ -12,7 +12,11 @@ const Redis = require('./Utility/redisConnector');
 const bcrypt = require('bcrypt');
 
 const { logger } = require('./LogService');
-const { sendSMS, uploadBase64ToS3 } = require('./Utility/Utils');
+const {
+    sendSMS,
+    uploadBase64ToS3,
+    parseRequestsForShopperAppView,
+} = require('./Utility/Utils');
 const AWS = require('aws-sdk');
 const _ = require('lodash');
 
@@ -109,11 +113,16 @@ const {
     uploadToS3,
 } = require('./Utility/Utils');
 const CatalogueModel = require('./models/CatalogueModel');
-const { processCourierDrivers_application } = require('./serverAccounts');
+const {
+    processCourierDrivers_application,
+    computeDaily_amountMadeSoFar,
+    goOnline_offlineDrivers,
+} = require('./serverAccounts');
 const AdminsModel = require('./models/AdminsModel');
 const sendEmail = require('./Utility/sendEmail');
 const DriversApplications = require('./models/DriversApplicationsModel');
 const DriversApplicationsModel = require('./models/DriversApplicationsModel');
+const { getItinaryInformation } = require('./Utility/Maps/Utils');
 
 function SendSMSTo(phone_number, message) {
     // Load the AWS SDK for Node.js
@@ -2491,63 +2500,76 @@ app.post('/geocode_this_point', async (req, res) => {
  * Event: update-passenger-location
  * Update the passenger's location in the system and prefetch the navigation data if any.
  */
-app.post('/update_passenger_location', function (req, res) {
-    req = req.body;
+app.post('/update_passenger_location', async (req, res) => {
+    try {
+        const { latitude, longitude, user_fingerprint: driverId } = req.body;
 
-    if (
-        req !== undefined &&
-        req.latitude !== undefined &&
-        req.latitude !== null &&
-        req.longitude !== undefined &&
-        req.longitude !== null &&
-        req.user_fingerprint !== null &&
-        req.user_fingerprint !== undefined
-    ) {
-        //Supplement or not the request string based on if the user is a driver or rider
-        req['user_nature'] =
-            req.user_nature !== undefined && req.user_nature !== null
-                ? req.user_nature
-                : 'rider';
-        req['requestType'] =
-            req.requestType !== undefined && req.requestType !== null
-                ? req.requestType
-                : 'rides';
-        //...
+        logger.info(req.body);
 
-        //? Dynamically generate the correct route link based on the requestType
-        let url = `${
-            /production/i.test(process.env.EVIRONMENT)
-                ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                : process.env.LOCAL_URL
-        }:${
-            /RIDE/i.test(req.requestType)
-                ? process.env.MAP_SERVICE_PORT
-                : /DELIVERY/i.test(req.requestType)
-                ? process.env.MAP_SERVICE_DELIVERY
-                : process.env.MAP_SERVICE_SHOPPING
-        }/${
-            /RIDE/i.test(req.requestType)
-                ? 'updatePassengerLocation'
-                : /DELIVERY/i.test(req.requestType)
-                ? 'updatePassengerLocation_delivery'
-                : 'updatePassengerLocation_shopping'
-        }`;
+        const driver = await DriversModel.get(driverId);
 
-        requestAPI.post({ url, form: req }, function (error, response, body) {
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    //logger.info(body);
-                    res.send(body);
-                } catch (error) {
-                    res.send(false);
+        if (!driver) return false;
+
+        //Update the last location
+        if (latitude && longitude) {
+            const updated = await DriversModel.update(
+                {
+                    id: driverId,
+                },
+                {
+                    last_location: {
+                        latitude: parseFloat(latitude),
+                        longitude: parseFloat(longitude),
+                    },
                 }
-            } else {
-                res.send(false);
-            }
+            );
+        }
+
+        const availableRequests = (
+            await RequestsModel.query('shopper_id')
+                .eq('false')
+                .filter('date_cancelled')
+                .not()
+                .exists()
+                .filter('date_completedJob')
+                .not()
+                .exists()
+                .exec()
+        ).toJSON();
+
+        const takenRequests = (
+            await RequestsModel.query('shopper_id')
+                .eq(driverId)
+                .filter('date_cancelled')
+                .not()
+                .exists()
+                .filter('date_completedJob')
+                .not()
+                .exists()
+                .exec()
+        ).toJSON();
+
+        const parsedAvailableRequests = await Promise.all(
+            availableRequests.map(async (request) =>
+                parseRequestsForShopperAppView(request, driver)
+            )
+        );
+
+        const parsedTakenRequests = await Promise.all(
+            takenRequests.map(async (request) =>
+                parseRequestsForShopperAppView(request, driver)
+            )
+        );
+
+        res.json({
+            status: 'success',
+            data: {
+                availableRequests: parsedAvailableRequests,
+                takenRequests: parsedTakenRequests,
+            },
         });
-    } //Invalid params
-    else {
+    } catch (error) {
+        logger.error(error);
         res.send(false);
     }
 });
@@ -3007,49 +3029,23 @@ app.post('/getRiders_walletInfos_io', function (req, res) {
  * event: computeDaily_amountMadeSoFar_io
  * Responsible for getting the daily amount made so far by the driver for exactly all the completed requests.
  */
-app.post('/computeDaily_amountMadeSoFar_io', function (req, res) {
-    //logger.info(req);
-    req = req.body;
+app.post('/computeDaily_amountMadeSoFar_io', async (req, res) => {
+    try {
+        const { driver_fingerprint } = req.body;
 
-    if (
-        req.driver_fingerprint !== undefined &&
-        req.driver_fingerprint !== null
-    ) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.ACCOUNTS_SERVICE_PORT +
-            '/computeDaily_amountMadeSoFar?driver_fingerprint=' +
-            req.driver_fingerprint;
+        if (!driver_fingerprint)
+            return res.send({
+                amount: 0,
+                currency: 'NAD',
+                currency_symbol: 'N$',
+                response: 'error',
+            });
 
-        requestAPI(url, function (error, response, body) {
-            //logger.info(body);
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    res.send(body);
-                } catch (error) {
-                    res.send({
-                        amount: 0,
-                        currency: 'NAD',
-                        currency_symbol: 'N$',
-                        response: 'error',
-                    });
-                }
-            } else {
-                res.send({
-                    amount: 0,
-                    currency: 'NAD',
-                    currency_symbol: 'N$',
-                    response: 'error',
-                });
-            }
-        });
-    } else {
+        const daily = await computeDaily_amountMadeSoFar(driver_fingerprint);
+
+        res.send(daily);
+    } catch (error) {
+        logger.error(error);
         res.send({
             amount: 0,
             currency: 'NAD',
@@ -3092,6 +3088,7 @@ app.post('/sendOtpAndCheckerUserStatusTc', async (req, res) => {
                     email: driverData.email,
                     profile_picture: driverData?.profile_picture,
                     account_state: driverData?.account_state ?? 'valid', //? By default - Valid
+                    isDriverSuspended: driverData?.isDriverSuspended ?? false,
                     pushnotif_token: driverData.pushnotif_token,
                     suspension_message: driverData.suspension_message,
                 });
@@ -3116,12 +3113,14 @@ app.post('/sendOtpAndCheckerUserStatusTc', async (req, res) => {
 //For drivers only
 app.post('/checkThisOTP_SMS', async (req, res) => {
     try {
-        const { phone_number, otp, user_nature } = req.body;
+        let { phone_number, otp, user_nature } = req.body;
 
         logger.warn(req.body);
 
         if (!phone_number || !otp)
             return res.send({ response: 'error_checking_otp' });
+
+        otp = parseInt(otp);
 
         const driver = await DriversModel.query('phone_number')
             .eq(phone_number)
@@ -3156,55 +3155,20 @@ app.post('/checkThisOTP_SMS', async (req, res) => {
     }
 });
 
-app.post('/goOnline_offlineDrivers_io', function (req, res) {
-    req = req.body;
-    //logger.info(req);
-    if (
-        req.driver_fingerprint !== undefined &&
-        req.driver_fingerprint !== null &&
-        req.action !== undefined &&
-        req.action !== null
-    ) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.ACCOUNTS_SERVICE_PORT +
-            '/goOnline_offlineDrivers?driver_fingerprint=' +
-            req.driver_fingerprint +
-            '&action=' +
-            req.action;
+app.post('/goOnline_offlineDrivers_io', async (req, res) => {
+    try {
+        const { driver_fingerprint, action, state } = req.body;
 
-        //Add the state if found
-        if (req.state !== undefined && req.state !== null) {
-            url += '&state=' + req.state;
-        } else {
-            url += '&state=false';
-        }
+        const driverStatus = await goOnline_offlineDrivers(
+            driver_fingerprint,
+            action,
+            state
+        );
 
-        requestAPI(url, function (error, response, body) {
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    res.send(body);
-                } catch (error) {
-                    res.send({
-                        response: 'error_invalid_request',
-                    });
-                }
-            } else {
-                res.send({
-                    response: 'error_invalid_request',
-                });
-            }
-        });
-    } else {
-        res.send({
-            response: 'error_invalid_request',
-        });
+        res.json(driverStatus);
+    } catch (error) {
+        logger.error(error);
+        res.send({ response: 'error_invalid_request' });
     }
 });
 

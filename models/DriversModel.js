@@ -99,6 +99,13 @@ const driverSchema = new dynamoose.Schema(
         otp: {
             type: Number,
         },
+        last_location: {
+            type: Object,
+            schema: {
+                latitude: Number,
+                longitude: Number,
+            },
+        },
     },
     {
         timestamps: true,

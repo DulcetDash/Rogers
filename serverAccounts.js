@@ -70,6 +70,7 @@ var AWS_SMS = require('aws-sdk');
 const DriversModel = require('./models/DriversModel');
 const { uploadBase64ToS3, sendSMS } = require('./Utility/Utils');
 const DriversApplicationsModel = require('./models/DriversApplicationsModel');
+const RequestsModel = require('./models/RequestsModel');
 function SendSMSTo(phone_number, message) {
     // Load the AWS SDK for Node.js
     // Set region
@@ -1303,108 +1304,70 @@ function clearDailyRequestAmountCached(driver_fingerprint, resolve) {
  * @func getDaily_requestAmount_driver
  * Responsible for getting the daily amount made so far for the driver at any given time.
  * CACHED.
- * @param driver_fingerprint: the driver id
+ * @param driverId: the driver id
  * @param resolve
  */
-function getDaily_requestAmount_driver(driver_fingerprint, resolve) {
-    resolveDate();
-    //Form the redis key
-    let refDate = new Date(chaineDateUTC);
-    let redisKey = `dailyAmount-${refDate.getDay()}-${refDate.getMonth()}-${refDate.getFullYear()}-${driver_fingerprint}`;
-    //..
-    redisGet(redisKey).then(
-        (resp) => {
-            // logger.info(resp);
-            if (resp !== null) {
-                //Has a previous record
-                try {
-                    resp = JSON.parse(resp);
-                    //...
-                    resolve(resp);
-                } catch (error) {
-                    logger.info(error);
-                    //Errror - make a fresh request
-                    new Promise((res) => {
-                        exec_computeDaily_amountMade(driver_fingerprint, res);
-                    }).then(
-                        (result) => {
-                            logger.info(result);
-                            //Cache as well
-                            redisCluster.setex(
-                                redisKey,
-                                parseInt(process.env.REDIS_EXPIRATION_5MIN) *
-                                    405,
-                                JSON.stringify(result)
-                            );
-                            resolve(result);
-                        },
-                        (error) => {
-                            resolve({
-                                amount: 0,
-                                currency: 'NAD',
-                                currency_symbol: 'N$',
-                                supported_requests_types: 'none',
-                                response: 'error',
-                            });
-                        }
-                    );
-                }
-            } //No computed amount yet - make a fresh request
-            else {
-                new Promise((res) => {
-                    exec_computeDaily_amountMade(driver_fingerprint, res);
-                }).then(
-                    (result) => {
-                        logger.info(result);
-                        //Cache as well
-                        redisCluster.setex(
-                            redisKey,
-                            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 405,
-                            JSON.stringify(result)
-                        );
-                        resolve(result);
-                    },
-                    (error) => {
-                        resolve({
-                            amount: 0,
-                            currency: 'NAD',
-                            currency_symbol: 'N$',
-                            supported_requests_types: 'none',
-                            response: 'error',
-                        });
-                    }
-                );
-            }
-        },
-        (error) => {
-            logger.info(error);
-            //Errror - make a fresh request
-            new Promise((res) => {
-                exec_computeDaily_amountMade(driver_fingerprint, res);
-            }).then(
-                (result) => {
-                    logger.info(result);
-                    //Cache as well
-                    redisCluster.setex(
-                        redisKey,
-                        parseInt(process.env.REDIS_EXPIRATION_5MIN) * 405,
-                        JSON.stringify(result)
-                    );
-                    resolve(result);
-                },
-                (error) => {
-                    resolve({
-                        amount: 0,
-                        currency: 'NAD',
-                        currency_symbol: 'N$',
-                        supported_requests_types: 'none',
-                        response: 'error',
-                    });
-                }
-            );
-        }
-    );
-}
+const getDaily_requestAmount_driver = async (driverId) => {
+    const now = new Date();
+    let redisKey = `dailyAmount-${now.getDay()}-${now.getMonth()}-${now.getFullYear()}-${driverId}`;
+
+    const driver = await DriversModel.get(driverId);
+
+    const startOfDay = moment().startOf('day').valueOf();
+    const endOfDay = moment().endOf('day').valueOf();
+
+    const todaysRequests = await RequestsModel.scan()
+        .all()
+        .filter('createdAt')
+        .ge(startOfDay)
+        .le(endOfDay)
+        .exec();
+
+    if (todaysRequests.count <= 0)
+        return {
+            amount: 0,
+            currency: 'NAD',
+            currency_symbol: 'N$',
+            supported_requests_types: driver?.operation_clearances ?? 'none',
+            response: 'success',
+        };
+
+    const todaysTotal = todaysRequests.reduce((acc, request) => {
+        let {
+            cart,
+            cash_pickup_fee,
+            delivery_fee,
+            service_fee,
+            shopping_fee,
+            total,
+        } = request.totals_request;
+
+        cart = cart ?? 0;
+        cash_pickup_fee = cash_pickup_fee ?? 0;
+        delivery_fee = delivery_fee ?? 0;
+        service_fee = service_fee ?? 0;
+        shopping_fee = shopping_fee ?? 0;
+        total = total ?? 0;
+
+        let tmp =
+            parseFloat(cart) +
+            parseFloat(cash_pickup_fee) +
+            parseFloat(delivery_fee) +
+            parseFloat(service_fee) +
+            parseFloat(shopping_fee) +
+            parseFloat(total);
+
+        return acc + tmp;
+    }, 0);
+    //...
+    resolve({
+        amount: todaysTotal,
+        currency: 'NAD',
+        currency_symbol: 'N$',
+        supported_requests_types: driver?.operation_clearances ?? 'none',
+        response: 'success',
+    });
+};
 
 /**
  * @func checkIfSameDay
@@ -1419,137 +1382,6 @@ function getDaily_requestAmount_driver(driver_fingerprint, resolve) {
 function checkIfSameDay(date1, date2) {
     let hourDiff = Math.abs((date1 - date2) / (1000 * 3600)); //In hour
     return hourDiff < 24;
-}
-
-/**
- * @func exec_computeDaily_amountMade
- * Responsible for executing all the operations related to the computation of the driver's daily amount.
- * @param driver_fingerprint: the driver id
- * @param resolve
- */
-function exec_computeDaily_amountMade(driver_fingerprint, resolve) {
-    resolveDate();
-    //...
-    //Get the driver's requests operation clearances
-    dynamo_find_query({
-        table_name: 'drivers_shoppers_central',
-        IndexName: 'driver_fingerprint',
-        KeyConditionExpression: 'driver_fingerprint = :val1',
-        ExpressionAttributeValues: {
-            ':val1': driver_fingerprint,
-        },
-    })
-        .then((driverProfile) => {
-            if (driverProfile !== undefined && driverProfile.length > 0) {
-                driverProfile = driverProfile[0];
-
-                let refDate = new Date(chaineDateUTC);
-                let today_beginning = `${refDate.getFullYear()}-${
-                    refDate.getMonth() + 1 > 10
-                        ? refDate.getMonth() + 1
-                        : `0${refDate.getMonth() + 1}`
-                }-${refDate.getDate()}T00:00:00.000Z`;
-                let today_end = `${refDate.getFullYear()}-${
-                    refDate.getMonth() + 1 > 10
-                        ? refDate.getMonth() + 1
-                        : `0${refDate.getMonth() + 1}`
-                }-${refDate.getDate()}T21:59:59.000Z`;
-
-                dynamo_find_query({
-                    table_name: 'requests_central',
-                    IndexName: 'shopper_id',
-                    KeyConditionExpression:
-                        'shopper_id = :val1 AND date_requested BETWEEN :start_date AND :end_date',
-                    FilterExpression:
-                        '#r.#isCodrop = :val2 AND #r.#icoRate = :val3',
-                    ScanIndexForward: false,
-                    ExpressionAttributeValues: {
-                        ':val1': driver_fingerprint,
-                        ':val2': true,
-                        ':val3': true,
-                        ':start_date': today_beginning,
-                        ':end_date': today_end,
-                    },
-                    ExpressionAttributeNames: {
-                        '#r': 'request_state_vars',
-                        '#isCodrop': 'completedDropoff',
-                        '#icoRate': 'completedRatingClient',
-                    },
-                })
-                    .then((requestsArray) => {
-                        let amount = 0;
-                        if (
-                            requestsArray !== null &&
-                            requestsArray !== undefined &&
-                            requestsArray.length > 0
-                        ) {
-                            requestsArray.map((request) => {
-                                //Sum it all up
-                                let tmpFare = parseFloat(request.fare);
-                                amount += tmpFare;
-                            });
-                            //...
-                            resolve({
-                                amount: amount,
-                                currency: 'NAD',
-                                currency_symbol: 'N$',
-                                supported_requests_types:
-                                    driverProfile !== undefined &&
-                                    driverProfile !== null
-                                        ? driverProfile.operation_clearances
-                                        : 'none',
-                                response: 'success',
-                            });
-                        } //No infos
-                        else {
-                            resolve({
-                                amount: 0,
-                                currency: 'NAD',
-                                currency_symbol: 'N$',
-                                supported_requests_types:
-                                    driverProfile !== undefined &&
-                                    driverProfile !== null
-                                        ? driverProfile.operation_clearances
-                                        : 'none',
-                                response: 'success',
-                            });
-                        }
-                    })
-                    .catch((error) => {
-                        logger.error(error);
-                        resolve({
-                            amount: 0,
-                            currency: 'NAD',
-                            currency_symbol: 'N$',
-                            supported_requests_types:
-                                driverProfile !== undefined &&
-                                driverProfile !== null
-                                    ? driverProfile.operation_clearances
-                                    : 'none',
-                            response: 'error',
-                        });
-                    });
-            } else {
-                logger.info('Here3');
-                resolve({
-                    amount: 0,
-                    currency: 'NAD',
-                    currency_symbol: 'N$',
-                    supported_requests_types: 'none',
-                    response: 'error',
-                });
-            }
-        })
-        .catch((error) => {
-            logger.error(error);
-            resolve({
-                amount: 0,
-                currency: 'NAD',
-                currency_symbol: 'N$',
-                supported_requests_types: 'none',
-                response: 'error',
-            });
-        });
 }
 
 /**
@@ -7228,6 +7060,98 @@ exports.processCourierDrivers_application = async (req) => {
 };
 
 /**
+ * COMPUTE DAILY REQUESTS AMMOUNT FOR DRIVERS
+ * Responsible for getting the daily amount made so far by the driver for exactly all the completed requests.
+ */
+exports.computeDaily_amountMadeSoFar = async (driverId) => {
+    try {
+        if (!driverId)
+            return {
+                amount: 0,
+                currency: 'NAD',
+                currency_symbol: 'N$',
+                supported_requests_types: 'none',
+                response: 'error',
+            };
+
+        const daily = await getDaily_requestAmount_driver(driverId);
+
+        return daily;
+    } catch (error) {
+        logger.error(error);
+        return {
+            amount: 0,
+            currency: 'NAD',
+            currency_symbol: 'N$',
+            supported_requests_types: 'none',
+            response: 'error',
+        };
+    }
+};
+
+/**
+ * Go ONLINE/OFFLINE FOR DRIVERS
+ * Responsible for going online or offline for drivers / or getting the operational status of drivers (online/offline).
+ * ! Use Caching
+ * @param driver_fingerprint
+ * @param state: online or offline
+ */
+exports.goOnline_offlineDrivers = async (driverId, action, state) => {
+    try {
+        if (!driverId || !action) return { response: 'error_invalid_request' };
+
+        const driver = await DriversModel.get(driverId);
+
+        if (!driver) return { response: 'error_invalid_request' };
+
+        if (/make/i.test(action)) {
+            let suspensionInfos = {
+                is_suspended: !!driver?.isDriverSuspended,
+                message: 'Your account has been suspended',
+            };
+
+            await DriversModel.update(
+                {
+                    id: driverId,
+                },
+                {
+                    status: /online/i.test(state) ? 'online' : 'offline',
+                }
+            );
+
+            return {
+                response: 'successfully_done',
+                flag: /online/i.test(state) ? 'online' : 'offline',
+                suspension_infos: suspensionInfos,
+                operation_clearance: driver.operation_clearances,
+            };
+        } else if (/get/i.test(action)) {
+            return {
+                response: 'successfully_got',
+                flag: driver?.status ?? 'offline',
+                suspension_infos: { is_suspended: false },
+                operation_clearance: driver.operation_clearances,
+            };
+        }
+
+        return {
+            response: 'successfully_got',
+            flag: 'offline',
+            suspension_infos: { is_suspended: false },
+            operation_clearance: 'NONE',
+        };
+    } catch (error) {
+        logger.error(error);
+        return {
+            response: 'successfully_got',
+            flag: 'offline',
+            suspension_infos: { is_suspended: false },
+            operation_clearance: 'NONE',
+        };
+    }
+};
+
+/**
  * MAIN
  */
 var collectionPassengers_profiles = null;
@@ -7843,485 +7767,6 @@ redisCluster.on('connect', function () {
         else {
             res.send({ response: 'error_authentication_failed' });
         }
-    });
-
-    /**
-     * COMPUTE DAILY REQUESTS AMMOUNT FOR DRIVERS
-     * Responsible for getting the daily amount made so far by the driver for exactly all the completed requests.
-     */
-    app.get('/computeDaily_amountMadeSoFar', function (req, res) {
-        new Promise((resMAIN) => {
-            resolveDate();
-            let params = urlParser.parse(req.url, true);
-            req = params.query;
-
-            if (
-                req.driver_fingerprint !== undefined &&
-                req.driver_fingerprint !== null
-            ) {
-                new Promise((res0) => {
-                    getDaily_requestAmount_driver(req.driver_fingerprint, res0);
-                }).then(
-                    (result) => {
-                        resMAIN(result);
-                    },
-                    (error) => {
-                        logger.info(error);
-                        resMAIN({
-                            amount: 0,
-                            currency: 'NAD',
-                            currency_symbol: 'N$',
-                            supported_requests_types: 'none',
-                            response: 'error',
-                        });
-                    }
-                );
-            } //Error
-            else {
-                resMAIN({
-                    amount: 0,
-                    currency: 'NAD',
-                    currency_symbol: 'N$',
-                    supported_requests_types: 'none',
-                    response: 'error',
-                });
-            }
-        })
-            .then(
-                (result) => {
-                    res.send(result);
-                },
-                (error) => {
-                    logger.info(error);
-                    res.send({
-                        amount: 0,
-                        currency: 'NAD',
-                        currency_symbol: 'N$',
-                        supported_requests_types: 'none',
-                        response: 'error',
-                    });
-                }
-            )
-            .catch((error) => {
-                logger.info(error);
-                res.send({
-                    amount: 0,
-                    currency: 'NAD',
-                    currency_symbol: 'N$',
-                    supported_requests_types: 'none',
-                    response: 'error',
-                });
-            });
-    });
-
-    /**
-     * Go ONLINE/OFFLINE FOR DRIVERS
-     * Responsible for going online or offline for drivers / or getting the operational status of drivers (online/offline).
-     * ! Use Caching
-     * @param driver_fingerprint
-     * @param state: online or offline
-     */
-    app.get('/goOnline_offlineDrivers', function (req, res) {
-        new Promise((resMAIN) => {
-            resolveDate();
-            let params = urlParser.parse(req.url, true);
-            req = params.query;
-            let redisKey = 'offline_online_status-' + req.driver_fingerprint;
-
-            if (
-                req.driver_fingerprint !== undefined &&
-                req.driver_fingerprint !== null &&
-                req.action !== undefined &&
-                req.action !== null &&
-                req.state !== undefined &&
-                req.state !== null
-            ) {
-                if (/make/i.test(req.action)) {
-                    //Found a driver
-                    //Make a modification
-                    //Valid data received
-                    new Promise((res0) => {
-                        //Check the driver
-                        dynamo_find_query({
-                            table_name: 'drivers_shoppers_central',
-                            IndexName: 'driver_fingerprint',
-                            KeyConditionExpression:
-                                'driver_fingerprint = :val1',
-                            ExpressionAttributeValues: {
-                                ':val1': req.driver_fingerprint,
-                            },
-                        })
-                            .then((driverData) => {
-                                if (
-                                    driverData !== undefined &&
-                                    driverData.length > 0
-                                ) {
-                                    //! GET THE SUSPENSION INFOS
-                                    let suspensionInfos = {
-                                        is_suspended:
-                                            driverData[0].isDriverSuspended !==
-                                                undefined &&
-                                            driverData[0].isDriverSuspended !==
-                                                null
-                                                ? driverData[0]
-                                                      .isDriverSuspended
-                                                : false,
-                                        message:
-                                            driverData[0].suspension_infos !==
-                                                undefined &&
-                                            driverData[0].suspension_infos !==
-                                                null
-                                                ? /UNPAID_COMISSION/i.test(
-                                                      driverData[0]
-                                                          .suspension_infos[
-                                                          driverData[0]
-                                                              .suspension_infos
-                                                              .length - 1
-                                                      ].reason
-                                                  )
-                                                    ? `Your account has been suspended to an overdue DulcetDash commission.`
-                                                    : false
-                                                : false,
-                                    };
-                                    //! ------------------------
-                                    dynamo_update({
-                                        table_name: 'drivers_shoppers_central',
-                                        _idKey: driverData[0]._id,
-                                        UpdateExpression: 'set #o.#s = :val1',
-                                        ExpressionAttributeValues: {
-                                            ':val1': /online/i.test(req.state)
-                                                ? 'online'
-                                                : 'offline',
-                                        },
-                                        ExpressionAttributeNames: {
-                                            '#o': 'operational_state',
-                                            '#s': 'status',
-                                        },
-                                    })
-                                        .then((result) => {
-                                            if (result === false) {
-                                                res0({
-                                                    response:
-                                                        'error_invalid_request',
-                                                });
-                                            }
-                                            //...
-                                            //Save the going offline event
-                                            new Promise((res) => {
-                                                dynamo_insert('global_events', {
-                                                    event_name:
-                                                        'driver_switching_status_request',
-                                                    status: /online/i.test(
-                                                        req.state
-                                                    )
-                                                        ? 'online'
-                                                        : 'offline',
-                                                    driver_fingerprint:
-                                                        req.driver_fingerprint,
-                                                    date: new Date(
-                                                        chaineDateUTC
-                                                    ).toISOString(),
-                                                })
-                                                    .then()
-                                                    .catch((error) => {
-                                                        logger.error(error);
-                                                    });
-                                                //...
-                                                res(true);
-                                            }).then(
-                                                () => {},
-                                                () => {}
-                                            );
-
-                                            //! clear tthe driver profiles cache
-                                            new Promise((clear) => {
-                                                clearDriverProfileCache({
-                                                    driver_fingerprint:
-                                                        req.driver_fingerprint,
-                                                    resolve: clear,
-                                                });
-                                            })
-                                                .then()
-                                                .catch((error) =>
-                                                    logger.error(error)
-                                                );
-
-                                            //Done
-                                            res0({
-                                                response: 'successfully_done',
-                                                flag: /online/i.test(req.state)
-                                                    ? 'online'
-                                                    : 'offline',
-                                                suspension_infos:
-                                                    suspensionInfos,
-                                                operation_clearance:
-                                                    driverData[0]
-                                                        .operation_clearances,
-                                            });
-                                        })
-                                        .catch((error) => {
-                                            logger.error(error);
-                                            res0({
-                                                response:
-                                                    'error_invalid_request',
-                                            });
-                                        });
-                                    //Check if the driver has an active request - NOT LOG OUT WITH AN ACTIVE REQUEST
-                                    //check
-                                    // dynamo_find_query({
-                                    //   table_name: "requests_central",
-                                    //   IndexName: "shopper_id",
-                                    //   KeyConditionExpression: "shopper_id = :val1",
-                                    //   FilterExpression: "#r.#ia = :val2 AND #r.#iCo = :val3",
-                                    //   ExpressionAttributeValues: {
-                                    //     ":val1": req.driver_fingerprint,
-                                    //     ":val2": true,
-                                    //     ":val3": false,
-                                    //   },
-                                    //   ExpressionAttributeNames: {
-                                    //     "#r": "request_state_vars",
-                                    //     "#ia": "isAccepted",
-                                    //     "#iCo": "completedDropoff",
-                                    //   },
-                                    // })
-                                    //   .then((currentActiveRequests) => {
-                                    //     if (/offline/i.test(req.state)) {
-                                    //       //Only if the driver wants to go out
-                                    //       if (
-                                    //         currentActiveRequests !== undefined &&
-                                    //         currentActiveRequests.length <= 0
-                                    //       ) {
-                                    //         //No active requests - proceed
-                                    //         dynamo_update({
-                                    //           table_name: "drivers_shoppers_central",
-                                    //           _idKey: driverData[0]._id,
-                                    //           UpdateExpression: "set #o.#s = :val1",
-                                    //           ExpressionAttributeValues: {
-                                    //             ":val1": /online/i.test(req.state)
-                                    //               ? "online"
-                                    //               : "offline",
-                                    //           },
-                                    //           ExpressionAttributeNames: {
-                                    //             "#o": "operational_state",
-                                    //             "#s": "status",
-                                    //           },
-                                    //         })
-                                    //           .then((result) => {
-                                    //             if (result === false) {
-                                    //               res0({
-                                    //                 response: "error_invalid_request",
-                                    //               });
-                                    //             }
-                                    //             //...
-                                    //             //Save the going offline event
-                                    //             new Promise((res) => {
-                                    //               dynamo_insert("global_events", {
-                                    //                 event_name: "driver_switching_status_request",
-                                    //                 status: /online/i.test(req.state)
-                                    //                   ? "online"
-                                    //                   : "offline",
-                                    //                 driver_fingerprint: req.driver_fingerprint,
-                                    //                 date: new Date(chaineDateUTC).toISOString(),
-                                    //               })
-                                    //                 .then()
-                                    //                 .catch((error) => {
-                                    //                   logger.error(error);
-                                    //                 });
-                                    //               //...
-                                    //               res(true);
-                                    //             }).then(
-                                    //               () => {},
-                                    //               () => {}
-                                    //             );
-
-                                    //             //! clear tthe driver profiles cache
-                                    //             new Promise((clear) => {
-                                    //               clearDriverProfileCache({
-                                    //                 driver_fingerprint: req.driver_fingerprint,
-                                    //                 resolve: clear,
-                                    //               });
-                                    //             })
-                                    //               .then()
-                                    //               .catch((error) => logger.error(error));
-
-                                    //             //Done
-                                    //             res0({
-                                    //               response: "successfully_done",
-                                    //               flag: /online/i.test(req.state)
-                                    //                 ? "online"
-                                    //                 : "offline",
-                                    //               suspension_infos: suspensionInfos,
-                                    //               operation_clearance:
-                                    //                 driverData[0].operation_clearances,
-                                    //             });
-                                    //           })
-                                    //           .catch((error) => {
-                                    //             logger.error(error);
-                                    //             res0({
-                                    //               response: "error_invalid_request",
-                                    //             });
-                                    //           });
-                                    //       } //Has an active request - abort going offline
-                                    //       else {
-                                    //         res0({
-                                    //           response:
-                                    //             "error_going_offline_activeRequest_inProgress",
-                                    //         });
-                                    //       }
-                                    //     } //If the driver want to go online - proceed
-                                    //     else {
-                                    //       dynamo_update({
-                                    //         table_name: "drivers_shoppers_central",
-                                    //         _idKey: driverData[0]._id,
-                                    //         UpdateExpression: "set #o.#s = :val1",
-                                    //         ExpressionAttributeValues: {
-                                    //           ":val1": /online/i.test(req.state)
-                                    //             ? "online"
-                                    //             : "offline",
-                                    //         },
-                                    //         ExpressionAttributeNames: {
-                                    //           "#o": "operational_state",
-                                    //           "#s": "status",
-                                    //         },
-                                    //       })
-                                    //         .then((result) => {
-                                    //           if (result === false) {
-                                    //             res0({
-                                    //               response: "error_invalid_request",
-                                    //             });
-                                    //           }
-                                    //           //...
-                                    //           //Save the going offline event
-                                    //           new Promise((res) => {
-                                    //             dynamo_insert("global_events", {
-                                    //               event_name: "driver_switching_status_request",
-                                    //               status: /online/i.test(req.state)
-                                    //                 ? "online"
-                                    //                 : "offline",
-                                    //               driver_fingerprint: req.driver_fingerprint,
-                                    //               date: new Date(chaineDateUTC).toISOString(),
-                                    //             })
-                                    //               .then()
-                                    //               .catch((error) => logger.error(error));
-                                    //             //...
-                                    //             res(true);
-                                    //           }).then(
-                                    //             () => {},
-                                    //             () => {}
-                                    //           );
-
-                                    //           //! clear tthe driver profiles cache
-                                    //           new Promise((clear) => {
-                                    //             clearDriverProfileCache({
-                                    //               driver_fingerprint: req.driver_fingerprint,
-                                    //               resolve: clear,
-                                    //             });
-                                    //           })
-                                    //             .then()
-                                    //             .catch((error) => logger.error(error));
-
-                                    //           //Done
-                                    //           res0({
-                                    //             response: "successfully_done",
-                                    //             flag: /online/i.test(req.state)
-                                    //               ? "online"
-                                    //               : "offline",
-                                    //             suspension_infos: suspensionInfos,
-                                    //             operation_clearance:
-                                    //               driverData[0].operation_clearances,
-                                    //           });
-                                    //         })
-                                    //         .catch((error) => {
-                                    //           logger.error(error);
-                                    //           res0({
-                                    //             response: "error_invalid_request",
-                                    //           });
-                                    //         });
-                                    //     }
-                                    //   })
-                                    //   .catch((error) => {
-                                    //     logger.error(error);
-                                    //     res0({ response: "error_invalid_request" });
-                                    //   });
-                                } //Error - unknown driver
-                                else {
-                                    res0({ response: 'error_invalid_request' });
-                                }
-                            })
-                            .catch((error) => {
-                                logger.error(error);
-                                res0({ response: 'error_invalid_request' });
-                            });
-                    }).then(
-                        (result) => {
-                            resMAIN(result);
-                        },
-                        (error) => {
-                            logger.info(error);
-                            resMAIN({ response: 'error_invalid_request' });
-                        }
-                    );
-                } else if (/get/i.test(req.action)) {
-                    //? 2. Get the driver's profile
-                    //Augment
-                    req['user_fingerprint'] = req.driver_fingerprint;
-                    new Promise((resGetDriverProfile) => {
-                        getDriversProfile(req, resGetDriverProfile);
-                    })
-                        .then((driverProfile) => {
-                            logger.info(driverProfile);
-                            //! Only  if the driver is online
-                            if (
-                                driverProfile !== false &&
-                                driverProfile !== undefined
-                            ) {
-                                //?Has some data
-                                resMAIN({
-                                    response: 'successfully_got',
-                                    flag: driverProfile.operational_state
-                                        .status,
-                                    suspension_infos: { is_suspended: false },
-                                    operation_clearance:
-                                        driverProfile.operation_clearances,
-                                });
-                            } //No driver profile data found
-                            else {
-                                resMAIN({
-                                    response: 'successfully_got',
-                                    flag: 'offline',
-                                    suspension_infos: { is_suspended: false },
-                                    operation_clearance: 'NONE',
-                                });
-                            }
-                        })
-                        .catch((error) => {
-                            logger.error(error);
-                            resMAIN({
-                                response: 'successfully_got',
-                                flag: 'offline',
-                                suspension_infos: { is_suspended: false },
-                                operation_clearance: 'NONE',
-                            });
-                        });
-                }
-            } //Invalid data
-            else {
-                resMAIN({ response: 'error_invalid_request' });
-            }
-        })
-            .then((result) => {
-                // logger.info(result);
-                res.send(result);
-            })
-            .catch((error) => {
-                logger.info(error);
-                res.send({
-                    response: 'successfully_got',
-                    flag: 'offline',
-                    suspension_infos: { is_suspended: false },
-                    operation_clearance: 'NONE',
-                });
-            });
     });
 
     /**
