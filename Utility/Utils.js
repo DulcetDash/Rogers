@@ -303,7 +303,15 @@ exports.parseRequestsForShopperAppView = async (request, driverData) => {
         parsedRequestsArray.delivery_basic_infos.ride_mode = request?.ride_mode;
         parsedRequestsArray.delivery_basic_infos.ride_style = 'shared';
 
-        parsedRequestsArray.delivery_basic_infos = request.request_state_vars;
+        parsedRequestsArray.delivery_basic_infos = {
+            ...parsedRequestsArray.delivery_basic_infos,
+            ...request.request_state_vars,
+        };
+
+        //Add cash pickup fee
+        if (!parsedRequestsArray?.totals_delivery?.cash_pickup_fee) {
+            parsedRequestsArray.delivery_basic_infos.totals_delivery.cash_pickup_fee = 0;
+        }
 
         parsedRequestsArray.delivery_basic_infos.pickup_note =
             request?.request_documentation ?? null;
@@ -322,8 +330,16 @@ exports.parseRequestsForShopperAppView = async (request, driverData) => {
                 longitude: parseFloat(driverData.last_location.longitude),
             },
             passenger: {
-                latitude: parseFloat(request.locations.pickup.coordinates[0]),
-                longitude: parseFloat(request.locations.pickup.coordinates[1]),
+                latitude: parseFloat(
+                    request.locations.pickup.coordinates?.latitude
+                        ? request.locations.pickup.coordinates?.latitude
+                        : request.locations.pickup.coordinates[0]
+                ),
+                longitude: parseFloat(
+                    request.locations.pickup.coordinates?.longitude
+                        ? request.locations.pickup.coordinates.longitude
+                        : request.locations.pickup.coordinates[1]
+                ),
             },
         });
 
@@ -356,14 +372,18 @@ exports.parseRequestsForShopperAppView = async (request, driverData) => {
             ? request.ride_mode
             : 'scheduled';
 
+        const dropoffCoords = request?.locations?.dropoff
+            ? request.locations.dropoff[0].dropoff_location.coordinates
+            : request.locations.delivery.coordinates;
+
         const itinaryToDropoff = await getItinaryInformation({
             destination: {
                 latitude: parseFloat(driverData.last_location.latitude),
                 longitude: parseFloat(driverData.last_location.longitude),
             },
             passenger: {
-                latitude: parseFloat(request.locations.pickup.coordinates[0]),
-                longitude: parseFloat(request.locations.pickup.coordinates[1]),
+                latitude: parseFloat(dropoffCoords[0]),
+                longitude: parseFloat(dropoffCoords[1]),
             },
         });
 
