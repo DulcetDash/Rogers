@@ -3336,41 +3336,45 @@ app.post('/goOnline_offlineDrivers_io', async (req, res) => {
     }
 });
 
-app.post('/driversOverallNumbers', function (req, res) {
-    logger.info(req);
-    req = req.body;
-    if (req.user_fingerprint !== undefined && req.user_fingerprint !== null) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.ACCOUNTS_SERVICE_PORT +
-            '/getDriversGeneralAccountNumber?user_fingerprint=' +
-            req.user_fingerprint;
+app.post('/driversOverallNumbers', async (req, res) => {
+    try {
+        const { user_fingerprint: driverId } = req.body;
+        logger.info(req.body);
 
-        requestAPI(url, function (error, response, body) {
-            // logger.info(body);
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    res.send(body);
-                } catch (error) {
-                    res.send({
-                        response: 'error',
-                    });
-                }
-            } else {
-                res.send({
-                    response: 'error',
-                });
-            }
-        });
-    } else {
+        if (!driverId)
+            return res.send({
+                response: 'error',
+            });
+
+        const driver = await DriversModel.get(driverId);
+
+        if (!driver)
+            return res.send({
+                response: 'error',
+            });
+
+        const requests = await RequestsModel.query('shopper_id')
+            .eq(driverId)
+            .filter('date_completedJob')
+            .exists()
+            .exec();
+
         res.send({
-            response: 'error',
+            response: {
+                requests: requests.count,
+                revenue: 0,
+                rating: 0,
+            },
+        });
+    } catch (error) {
+        logger.error(error);
+        res.send({
+            response: {
+                rides: 0,
+                requests: 0,
+                revenue: 0,
+                rating: 0,
+            },
         });
     }
 });
