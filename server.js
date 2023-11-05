@@ -1603,13 +1603,13 @@ app.post('/requestForRideOrDelivery', async (req, res) => {
             //! --------------
             security_pin =
                 String(security_pin).length < 6
-                    ? parseInt(security_pin) * 10
+                    ? parseInt(security_pin, 10) * 10
                     : security_pin;
 
             //! Check if the user has no unconfirmed shoppings
             const previousRequest = await RequestsModel.query('client_id')
                 .eq(req.user_identifier)
-                .filter('date_clientRatedRide')
+                .filter('date_clientRating')
                 .not()
                 .exists()
                 .filter('date_cancelled')
