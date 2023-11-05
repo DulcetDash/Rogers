@@ -2604,7 +2604,7 @@ app.post('/cancel_request_driver_io', async (req, res) => {
         const cancelledRequest = await RequestsModel.update(
             { id: request_fp },
             {
-                date_cancelled: new Date(),
+                shopper_id: 'false',
             }
         );
 
