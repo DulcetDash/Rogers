@@ -2231,7 +2231,7 @@ app.post('/validateUserOTP_changeNumber', async (req, res) => {
         let { otp } = req.body;
 
         if (phone && otp && user_identifier) {
-            otp = parseInt(otp);
+            otp = parseInt(otp, 10);
 
             const user = await UserModel.get(user_identifier);
 
@@ -2935,6 +2935,7 @@ app.post('/confirm_dropoff_request_driver_io', async (req, res) => {
                         didPickupCash: true,
                         inRouteToPickupCash: true,
                         completedDropoff: true,
+                        completedJob: true,
                     },
                 },
                 date_completedJob: Date.now(),

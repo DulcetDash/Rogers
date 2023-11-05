@@ -86,6 +86,7 @@ const requestSchema = new dynamoose.Schema(
                 didPickupCash: false,
                 inRouteToDropoff: false,
                 completedDropoff: false,
+                completedJob: false,
                 // completedRatingClient: false,
                 //Shopping
                 inRouteToShop: false,
