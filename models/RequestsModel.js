@@ -133,14 +133,14 @@ const requestSchema = new dynamoose.Schema(
         security: String,
         date_pickedup: { type: Date, default: null },
         date_routeToDropoff: { type: Date, default: null },
-        date_completedDropoff: { type: Date, default: null },
-        date_clientRatedRide: { type: Date, default: null },
+        // date_completedDropoff: { type: Date, default: null },
+        // date_clientRatedRide: { type: Date, default: null },
         date_cancelled: { type: Date, default: null },
         //....Shopping
         date_routeToShop: { type: Date, default: null }, //The time when the shopper started going to the shops
-        date_completedShopping: { type: Date, default: null }, //The time when the shopper was done shopping
-        date_routeToDelivery: { type: Date, default: null }, //The time when the shopper started going to delivery the shopped items
-        date_clientRatedShopping: { type: Date, default: null }, //The time when the client rated the shopper
+        // date_completedShopping: { type: Date, default: null }, //The time when the shopper was done shopping
+        // date_routeToDelivery: { type: Date, default: null }, //The time when the shopper started going to delivery the shopped items
+        date_clientRating: { type: Date, default: null }, //The time when the client rated the shopper
         //...
         date_accepted: { type: Date, default: null },
         date_completedJob: { type: Date, default: null },

@@ -356,7 +356,12 @@ exports.parseRequestsForShopperAppView = async (request, driverData) => {
                 pickupLocation.location_name ?? pickupLocation.street_name,
             street_name: pickupLocation.street_name,
             suburb: pickupLocation.suburb,
-            coordinates: pickupLocation.coordinates,
+            coordinates: !pickupLocation.coordinates?.latitude
+                ? {
+                      latitude: pickupLocation.coordinates[0],
+                      longitude: pickupLocation.coordinates[1],
+                  }
+                : pickupLocation.coordinates,
             city: pickupLocation.city,
             country: pickupLocation.country,
             region: pickupLocation.state

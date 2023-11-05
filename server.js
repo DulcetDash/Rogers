@@ -2693,44 +2693,62 @@ app.post('/cancel_request_driver_io', async (req, res) => {
  * event: confirm_pickup_request_driver_io
  * Confirm pickup for any request from the driver's side.
  */
-app.post('/confirm_pickup_request_driver_io', function (req, res) {
-    //logger.info(req);
-    req = req.body;
+app.post('/confirm_pickup_request_driver_io', async (req, res) => {
+    try {
+        const { driver_fingerprint: driverId, request_fp: requestId } =
+            req.body;
 
-    if (
-        req.driver_fingerprint !== undefined &&
-        req.driver_fingerprint !== null &&
-        req.request_fp !== undefined &&
-        req.request_fp !== null
-    ) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.DISPATCH_SERVICE_PORT +
-            '/confirm_pickup_request_driver';
+        const driver = await DriversModel.get(driverId);
 
-        requestAPI.post({ url, form: req }, function (error, response, body) {
-            //logger.info(body);
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    res.send(body);
-                } catch (error) {
-                    res.send({
-                        response: 'unable_to_confirm_pickup_request_error',
-                    });
-                }
-            } else {
-                res.send({
-                    response: 'unable_to_confirm_pickup_request_error',
-                });
+        if (!driver)
+            return res.send({
+                response: 'unable_to_confirm_pickup_request_error',
+            });
+
+        const request = await RequestsModel.query('id')
+            .eq(requestId)
+            .filter('date_cancelled')
+            .not()
+            .exists()
+            .filter('date_completedJob')
+            .not()
+            .exists()
+            .filter('date_completedDropoff')
+            .not()
+            .exists()
+            .exec();
+
+        if (request.count <= 0)
+            return res.send({
+                response: 'unable_to_confirm_pickup_request_error',
+            });
+
+        const updatedRequest = await RequestsModel.update(
+            {
+                id: requestId,
+            },
+            {
+                request_state_vars: {
+                    ...request[0].request_state_vars,
+                    ...{
+                        inRouteToDropoff: true,
+                        inRouteToShop: true,
+                        didPickupCash: true,
+                        inRouteToPickupCash: true,
+                    },
+                },
+                date_routeToShop: Date.now(),
+                date_pickedupCash: Date.now(),
             }
+        );
+
+        res.json({
+            status: 'success',
+            response: 'successfully_confirmed_pickup',
+            rider_fp: updatedRequest.client_id,
         });
-    } else {
+    } catch (error) {
+        logger.error(error);
         res.send({
             response: 'unable_to_confirm_pickup_request_error',
         });
@@ -2742,7 +2760,7 @@ app.post('/confirm_pickup_request_driver_io', function (req, res) {
  * Route: confirm_pickup_request_driver
  * Confirm that the shopping is done for any request from the driver's side.
  */
-app.post('/confirm_doneShopping_request_driver_io', function (req, res) {
+app.post('/confirm_doneShopping_request_driver_io', async (req, res) => {
     req = req.body;
     //logger.info(req);
 
@@ -2836,49 +2854,166 @@ app.post('/declineRequest_driver', function (req, res) {
     }
 });
 
+app.post('/confirm_item_dropoff', async (req, res) => {
+    try {
+        const {
+            driver_fingerprint: driverId,
+            request_fp: requestId,
+            selectedPackageIndex,
+        } = req.body;
+
+        if (!driverId || !requestId)
+            return res.send({
+                response: 'unable_to_confirm_dropoff_request_error',
+            });
+
+        const driver = await DriversModel.get(driverId);
+
+        if (!driver)
+            return res.send({
+                response: 'unable_to_confirm_dropoff_request_error',
+            });
+
+        const request = await RequestsModel.query('id')
+            .eq(requestId)
+            .filter('date_cancelled')
+            .not()
+            .exists()
+            .filter('date_completedJob')
+            .not()
+            .exists()
+            .filter('date_completedDropoff')
+            .not()
+            .exists()
+            .exec();
+
+        if (request.count <= 0)
+            return res.send({
+                response: 'unable_to_confirm_dropoff_request_error',
+            });
+
+        const packageIndex =
+            selectedPackageIndex &&
+            !Number.isNaN(parseInt(selectedPackageIndex, 10))
+                ? parseInt(selectedPackageIndex, 10)
+                : 0;
+        let updatedDeliveryList = {};
+
+        if (request[0]?.ride_mode === 'DELIVERY') {
+            updatedDeliveryList = {
+                locations: {
+                    pickup: request[0].locations.pickup,
+                    dropoff: request[0]?.locations?.dropoff?.map(
+                        (delivery, index) => {
+                            if (index === packageIndex) {
+                                delivery.isCompleted = true;
+                            }
+                            return delivery;
+                        }
+                    ),
+                },
+            };
+        } //SHOPPING
+        else {
+            updatedDeliveryList = {
+                shopping_list: request[0]?.shopping_list?.map(
+                    (shopping, index) => {
+                        if (index === packageIndex) {
+                            shopping.isCompleted = true;
+                        }
+                        return shopping;
+                    }
+                ),
+            };
+        }
+
+        const updatedRequest = await RequestsModel.update(
+            {
+                id: requestId,
+            },
+            updatedDeliveryList
+        );
+
+        res.json({
+            status: 'success',
+            response: 'successfully_confirmed_dropoff',
+            rider_fp: updatedRequest.client_id,
+        });
+    } catch (error) {
+        logger.error(error);
+        res.send({
+            response: 'unable_to_confirm_dropoff_request_error',
+        });
+    }
+});
+
 /**
  * DISPATCH SERVICE, port 9094
  * Route: confirm_dropoff_request_driver
  * event: confirm_dropoff_request_driver_io
  * Confirm dropoff for any request from the driver's side.
  */
-app.post('/confirm_dropoff_request_driver_io', function (req, res) {
-    //logger.info(req);
-    req = req.body;
-    if (
-        req.driver_fingerprint !== undefined &&
-        req.driver_fingerprint !== null &&
-        req.request_fp !== undefined &&
-        req.request_fp !== null
-    ) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.DISPATCH_SERVICE_PORT +
-            '/confirm_dropoff_request_driver';
+app.post('/confirm_dropoff_request_driver_io', async (req, res) => {
+    try {
+        const { driver_fingerprint: driverId, request_fp: requestId } =
+            req.body;
 
-        requestAPI.post({ url, form: req }, function (error, response, body) {
-            //logger.info(body);
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    res.send(body);
-                } catch (error) {
-                    res.send({
-                        response: 'unable_to_confirm_dropoff_request_error',
-                    });
-                }
-            } else {
-                res.send({
-                    response: 'unable_to_confirm_dropoff_request_error',
-                });
+        if (!driverId || !requestId)
+            return res.send({
+                response: 'unable_to_confirm_dropoff_request_error',
+            });
+
+        const driver = await DriversModel.get(driverId);
+
+        if (!driver)
+            return res.send({
+                response: 'unable_to_confirm_dropoff_request_error',
+            });
+
+        const request = await RequestsModel.query('id')
+            .eq(requestId)
+            .filter('date_cancelled')
+            .not()
+            .exists()
+            .filter('date_completedJob')
+            .not()
+            .exists()
+            .filter('date_completedDropoff')
+            .not()
+            .exists()
+            .exec();
+
+        if (request.count <= 0)
+            return res.send({
+                response: 'unable_to_confirm_dropoff_request_error',
+            });
+
+        const updatedRequest = await RequestsModel.update(
+            {
+                id: requestId,
+            },
+            {
+                request_state_vars: {
+                    ...request[0].request_state_vars,
+                    ...{
+                        inRouteToDropoff: true,
+                        inRouteToShop: true,
+                        didPickupCash: true,
+                        inRouteToPickupCash: true,
+                        completedDropoff: true,
+                    },
+                },
+                date_completedJob: Date.now(),
             }
+        );
+
+        res.json({
+            status: 'success',
+            response: 'successfully_confirmed_dropoff',
+            rider_fp: updatedRequest.client_id,
         });
-    } else {
+    } catch (error) {
+        logger.error(error);
         res.send({
             response: 'unable_to_confirm_dropoff_request_error',
         });
