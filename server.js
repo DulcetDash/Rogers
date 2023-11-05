@@ -429,7 +429,7 @@ const getRequestDataClient = async (requestData) => {
 
     const requests = await RequestsModel.query('client_id')
         .eq(user_identifier)
-        .filter('date_completedDropoff')
+        .filter('date_clientRating')
         .not()
         .exists()
         .filter('date_cancelled')
@@ -442,12 +442,12 @@ const getRequestDataClient = async (requestData) => {
 
         //!1. SHOPPING DATA or DELIVERY DATA
         if (
-            shoppingData['ride_mode'].toUpperCase() === 'SHOPPING' ||
-            shoppingData['ride_mode'].toUpperCase() === 'DELIVERY'
+            shoppingData?.ride_mode.toUpperCase() === 'SHOPPING' ||
+            shoppingData?.ride_mode.toUpperCase() === 'DELIVERY'
         ) {
             //Has a pending shopping
             let RETURN_DATA_TEMPLATE = {
-                ride_mode: shoppingData['ride_mode'].toUpperCase(),
+                ride_mode: shoppingData?.ride_mode.toUpperCase(),
                 request_fp: shoppingData.id,
                 client_id: requestData.user_identifier, //the user identifier - requester
                 driver_details: {}, //Will hold the details of the shopper
@@ -472,12 +472,31 @@ const getRequestDataClient = async (requestData) => {
                     .exec();
                 if (shopper.count > 0) {
                     //Has a shopper
-                    let driverData = shopper[0];
+                    const driverData = shopper[0];
+                    const driverDocs = await DriversApplicationsModel.get(
+                        driverData.id
+                    );
+
+                    let driverProfile = await Redis.get(
+                        driverDocs.documents.driver_photo
+                    );
+
+                    if (!driverProfile) {
+                        driverProfile = await presignS3URL(
+                            driverDocs.documents.driver_photo
+                        );
+                        await Redis.set(
+                            driverDocs.documents.driver_photo,
+                            driverProfile,
+                            'EX',
+                            35 * 60
+                        );
+                    }
 
                     RETURN_DATA_TEMPLATE.driver_details = {
                         name: driverData.name,
-                        picture: driverData.identification_data.profile_picture,
-                        rating: driverData.identification_data.rating,
+                        picture: driverProfile,
+                        rating: driverData?.rating ?? 5,
                         phone: driverData.phone_number,
                         vehicle: {
                             picture: driverData.taxi_picture,
@@ -503,35 +522,14 @@ const getRequestDataClient = async (requestData) => {
             }
 
             return [RETURN_DATA_TEMPLATE];
-        } else {
-            return false;
         }
-    }
-    //No pending shoppings
-    else {
+
         return false;
     }
-};
+    //No pending shoppings
 
-//Get output standardazed user data format
-//@param userData in JSON
-function getOutputStandardizedUserDataFormat(userData) {
-    let RETURN_DATA_TEMPLATE = {
-        name: userData.name,
-        surname: userData.surname,
-        gender: userData.gender,
-        account_state: userData.account_state,
-        profile_picture: `${process.env.AWS_S3_CLIENTS_PROFILES_PATH}/clients_profiles/${userData.media.profile_picture}`,
-        account_verifications: {
-            is_verified: userData.account_verifications.is_accountVerified,
-        },
-        phone: userData.phone_number,
-        email: userData.email,
-        user_identifier: userData.user_identifier,
-    };
-    //...
-    return RETURN_DATA_TEMPLATE;
-}
+    return false;
+};
 
 /**
  * @func ucFirst
@@ -558,9 +556,12 @@ function ucFirst(stringData) {
  * @param resolve
  */
 const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
-    const DAILY_THRESHOLD = parseInt(process.env.DAILY_SMS_THRESHOLD_PER_USER);
+    const DAILY_THRESHOLD = parseInt(
+        process.env.DAILY_SMS_THRESHOLD_PER_USER,
+        10
+    );
 
-    let onlyDigitsPhone = phone_number.replace('+', '').trim();
+    const onlyDigitsPhone = phone_number.replace('+', '').trim();
     let otp = otpGenerator.generate(5, {
         lowerCaseAlphabets: false,
         upperCaseAlphabets: false,
@@ -571,9 +572,9 @@ const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
     otp = /264856997167/i.test(onlyDigitsPhone)
         ? 55576
         : String(otp).length < 5
-        ? parseInt(otp) * 10
+        ? parseInt(otp, 10) * 10
         : otp;
-    let message = `Your DulcetDash code is ${otp}. Never share this code.`;
+    const message = `Your DulcetDash code is ${otp}. Never share this code.`;
 
     if (!user) {
         logger.warn(message);
@@ -586,57 +587,56 @@ const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
         await OTPModel.create({
             id: uuidv4(),
             phone_number: phone_number,
-            otp: parseInt(otp),
+            otp: parseInt(otp, 10),
         });
         return true;
     } //Existing user
-    else {
-        logger.error(message);
-        const startOfDay = moment().startOf('day').valueOf(); // Start of today
-        const endOfDay = moment().endOf('day').valueOf(); // End of today
 
-        const otpData = await OTPModel.query('phone_number')
-            .eq(user.phone_number)
-            .filter('createdAt')
-            .between(startOfDay, endOfDay)
-            .exec();
+    logger.error(message);
+    const startOfDay = moment().startOf('day').valueOf(); // Start of today
+    const endOfDay = moment().endOf('day').valueOf(); // End of today
 
-        if (otpData.count <= DAILY_THRESHOLD) {
-            //Can still send the SMS
-            const didSentSMS = true;
-            // const didSentSMS = await sendSMS(message, phone_number);
+    const otpData = await OTPModel.query('phone_number')
+        .eq(user.phone_number)
+        .filter('createdAt')
+        .between(startOfDay, endOfDay)
+        .exec();
 
-            if (!didSentSMS) return false;
+    if (otpData.count <= DAILY_THRESHOLD) {
+        //Can still send the SMS
+        const didSentSMS = true;
+        // const didSentSMS = await sendSMS(message, phone_number);
 
-            await OTPModel.create({
-                id: uuidv4(),
-                phone_number: user.phone_number,
-                otp: parseInt(otp),
-            });
+        if (!didSentSMS) return false;
 
-            if (!isDriver) {
-                await UserModel.update(
-                    { id: user.id },
-                    {
-                        otp: parseInt(otp),
-                    }
-                );
-            } //Driver
-            else {
-                await DriversModel.update(
-                    { id: user.id },
-                    {
-                        otp: parseInt(otp),
-                    }
-                );
-            }
+        await OTPModel.create({
+            id: uuidv4(),
+            phone_number: user.phone_number,
+            otp: parseInt(otp, 10),
+        });
 
-            return true;
-        } else {
-            //!Exceeded the daily SMS request
-            return false;
+        if (!isDriver) {
+            await UserModel.update(
+                { id: user.id },
+                {
+                    otp: parseInt(otp, 10),
+                }
+            );
+        } //Driver
+        else {
+            await DriversModel.update(
+                { id: user.id },
+                {
+                    otp: parseInt(otp, 10),
+                }
+            );
         }
+
+        return true;
     }
+
+    //!Exceeded the daily SMS request
+    return false;
 };
 
 /**
@@ -1718,119 +1718,53 @@ app.post('/computeFares', function (req, res) {
 });
 
 //?8. Submit the rider rating
-//? EFFIENCY A
-app.post('/submitRiderOrClientRating', function (req, res) {
-    new Promise((resolve) => {
-        resolveDate();
+app.post('/submitRiderOrClientRating', async (req, res) => {
+    try {
+        const {
+            request_fp: requestId,
+            rating,
+            badges,
+            note,
+            user_fingerprint: userId,
+        } = req.body;
 
-        req = req.body;
+        if (!requestId || !rating || !badges || !userId)
+            return res.send({ response: 'error' });
 
-        logger.info(req);
+        const parsedBadges = JSON.parse(badges);
 
-        if (
-            req.request_fp !== undefined &&
-            req.request_fp !== null &&
-            req.rating !== undefined &&
-            req.rating !== null &&
-            req.badges !== undefined &&
-            req.badges !== null &&
-            req.note !== undefined &&
-            req.note !== null &&
-            req.user_fingerprint !== undefined &&
-            req.user_fingerprint !== null
-        ) {
-            req.badges = JSON.parse(req.badges);
+        const RATING_DATA = {
+            rating: parseFloat(rating),
+            comments: note,
+            compliments: parsedBadges,
+            date_clientRating: Date.now(),
+        };
 
-            let RATING_DATA = {
-                rating: parseFloat(req.rating),
-                comments: req.note,
-                compliments: req.badges,
-                date_rated: new Date(chaineDateUTC),
-            };
+        const request = await RequestsModel.query('id')
+            .eq(requestId)
+            .filter('date_clientRating')
+            .not()
+            .exists()
+            .exec();
 
-            //...Check the request
-            //! Can only rate once
-            let requestChecker = {
-                request_fp: req.request_fp,
-                'request_state_vars.completedRatingClient': false,
-            };
+        if (request.count > 0) return res.send({ response: 'error' });
 
-            dynamo_find_query({
-                table_name: 'requests_central',
-                IndexName: 'request_fp',
-                KeyConditionExpression: 'request_fp = :val1',
-                FilterExpression: '#r.#c = :val2',
-                ExpressionAttributeValues: {
-                    ':val1': req.request_fp,
-                    ':val2': false,
+        await RequestsModel.update(
+            { id: request[0].id },
+            {
+                request_state_vars: {
+                    ...request[0].request_state_vars,
+                    rating_data: RATING_DATA,
                 },
-                ExpressionAttributeNames: {
-                    '#r': 'request_state_vars',
-                    '#c': 'completedRatingClient',
-                },
-            })
-                .then((requestData) => {
-                    if (requestData !== undefined && requestData.length > 0) {
-                        //Valid
-                        requestData = requestData[0];
+                date_clientRating: Date.now(),
+            }
+        );
 
-                        let updatedRequestState =
-                            requestData.request_state_vars;
-                        updatedRequestState['rating_data'] = RATING_DATA;
-                        updatedRequestState['completedRatingClient'] = true;
-
-                        dynamo_update({
-                            table_name: 'requests_central',
-                            _idKey: requestData.id,
-                            UpdateExpression:
-                                'set request_state_vars = :val1, date_clientRatedRide = :val2',
-                            ExpressionAttributeValues: {
-                                ':val1': updatedRequestState,
-                                ':val2': new Date(chaineDateUTC).toISOString(),
-                            },
-                        })
-                            .then((result) => {
-                                // //! Delete previous cache
-                                // let redisKey = `${req.user_fingerprint}-shoppings`;
-                                // redisCluster.del(redisKey);
-                                // //! Delete previous request list cache
-                                // let redisKey2 = `${req.user_identifier}-requestListCached`;
-                                // redisCluster.del(redisKey2);
-                                // //...
-
-                                if (result === false) {
-                                    //Error
-                                    resolve([{ response: 'error' }]);
-                                }
-                                //...
-                                resolve([{ response: 'success' }]);
-                            })
-                            .catch((error) => {
-                                logger.error(error);
-                                resolve([{ response: 'error' }]);
-                            });
-                    } //No request?
-                    else {
-                        resolve([{ response: 'error' }]);
-                    }
-                })
-                .catch((error) => {
-                    logger.error(error);
-                    resolve([{ response: 'error' }]);
-                });
-        } //Invalid data
-        else {
-            resolve([{ response: 'error' }]);
-        }
-    })
-        .then((result) => {
-            logger.info(result);
-            res.send(result);
-        })
-        .catch((error) => {
-            logger.error(error);
-            res.send([{ response: 'error' }]);
-        });
+        res.send({ response: 'success' });
+    } catch (error) {
+        logger.error(error);
+        res.send({ response: 'error' });
+    }
 });
 
 //?9. Cancel request - user
@@ -3339,7 +3273,6 @@ app.post('/goOnline_offlineDrivers_io', async (req, res) => {
 app.post('/driversOverallNumbers', async (req, res) => {
     try {
         const { user_fingerprint: driverId } = req.body;
-        logger.info(req.body);
 
         if (!driverId)
             return res.send({

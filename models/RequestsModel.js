@@ -86,7 +86,7 @@ const requestSchema = new dynamoose.Schema(
                 didPickupCash: false,
                 inRouteToDropoff: false,
                 completedDropoff: false,
-                completedRatingClient: false,
+                // completedRatingClient: false,
                 //Shopping
                 inRouteToShop: false,
                 // inRouteToDelivery: false,
@@ -115,7 +115,7 @@ const requestSchema = new dynamoose.Schema(
                 // completedShopping: { type: Boolean, default: false }, //If the shopper is done shopping
 
                 //Generic
-                completedRatingClient: { type: Boolean, default: false },
+                // completedRatingClient: { type: Boolean, default: false },
                 rating_data: {
                     type: Object,
                     default: {},
