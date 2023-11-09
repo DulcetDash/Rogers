@@ -16,6 +16,8 @@ const {
     sendSMS,
     uploadBase64ToS3,
     parseRequestsForShopperAppView,
+    getAllItemsByShopFp,
+    shuffle,
 } = require('./Utility/Utils');
 const AWS = require('aws-sdk');
 const _ = require('lodash');
@@ -297,6 +299,7 @@ const getCatalogueFor = async (body) => {
     let redisKey = `${JSON.stringify(body)}-catalogue`;
 
     let cachedData = await Redis.get(redisKey);
+    // let cachedData = false;
 
     if (cachedData) {
         cachedData = JSON.parse(cachedData);
@@ -312,28 +315,35 @@ const getCatalogueFor = async (body) => {
 
     const storeData = shop;
 
-    let reformulateQuery;
+    // let reformulateQuery = CatalogueModel.query('shop_fp').eq(storeFp).all();
 
-    //Level 1
-    if (category) {
-        reformulateQuery = CatalogueModel.query('shop_fp')
-            .eq(storeFp)
-            .filter('category')
-            .eq(category.toUpperCase().trim());
-    } else {
-        reformulateQuery = CatalogueModel.query('shop_fp').eq(storeFp);
-    }
+    // //Level 1
+    // if (category) {
+    //     reformulateQuery = reformulateQuery
+    //         .filter('category')
+    //         .eq(category.toUpperCase().trim());
+    // }
 
-    //Level 2 - Add subcategory
-    if (subcategory) {
-        reformulateQuery = reformulateQuery
-            .filter('subcategory')
-            .eq(subcategory.toUpperCase().trim());
-    }
+    // //Level 2 - Add subcategory
+    // if (subcategory) {
+    //     reformulateQuery = reformulateQuery
+    //         .filter('subcategory')
+    //         .eq(subcategory.toUpperCase().trim());
+    // }
 
-    const catalogue =
-        cachedData.length > 0 ? cachedData : await reformulateQuery.exec();
-    const productsData = catalogue;
+    // const catalogue =
+    //     cachedData.length > 0 ? cachedData : await reformulateQuery.exec();
+    // const productsData = catalogue;
+
+    const productsData =
+        cachedData.length > 0
+            ? cachedData
+            : await getAllItemsByShopFp(
+                  process.env.CATALOGUE_INDEX,
+                  body.store
+              );
+
+    // logger.warn(allItems);
 
     if (cachedData.length <= 0) {
         Redis.set(redisKey, JSON.stringify(productsData), 'EX', 3600);
@@ -342,81 +352,62 @@ const getCatalogueFor = async (body) => {
     if (productsData?.count > 0 || productsData?.length > 0) {
         //Has data
         //Reformat the data
-        let reformatted_data = productsData.map((product, index) => {
-            let tmpData = {
-                index: index,
-                name: product.product_name,
-                price: product.product_price.replace('R', 'N$'),
-                pictures: [product.product_picture],
-                sku: product.sku,
-                meta: {
-                    category: product.category,
-                    subcategory: product.subcategory,
-                    store: product.shop_name,
-                    store_fp: storeFp,
-                    structured: storeData.structured_shopping,
-                },
-            };
-            //...
-            return tmpData;
-        });
+        const reformattedData = shuffle(
+            productsData.map((product, index) => {
+                const tmpData = {
+                    index: index,
+                    name: product.product_name,
+                    price: product.product_price,
+                    currency: product.currency,
+                    pictures: product.product_picture,
+                    sku: product.sku,
+                    meta: {
+                        category: product.category,
+                        subcategory: product.subcategory,
+                        store: product.shop_name,
+                        store_fp: storeFp,
+                        structured: storeData.structured_shopping,
+                    },
+                };
+                //...
+                return tmpData;
+            })
+        );
         //...
         //! Reorganize based on if the data is structured
-        if (structured) {
-            let structured = {};
-            reformatted_data.map((p) => {
-                if (
-                    structured[p.meta.category] !== undefined &&
-                    structured[p.meta.category] !== null
-                ) {
-                    //Already set
-                    structured[p.meta.category].push(p);
-                    //! Shuffle
-                    structured[p.meta.category] = shuffle(
-                        structured[p.meta.category]
-                    );
-                    //! Always limit to 3
-                    structured[p.meta.category] = structured[
-                        p.meta.category
-                    ].slice(0, 3);
-                } //Not yet set
-                else {
-                    structured[p.meta.category] = [];
-                    structured[p.meta.category].push(p);
-                }
-            });
-            //....
-            return { response: structured, store: storeFp };
-        } //Unstructured data
-        else {
-            return { response: reformatted_data, store: storeFp };
-        }
+        // if (structured) {
+        //     let structured = {};
+        //     reformattedData.map((p) => {
+        //         if (
+        //             structured[p.meta.category] !== undefined &&
+        //             structured[p.meta.category] !== null
+        //         ) {
+        //             //Already set
+        //             structured[p.meta.category].push(p);
+        //             //! Shuffle
+        //             structured[p.meta.category] = shuffle(
+        //                 structured[p.meta.category]
+        //             );
+        //             //! Always limit to 3
+        //             structured[p.meta.category] = structured[
+        //                 p.meta.category
+        //             ].slice(0, 3);
+        //         } //Not yet set
+        //         else {
+        //             structured[p.meta.category] = [];
+        //             structured[p.meta.category].push(p);
+        //         }
+        //         return true;
+        //     });
+        //     //....
+        //     return { response: structured, store: storeFp };
+        // } //Unstructured data
+
+        return { response: reformattedData, store: storeFp };
     } //No products
-    else {
-        return { response: {}, store: storeFp };
-    }
+
+    return { response: {}, store: storeFp };
 };
-
-//? ARRAY SHUFFLER
-function shuffle(array) {
-    let currentIndex = array.length,
-        randomIndex;
-
-    // While there remain elements to shuffle.
-    while (currentIndex != 0) {
-        // Pick a remaining element.
-        randomIndex = Math.floor(Math.random() * currentIndex);
-        currentIndex--;
-
-        // And swap it with the current element.
-        [array[currentIndex], array[randomIndex]] = [
-            array[randomIndex],
-            array[currentIndex],
-        ];
-    }
-
-    return array;
-}
 
 /**
  * @func getRequestDataClient
@@ -1330,17 +1321,34 @@ app.post('/getResultsForKeywords', async (req, res) => {
             category,
             subcategory,
             store_fp: shop_fp,
-            store: shop_name,
+            store: product_name,
             key,
         } = req.body;
 
         if (key && shop_fp) {
             const products = await searchProducts(process.env.CATALOGUE_INDEX, {
                 shop_fp,
-                shop_name,
+                product_name,
                 product_name: key,
                 category,
                 subcategory,
+            });
+
+            const reformattedData = products.map((product, index) => {
+                const tmpData = {
+                    ...product,
+                    ...{
+                        meta: {
+                            category: product.category,
+                            subcategory: product.subcategory,
+                            store: product.shop_name,
+                            store_fp: shop_fp,
+                            structured: false,
+                        },
+                    },
+                };
+                //...
+                return tmpData;
             });
 
             const privateKeys = [
@@ -1350,11 +1358,11 @@ app.post('/getResultsForKeywords', async (req, res) => {
                 'createdAt',
             ];
 
-            const safeProducts = _.map(products, (obj) =>
+            const safeProducts = _.map(reformattedData, (obj) =>
                 _.omit(obj, privateKeys)
             );
 
-            res.send({ count: products.length, response: safeProducts });
+            res.send({ count: reformattedData.length, response: safeProducts });
         } //No valid data
         else {
             res.send({ response: [] });
@@ -1526,7 +1534,7 @@ app.post('/requestForShopping', async (req, res) => {
             //! Check if the user has no unconfirmed shoppings
             const previousRequest = await RequestsModel.query('client_id')
                 .eq(user_identifier)
-                .filter('date_clientRatedShopping')
+                .filter('date_clientRating')
                 .not()
                 .exists()
                 .filter('date_cancelled')
@@ -1747,7 +1755,7 @@ app.post('/submitRiderOrClientRating', async (req, res) => {
             .exists()
             .exec();
 
-        if (request.count > 0) return res.send({ response: 'error' });
+        if (request.count <= 0) return res.send({ response: 'error' });
 
         await RequestsModel.update(
             { id: request[0].id },

@@ -142,6 +142,80 @@ exports.searchProducts = async (index, criteria) => {
     }
 };
 
+exports.getAllItemsByShopFp = async (index, shopFpValue) => {
+    const results = [];
+    try {
+        // Initial search request
+        const initialResponse = await ESClient.search({
+            index: index,
+            scroll: '1m', // Keep the search context alive for 1 minute
+            size: 1000,
+            body: {
+                query: {
+                    match: {
+                        shop_fp: shopFpValue,
+                    },
+                },
+            },
+        });
+
+        // Push initial batch of results
+        initialResponse.hits.hits.forEach((hit) => results.push(hit._source));
+
+        let scrollId = initialResponse._scroll_id;
+        while (initialResponse.hits.hits.length) {
+            const scrollResponse = await ESClient.scroll({
+                scroll_id: scrollId,
+                scroll: '1m',
+            });
+
+            // Push next batch of results
+            scrollResponse.hits.hits.forEach((hit) =>
+                results.push(hit._source)
+            );
+
+            // Update the scroll ID for the next scroll request
+            scrollId = scrollResponse._scroll_id;
+
+            // Exit condition if no more results are returned
+            if (scrollResponse.hits.hits.length === 0) {
+                break;
+            }
+        }
+
+        // Clear the scroll context when done
+        await ESClient.clearScroll({
+            scroll_id: [scrollId],
+        });
+    } catch (error) {
+        console.error('An error occurred while fetching items:', error);
+        throw error;
+    }
+
+    return results;
+};
+
+//? ARRAY SHUFFLER
+exports.shuffle = (array) => {
+    let currentIndex = array.length;
+    let randomIndex;
+
+    // While there remain elements to shuffle.
+    while (currentIndex !== 0) {
+        // Pick a remaining element.
+        randomIndex = Math.floor(Math.random() * currentIndex);
+        currentIndex -= 1;
+
+        // And swap it with the current element.
+        [array[currentIndex], array[randomIndex]] = [
+            array[randomIndex],
+            array[currentIndex],
+        ];
+    }
+
+    return array;
+};
+
 exports.uploadBase64ToS3 = async (
     base64OrFile,
     bucketName,
