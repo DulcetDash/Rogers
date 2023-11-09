@@ -768,6 +768,7 @@ const getRequestListDataUsers = async (user_identifier) => {
                         ? request.shopping_list
                         : null,
                 cancelled: !!request.date_cancelled,
+                completed: !!request.date_completedJob,
                 createdAt: request.createdAt,
             };
             return tmpRequest;
