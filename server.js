@@ -1577,7 +1577,7 @@ app.post('/requestForShopping', async (req, res) => {
                 res.json({ response: 'has_a_pending_shopping' });
             }
         } else {
-            resolve({ response: 'unable_to_request' });
+            res.send({ response: 'unable_to_request' });
         }
     } catch (error) {
         logger.error(error);
