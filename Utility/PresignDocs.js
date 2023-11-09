@@ -1,9 +1,9 @@
-const AWS = require("aws-sdk");
+const AWS = require('aws-sdk');
 
 const s3 = new AWS.S3({
-  region: "us-west-1",
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    region: 'us-west-1',
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
 });
 
 /**
@@ -13,14 +13,14 @@ const s3 = new AWS.S3({
  * @returns {Object} An object with the extracted bucket and key.
  */
 function parseS3URI(uri) {
-  const match = uri.match(/^s3:\/\/([^\/]+)\/(.+)$/);
-  if (!match) {
-    throw new Error("Invalid S3 URI");
-  }
-  return {
-    bucket: match[1],
-    key: match[2],
-  };
+    const match = uri.match(/^s3:\/\/([^\/]+)\/(.+)$/);
+    if (!match) {
+        return null;
+    }
+    return {
+        bucket: match[1],
+        key: match[2],
+    };
 }
 
 /**
@@ -31,21 +31,29 @@ function parseS3URI(uri) {
  * @returns {Promise<string>} The presigned URL.
  */
 exports.presignS3URL = async (uri, expires = 7200) => {
-  return new Promise((resolve, reject) => {
-    const { bucket, key } = parseS3URI(uri);
+    try {
+        return new Promise((resolve, reject) => {
+            const parsedURI = parseS3URI(uri);
 
-    const params = {
-      Bucket: bucket,
-      Key: key,
-      Expires: expires,
-    };
+            if (!parsedURI) resolve('null');
 
-    s3.getSignedUrl("getObject", params, (error, url) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve(url);
-      }
-    });
-  });
+            const { bucket, key } = parsedURI;
+
+            const params = {
+                Bucket: bucket,
+                Key: key,
+                Expires: expires,
+            };
+
+            s3.getSignedUrl('getObject', params, (error, url) => {
+                if (error) {
+                    resolve('null');
+                } else {
+                    resolve(url);
+                }
+            });
+        });
+    } catch (error) {
+        return 'null';
+    }
 };

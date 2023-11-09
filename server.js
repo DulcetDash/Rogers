@@ -2019,7 +2019,7 @@ app.post('/validateUserOTP', async (req, res) => {
             const checkOtp = await UserModel.query('phone_number')
                 .eq(phone)
                 .filter('otp')
-                .eq(parseInt(otp))
+                .eq(parseInt(otp, 10))
                 .exec();
 
             if (checkOtp.count > 0) {
