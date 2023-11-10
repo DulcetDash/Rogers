@@ -6655,7 +6655,6 @@ function shouldSendNewSMS({ req, hasAccount, resolve }) {
                     requestAPI(urlSMS, function (error, response, body) {
                         if (error === null) {
                             //Success
-                            console.log(body);
                             res0(true);
                         } //Unable to send SMS
                         else {
@@ -6792,7 +6791,6 @@ function sendSMSAny({ req, resolve, service }) {
                     requestAPI(urlSMS, function (error, response, body) {
                         if (error === null) {
                             //Success
-                            console.log(body);
                             res0(true);
                         } //Unable to send SMS
                         else {

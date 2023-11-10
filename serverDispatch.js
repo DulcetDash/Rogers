@@ -1,197 +1,197 @@
-require("dotenv").config();
+require('dotenv').config();
 //require("newrelic");
-var express = require("express");
-const http = require("http");
-const https = require("https");
-const fs = require("fs");
-const { logger } = require("./LogService");
-const nodemailer = require("nodemailer");
+var express = require('express');
+const http = require('http');
+const https = require('https');
+const fs = require('fs');
+const { logger } = require('./LogService');
+const nodemailer = require('nodemailer');
 
 var app = express();
 var server = http.createServer(app);
-const requestAPI = require("request");
-const crypto = require("crypto");
+const requestAPI = require('request');
+const crypto = require('crypto');
 //....
-const urlParser = require("url");
+const urlParser = require('url');
 
 var chaineDateUTC = null;
 var dateObject = null;
-const moment = require("moment");
-const { stringify, parse } = require("flatted");
-const { promisify, inspect } = require("util");
+const moment = require('moment');
+const { stringify, parse } = require('flatted');
+const { promisify, inspect } = require('util');
 
-const redis = require("redis");
+const redis = require('redis');
 
 const client = /production/i.test(String(process.env.EVIRONMENT))
-  ? null
-  : redis.createClient({
-      host: process.env.REDIS_HOST,
-      port: process.env.REDIS_PORT,
-    });
-var RedisClustr = require("redis-clustr");
+    ? null
+    : redis.createClient({
+          host: process.env.REDIS_HOST,
+          port: process.env.REDIS_PORT,
+      });
+var RedisClustr = require('redis-clustr');
 var redisCluster = /production/i.test(String(process.env.EVIRONMENT))
-  ? new RedisClustr({
-      servers: [
-        {
-          host: process.env.REDIS_HOST_ELASTICACHE,
-          port: process.env.REDIS_PORT_ELASTICACHE,
-        },
-      ],
-      createClient: function (port, host) {
-        // this is the default behaviour
-        return redis.createClient(port, host);
-      },
-    })
-  : client;
+    ? new RedisClustr({
+          servers: [
+              {
+                  host: process.env.REDIS_HOST_ELASTICACHE,
+                  port: process.env.REDIS_PORT_ELASTICACHE,
+              },
+          ],
+          createClient: function (port, host) {
+              // this is the default behaviour
+              return redis.createClient(port, host);
+          },
+      })
+    : client;
 const redisGet = promisify(redisCluster.get).bind(redisCluster);
 
 //! Attach DynamoDB helper
 const {
-  dynamo_insert,
-  dynamo_update,
-  dynamo_find_get,
-  dynamo_find_query,
-  dynamo_get_all,
-} = require("./DynamoServiceManager");
+    dynamo_insert,
+    dynamo_update,
+    dynamo_find_get,
+    dynamo_find_query,
+    dynamo_get_all,
+} = require('./DynamoServiceManager');
 
 let transporterSecurity = nodemailer.createTransport({
-  host: process.env.INOUT_GOING_SERVER,
-  port: process.env.LOGIN_EMAIL_SMTP,
-  secure: true, // true for 465, false for other ports
-  auth: {
-    user: process.env.LOGIN_EMAIL_USER, // generated ethereal user
-    pass: process.env.LOGIN_EMAIL_PASSWORD, // generated ethereal password
-  },
+    host: process.env.INOUT_GOING_SERVER,
+    port: process.env.LOGIN_EMAIL_SMTP,
+    secure: true, // true for 465, false for other ports
+    auth: {
+        user: process.env.LOGIN_EMAIL_USER, // generated ethereal user
+        pass: process.env.LOGIN_EMAIL_PASSWORD, // generated ethereal password
+    },
 });
 
 let transporterNoReplay = nodemailer.createTransport({
-  host: process.env.INOUT_GOING_SERVER,
-  port: process.env.LOGIN_EMAIL_SMTP,
-  secure: true, // true for 465, false for other ports
-  auth: {
-    user: process.env.NOREPLY_EMAIL, // generated ethereal user
-    pass: process.env.NOREPLY_EMAIL_PASSWORD, // generated ethereal password
-  },
+    host: process.env.INOUT_GOING_SERVER,
+    port: process.env.LOGIN_EMAIL_SMTP,
+    secure: true, // true for 465, false for other ports
+    auth: {
+        user: process.env.NOREPLY_EMAIL, // generated ethereal user
+        pass: process.env.NOREPLY_EMAIL_PASSWORD, // generated ethereal password
+    },
 });
 
 function resolveDate() {
-  //Resolve date
-  var date = new Date();
-  date = moment(date.getTime()).utcOffset(2);
+    //Resolve date
+    var date = new Date();
+    date = moment(date.getTime()).utcOffset(2);
 
-  dateObject = date;
-  date =
-    date.year() +
-    "-" +
-    (date.month() + 1) +
-    "-" +
-    date.date() +
-    " " +
-    date.hour() +
-    ":" +
-    date.minute() +
-    ":" +
-    date.second();
-  chaineDateUTC = new Date(date).toISOString();
+    dateObject = date;
+    date =
+        date.year() +
+        '-' +
+        (date.month() + 1) +
+        '-' +
+        date.date() +
+        ' ' +
+        date.hour() +
+        ':' +
+        date.minute() +
+        ':' +
+        date.second();
+    chaineDateUTC = new Date(date).toISOString();
 }
 resolveDate();
 
-var AWS_SMS = require("aws-sdk");
+var AWS_SMS = require('aws-sdk');
 function SendSMSTo(phone_number, message) {
-  if (phone_number !== false && phone_number !== "false") {
-    // Load the AWS SDK for Node.js
-    // Set region
-    AWS_SMS.config.update({ region: "us-east-1" });
+    if (phone_number !== false && phone_number !== 'false') {
+        // Load the AWS SDK for Node.js
+        // Set region
+        AWS_SMS.config.update({ region: 'us-east-1' });
 
-    // Create publish parameters
-    var params = {
-      Message: message /* required */,
-      PhoneNumber: phone_number,
-    };
+        // Create publish parameters
+        var params = {
+            Message: message /* required */,
+            PhoneNumber: phone_number,
+        };
 
-    // Create promise and SNS service object
-    var publishTextPromise = new AWS_SMS.SNS({ apiVersion: "2010-03-31" })
-      .publish(params)
-      .promise();
+        // Create promise and SNS service object
+        var publishTextPromise = new AWS_SMS.SNS({ apiVersion: '2010-03-31' })
+            .publish(params)
+            .promise();
 
-    // Handle promise's fulfilled/rejected states
-    publishTextPromise
-      .then(function (data) {
-        logger.info("MessageID is " + data.MessageId);
-      })
-      .catch(function (err) {
-        console.error(err, err.stack);
-      });
-  }
-  // let username = "DulcetDash";
-  // let password = "DulcetDash*1";
+        // Handle promise's fulfilled/rejected states
+        publishTextPromise
+            .then(function (data) {
+                logger.info('MessageID is ' + data.MessageId);
+            })
+            .catch(function (err) {
+                console.error(err, err.stack);
+            });
+    }
+    // let username = "DulcetDash";
+    // let password = "DulcetDash*1";
 
-  // let postData = JSON.stringify({
-  //   to: phone_number,
-  //   body: message,
-  // });
+    // let postData = JSON.stringify({
+    //   to: phone_number,
+    //   body: message,
+    // });
 
-  // let options = {
-  //   hostname: "api.bulksms.com",
-  //   port: 443,
-  //   path: "/v1/messages",
-  //   method: "POST",
-  //   headers: {
-  //     "Content-Type": "application/json",
-  //     "Content-Length": postData.length,
-  //     Authorization:
-  //       "Basic " + Buffer.from(username + ":" + password).toString("base64"),
-  //   },
-  // };
+    // let options = {
+    //   hostname: "api.bulksms.com",
+    //   port: 443,
+    //   path: "/v1/messages",
+    //   method: "POST",
+    //   headers: {
+    //     "Content-Type": "application/json",
+    //     "Content-Length": postData.length,
+    //     Authorization:
+    //       "Basic " + Buffer.from(username + ":" + password).toString("base64"),
+    //   },
+    // };
 
-  // let req = https.request(options, (resp) => {
-  //   logger.info("statusCode:", resp.statusCode);
-  //   let data = "";
-  //   resp.on("data", (chunk) => {
-  //     data += chunk;
-  //   });
-  //   resp.on("end", () => {
-  //     logger.info("Response:", data);
-  //   });
-  // });
+    // let req = https.request(options, (resp) => {
+    //   logger.info("statusCode:", resp.statusCode);
+    //   let data = "";
+    //   resp.on("data", (chunk) => {
+    //     data += chunk;
+    //   });
+    //   resp.on("end", () => {
+    //     logger.info("Response:", data);
+    //   });
+    // });
 
-  // req.on("error", (e) => {
-  //   logger.warn(e);
-  // });
+    // req.on("error", (e) => {
+    //   logger.warn(e);
+    // });
 
-  // req.write(postData);
-  // req.end();
+    // req.write(postData);
+    // req.end();
 }
 
 /**
  * Responsible for sending push notification to devices
  */
 var sendPushUPNotification = function (data) {
-  //logger.info("Notify data");
-  //logger.info(data);
-  var headers = {
-    "Content-Type": "application/json; charset=utf-8",
-  };
+    //logger.info("Notify data");
+    //logger.info(data);
+    var headers = {
+        'Content-Type': 'application/json; charset=utf-8',
+    };
 
-  var options = {
-    host: "onesignal.com",
-    port: 443,
-    path: "/api/v1/notifications",
-    method: "POST",
-    headers: headers,
-  };
+    var options = {
+        host: 'onesignal.com',
+        port: 443,
+        path: '/api/v1/notifications',
+        method: 'POST',
+        headers: headers,
+    };
 
-  var https = require("https");
-  var req = https.request(options, function (res) {
-    res.on("data", function (data) {
-      ////logger.info("Response:");
+    var https = require('https');
+    var req = https.request(options, function (res) {
+        res.on('data', function (data) {
+            ////logger.info("Response:");
+        });
     });
-  });
 
-  req.on("error", function (e) {});
+    req.on('error', function (e) {});
 
-  req.write(JSON.stringify(data));
-  req.end();
+    req.write(JSON.stringify(data));
+    req.end();
 };
 
 /**
@@ -199,34 +199,37 @@ var sendPushUPNotification = function (data) {
  * Generate unique fingerprint for any string size.
  */
 function generateUniqueFingerprint(str, encryption = false, resolve) {
-  str = str.trim();
-  let fingerprint = null;
-  if (encryption === false) {
-    fingerprint = crypto
-      .createHmac(
-        "sha512WithRSAEncryption",
-        "TAXICONNECTBASICKEYFINGERPRINTS-RIDES-DELIVERY"
-      )
-      .update(str)
-      .digest("hex");
-    resolve(fingerprint);
-  } else if (/md5/i.test(encryption)) {
-    fingerprint = crypto
-      .createHmac(
-        "md5WithRSAEncryption",
-        "TAXICONNECTBASICKEYFINGERPRINTS-RIDES-DELIVERY"
-      )
-      .update(str)
-      .digest("hex");
-    resolve(fingerprint);
-  } //Other - default
-  else {
-    fingerprint = crypto
-      .createHmac("sha256", "TAXICONNECTBASICKEYFINGERPRINTS-RIDES-DELIVERY")
-      .update(str)
-      .digest("hex");
-    resolve(fingerprint);
-  }
+    str = str.trim();
+    let fingerprint = null;
+    if (encryption === false) {
+        fingerprint = crypto
+            .createHmac(
+                'sha512WithRSAEncryption',
+                'TAXICONNECTBASICKEYFINGERPRINTS-RIDES-DELIVERY'
+            )
+            .update(str)
+            .digest('hex');
+        resolve(fingerprint);
+    } else if (/md5/i.test(encryption)) {
+        fingerprint = crypto
+            .createHmac(
+                'md5WithRSAEncryption',
+                'TAXICONNECTBASICKEYFINGERPRINTS-RIDES-DELIVERY'
+            )
+            .update(str)
+            .digest('hex');
+        resolve(fingerprint);
+    } //Other - default
+    else {
+        fingerprint = crypto
+            .createHmac(
+                'sha256',
+                'TAXICONNECTBASICKEYFINGERPRINTS-RIDES-DELIVERY'
+            )
+            .update(str)
+            .digest('hex');
+        resolve(fingerprint);
+    }
 }
 
 /**
@@ -235,112 +238,112 @@ function generateUniqueFingerprint(str, encryption = false, resolve) {
  * @param inputData: received trip input data.
  */
 function isIntercityRide(inputData) {
-  // let testData = {
-  //   actualRider: "someonelese",
-  //   actualRiderPhone_number: "0817563369",
-  //   carTypeSelected: "normalTaxiEconomy",
-  //   connectType: "ConnectUs",
-  //   country: "Namibia",
-  //   destinationData: {
-  //     passenger1Destination: {
-  //       _id: "5f7e16126661813ab09e417f",
-  //       averageGeo: -10.989369499999999,
-  //       city: "Windhoek",
-  //       coordinates: [-22.548558, 17.0504368],
-  //       country: "Namibia",
-  //       location_id: 242368923,
-  //       location_name: "Grove Khomasdal Funky Town - Pequena Angola",
-  //       query: "Grovr",
-  //       state: "Khomas",
-  //       street: false,
-  //     },
-  //     passenger2Destination: {
-  //       _id: "5fc8dde588e09715d0df05ca",
-  //       averageGeo: -5.491276299999999,
-  //       city: "Windhoek",
-  //       coordinates: [-22.5818168, 17.0878857],
-  //       country: "Namibia",
-  //       location_id: 1768699533,
-  //       location_name: "Showground Parking Area",
-  //       query: "Showg",
-  //       state: "Khomas",
-  //       street: "Jan Jonker Weg",
-  //     },
-  //     passenger3Destination: {
-  //       _id: "5f7de487c6811253c83529b3",
-  //       averageGeo: -10.975441900000003,
-  //       city: "Windhoek",
-  //       coordinates: [-22.56578, 17.0751551],
-  //       country: "Namibia",
-  //       location_id: 244132971,
-  //       location_name: "NUST Main St",
-  //       query: "Nust",
-  //       state: "Khomas",
-  //       street: false,
-  //     },
-  //     passenger4Destination: {
-  //       _id: "5f7de491c6811253c83529f6",
-  //       averageGeo: -11.1064516,
-  //       city: "Windhoek",
-  //       coordinates: [-22.6121691, 17.0233537],
-  //       country: "Namibia",
-  //       location_id: 6520901,
-  //       location_name: "University of Namibia (UNAM)",
-  //       query: "Unam",
-  //       state: "Khomas",
-  //       street: "Mandume Ndemufayo Avenue",
-  //     },
-  //   },
-  //   fareAmount: 80,
-  //   isAllGoingToSameDestination: false,
-  //   naturePickup: "PrivateLocation",
-  //   passengersNo: 4,
-  //   pickupData: {
-  //     city: "Windhoek",
-  //     coordinates: [-22.5705005, 17.0809437],
-  //     location_name: "Embassy of Brazil in Windhoek",
-  //     street_name: "Simeon Shixungileni Steet",
-  //   },
-  //   pickupNote: "Hello world",
-  //   receiverName_delivery: false,
-  //   receiverPhone_delivery: false,
-  //   rideType: "RIDE",
-  //   timeScheduled: "immediate",
-  //   paymentMethod: "CASH",
-  //   user_fingerprint:
-  //     "5b29bb1b9ac69d884f13fd4be2badcd22b72b98a69189bfab806dcf7c5f5541b6cbe8087cf60c791",
-  // };
-  // req = testData;
-  //...
-  let isIntercity = false;
-  let isDone = false;
-  for (var i = 0; i < Object.keys(inputData.destinationData).length; i++) {
-    let key = `passenger${i + 1}Destination`;
+    // let testData = {
+    //   actualRider: "someonelese",
+    //   actualRiderPhone_number: "0817563369",
+    //   carTypeSelected: "normalTaxiEconomy",
+    //   connectType: "ConnectUs",
+    //   country: "Namibia",
+    //   destinationData: {
+    //     passenger1Destination: {
+    //       _id: "5f7e16126661813ab09e417f",
+    //       averageGeo: -10.989369499999999,
+    //       city: "Windhoek",
+    //       coordinates: [-22.548558, 17.0504368],
+    //       country: "Namibia",
+    //       location_id: 242368923,
+    //       location_name: "Grove Khomasdal Funky Town - Pequena Angola",
+    //       query: "Grovr",
+    //       state: "Khomas",
+    //       street: false,
+    //     },
+    //     passenger2Destination: {
+    //       _id: "5fc8dde588e09715d0df05ca",
+    //       averageGeo: -5.491276299999999,
+    //       city: "Windhoek",
+    //       coordinates: [-22.5818168, 17.0878857],
+    //       country: "Namibia",
+    //       location_id: 1768699533,
+    //       location_name: "Showground Parking Area",
+    //       query: "Showg",
+    //       state: "Khomas",
+    //       street: "Jan Jonker Weg",
+    //     },
+    //     passenger3Destination: {
+    //       _id: "5f7de487c6811253c83529b3",
+    //       averageGeo: -10.975441900000003,
+    //       city: "Windhoek",
+    //       coordinates: [-22.56578, 17.0751551],
+    //       country: "Namibia",
+    //       location_id: 244132971,
+    //       location_name: "NUST Main St",
+    //       query: "Nust",
+    //       state: "Khomas",
+    //       street: false,
+    //     },
+    //     passenger4Destination: {
+    //       _id: "5f7de491c6811253c83529f6",
+    //       averageGeo: -11.1064516,
+    //       city: "Windhoek",
+    //       coordinates: [-22.6121691, 17.0233537],
+    //       country: "Namibia",
+    //       location_id: 6520901,
+    //       location_name: "University of Namibia (UNAM)",
+    //       query: "Unam",
+    //       state: "Khomas",
+    //       street: "Mandume Ndemufayo Avenue",
+    //     },
+    //   },
+    //   fareAmount: 80,
+    //   isAllGoingToSameDestination: false,
+    //   naturePickup: "PrivateLocation",
+    //   passengersNo: 4,
+    //   pickupData: {
+    //     city: "Windhoek",
+    //     coordinates: [-22.5705005, 17.0809437],
+    //     location_name: "Embassy of Brazil in Windhoek",
+    //     street_name: "Simeon Shixungileni Steet",
+    //   },
+    //   pickupNote: "Hello world",
+    //   receiverName_delivery: false,
+    //   receiverPhone_delivery: false,
+    //   rideType: "RIDE",
+    //   timeScheduled: "immediate",
+    //   paymentMethod: "CASH",
+    //   user_fingerprint:
+    //     "5b29bb1b9ac69d884f13fd4be2badcd22b72b98a69189bfab806dcf7c5f5541b6cbe8087cf60c791",
+    // };
+    // req = testData;
     //...
-    if (
-      inputData.destinationData[key] !== false &&
-      inputData.destinationData[key] !== undefined &&
-      inputData.destinationData[key] !== null &&
-      inputData.destinationData[key] !== "false"
-    ) {
-      let pickupCity = inputData.pickupData.city.trim().toUpperCase();
-      let tmpDestinationCity = inputData.destinationData[key].city
-        .trim()
-        .toUpperCase();
-      //...
-      if (pickupCity !== tmpDestinationCity) {
-        isIntercity = true;
-      }
+    let isIntercity = false;
+    let isDone = false;
+    for (var i = 0; i < Object.keys(inputData.destinationData).length; i++) {
+        let key = `passenger${i + 1}Destination`;
+        //...
+        if (
+            inputData.destinationData[key] !== false &&
+            inputData.destinationData[key] !== undefined &&
+            inputData.destinationData[key] !== null &&
+            inputData.destinationData[key] !== 'false'
+        ) {
+            let pickupCity = inputData.pickupData.city.trim().toUpperCase();
+            let tmpDestinationCity = inputData.destinationData[key].city
+                .trim()
+                .toUpperCase();
+            //...
+            if (pickupCity !== tmpDestinationCity) {
+                isIntercity = true;
+            }
+        }
+        //...
+        if (i + 1 === Object.keys(inputData.destinationData).length) {
+            isDone = true;
+        }
     }
     //...
-    if (i + 1 === Object.keys(inputData.destinationData).length) {
-      isDone = true;
+    if (isDone) {
+        return isIntercity;
     }
-  }
-  //...
-  if (isDone) {
-    return isIntercity;
-  }
 }
 
 /**
@@ -351,729 +354,992 @@ function isIntercityRide(inputData) {
  * supported internal one.
  */
 function parseRequestData(inputData, resolve) {
-  resolveDate();
-  //logger.info("INITIAL RECEIVED REQUEST");
-  // logger.info("REQUEST DATA -> ", inputData);
-  //! CHECK FOR A POTENTIAL CACHED VALUE FOR recoveredd data (from mysql)
-  redisGet(
-    `${
-      inputData.request_fp !== undefined
-        ? inputData.request_fp
-        : inputData.user_fingerprint
-    }-recoveredData`
-  ).then((resp) => {
-    if (resp !== null) {
-      logger.info("Found some cached data");
-      //Has a cached value
-      resolve(parse(resp));
-    } //GO FRESH
-    else {
-      //Check data consistency
-      if (
-        inputData.destinationData !== undefined &&
-        inputData.destinationData.passenger1Destination !== undefined &&
-        inputData.fareAmount !== undefined &&
-        inputData.pickupData !== undefined &&
-        inputData.pickupData.coordinates !== undefined &&
-        inputData.user_fingerprint !== undefined &&
-        inputData.rideType !== undefined
-      ) {
-        //Valid input
-        let parsedData = {};
-        //Complete unnested data
-        //? Add the dispatch strategy used
-        parsedData.dispatch_strategy = process.env.RIDES_DISPATCH_STRATEGY;
-        //? Add the request globality - normal (default) or corporate
-        parsedData.request_globality =
-          inputData.request_globality !== undefined &&
-          inputData.request_globality !== null
-            ? inputData.request_globality
-            : "normal";
-        //? Add the subscribed plan
-        parsedData.subscribed_plan =
-          inputData.subscribed_plan !== undefined &&
-          inputData.subscribed_plan !== null
-            ? inputData.subscribed_plan
-            : false;
-        //! Detect the Intercity ride
-        parsedData.isIntercity_trip = isIntercityRide(inputData);
-        //! Attach the rider app version - if not found defaults to 2000
-        parsedData.rider_app_version =
-          inputData.rider_app_version !== undefined &&
-          inputData.rider_app_version !== null
-            ? parseFloat(inputData.rider_app_version)
-            : 2000;
-        //...
-        parsedData.client_id = inputData.user_fingerprint;
-        parsedData.request_fp = dateObject.unix();
-        //Compute the request fp
-        let uniqueString =
-          inputData.user_fingerprint +
-          "-" +
-          inputData.passengersNo +
-          "-" +
-          chaineDateUTC;
-        new Promise((res) => {
-          generateUniqueFingerprint(uniqueString, false, res);
-        })
-          .then(
-            (result) => {
-              parsedData.request_fp =
-                inputData.request_fp !== undefined &&
-                inputData.request_fp !== null
-                  ? inputData.request_fp
-                  : result; //Update with the fingerprint;
-            },
-            (error) => {
-              logger.warn(error);
-              parsedData.request_fp =
-                parsedData.user_fingerprint + dateObject.unix(); //Make a fingerprint out of the timestamp
-            }
-          )
-          .finally(() => {
-            //Continue
-            parsedData.taxi_id =
-              inputData.taxi_id !== undefined && inputData.taxi_id !== null
-                ? inputData.taxi_id
-                : false;
-            parsedData.payment_method = inputData.paymentMethod
-              .trim()
-              .toUpperCase();
-            parsedData.connect_type = inputData.connectType;
-            parsedData.ride_mode = inputData.rideType;
-            parsedData.fare = inputData.fareAmount;
-            parsedData.isGoingUntilHome =
-              inputData.isGoingUntilHome !== undefined &&
-              inputData.isGoingUntilHome !== null
-                ? /false/i.test(inputData.isGoingUntilHome)
-                  ? false
-                  : /true/i.test(inputData.isGoingUntilHome)
-                  ? true
-                  : inputData.isGoingUntilHome
-                : false; //! Careful: Doubled the fares for the Economy type
-            parsedData.passengers_number = inputData.passengersNo;
-            parsedData.request_type = /now/i.test(inputData.timeScheduled)
-              ? "immediate"
-              : "scheduled";
-            parsedData.allowed_drivers_see =
-              inputData.taxi_id !== undefined && inputData.taxi_id !== null
-                ? [inputData.taxi_id]
-                : []; //LIST OF THE DRIVERS WHO CAN SEE THE REQUEST IN THEIR APP.
-            //? Add the ccar fingerprint if any
-            parsedData.car_fingerprint =
-              inputData.car_fingerprint !== undefined &&
-              inputData.car_fingerprint !== null
-                ? inputData.car_fingerprint
-                : false;
-            //? Add the delete date if any
+    resolveDate();
+    //logger.info("INITIAL RECEIVED REQUEST");
+    // logger.info("REQUEST DATA -> ", inputData);
+    //! CHECK FOR A POTENTIAL CACHED VALUE FOR recoveredd data (from mysql)
+    redisGet(
+        `${
+            inputData.request_fp !== undefined
+                ? inputData.request_fp
+                : inputData.user_fingerprint
+        }-recoveredData`
+    ).then((resp) => {
+        if (resp !== null) {
+            logger.info('Found some cached data');
+            //Has a cached value
+            resolve(parse(resp));
+        } //GO FRESH
+        else {
+            //Check data consistency
             if (
-              inputData.date_deleted !== undefined &&
-              inputData.date_deleted !== null
+                inputData.destinationData !== undefined &&
+                inputData.destinationData.passenger1Destination !== undefined &&
+                inputData.fareAmount !== undefined &&
+                inputData.pickupData !== undefined &&
+                inputData.pickupData.coordinates !== undefined &&
+                inputData.user_fingerprint !== undefined &&
+                inputData.rideType !== undefined
             ) {
-              parsedData.date_deleted = inputData.date_deleted;
-            }
-            //Resolve the pickup time
-            new Promise((res1) => {
-              if (/immediate/i.test(parsedData.request_type)) {
-                //Now request - now date
-                parsedData.wished_pickup_time = new Date(chaineDateUTC);
-                res1(true);
-              } //Scheduled
-              else {
-                if (/today/i.test(inputData.timeScheduled)) {
-                  //For today
-                  //Generate a date mockup for today
-                  //Timestring format of eg. Today at 14:30 - EXTREMELY IMPORTANT
-                  let specifiedTIme = inputData.timeScheduled
-                    .split(" ")[2]
-                    .split(":");
-                  let tmpDateString =
-                    dateObject.year() +
-                    "-" +
-                    (dateObject.month() + 1) +
-                    "-" +
-                    dateObject.date() +
-                    " " +
-                    specifiedTIme[0] +
-                    ":" +
-                    specifiedTIme[1] +
-                    ":00";
-                  //...
-                  parsedData.wished_pickup_time = new Date(tmpDateString);
-                  res1(true);
-                } //TOmorrow
-                else {
-                  //Generate a date mockup for tomorrow
-                  //Timestring format of eg. Today at 14:30 - EXTREMELY IMPORTANT
-                  let specifiedTIme = inputData.timeScheduled
-                    .split(" ")[2]
-                    .split(":");
-                  let tmpDateString = new Date(
-                    dateObject.year() +
-                      "-" +
-                      (dateObject.month() + 1) +
-                      "-" +
-                      dateObject.date() +
-                      " " +
-                      specifiedTIme[0] +
-                      ":" +
-                      specifiedTIme[1] +
-                      ":00"
-                  );
-                  tmpDateString = tmpDateString.getTime();
-                  tmpDateString += 86400000; //Add a day in ms
-                  tmpDateString = moment(tmpDateString);
-                  tmpDateString =
-                    tmpDateString.year() +
-                    "-" +
-                    (tmpDateString.month() + 1) +
-                    "-" +
-                    tmpDateString.date() +
-                    " " +
-                    tmpDateString.hour() +
-                    ":" +
-                    tmpDateString.minute() +
-                    ":" +
-                    tmpDateString.second();
-                  //...
-                  parsedData.wished_pickup_time = new Date(tmpDateString);
-                  res1(true);
-                }
-              }
-            })
-              .then(
-                () => {},
-                () => {}
-              )
-              .finally(() => {
-                //COntinue
-                //! Clean the country of invalid values
-                inputData.country =
-                  inputData.country !== "false" &&
-                  inputData.country !== false &&
-                  inputData.country !== null &&
-                  inputData.country !== undefined
-                    ? inputData.country
-                    : "Namibia";
+                //Valid input
+                let parsedData = {};
+                //Complete unnested data
+                //? Add the dispatch strategy used
+                parsedData.dispatch_strategy =
+                    process.env.RIDES_DISPATCH_STRATEGY;
+                //? Add the request globality - normal (default) or corporate
+                parsedData.request_globality =
+                    inputData.request_globality !== undefined &&
+                    inputData.request_globality !== null
+                        ? inputData.request_globality
+                        : 'normal';
+                //? Add the subscribed plan
+                parsedData.subscribed_plan =
+                    inputData.subscribed_plan !== undefined &&
+                    inputData.subscribed_plan !== null
+                        ? inputData.subscribed_plan
+                        : false;
+                //! Detect the Intercity ride
+                parsedData.isIntercity_trip = isIntercityRide(inputData);
+                //! Attach the rider app version - if not found defaults to 2000
+                parsedData.rider_app_version =
+                    inputData.rider_app_version !== undefined &&
+                    inputData.rider_app_version !== null
+                        ? parseFloat(inputData.rider_app_version)
+                        : 2000;
                 //...
-                parsedData.country =
-                  inputData.country !== "false" &&
-                  inputData.country !== false &&
-                  inputData.country !== null &&
-                  inputData.country !== undefined
-                    ? inputData.country
-                    : "Namibia";
-                //Compute the simplified fingerprint
-                new Promise((res2) => {
-                  generateUniqueFingerprint(uniqueString, "md5", res2);
+                parsedData.client_id = inputData.user_fingerprint;
+                parsedData.request_fp = dateObject.unix();
+                //Compute the request fp
+                let uniqueString =
+                    inputData.user_fingerprint +
+                    '-' +
+                    inputData.passengersNo +
+                    '-' +
+                    chaineDateUTC;
+                new Promise((res) => {
+                    generateUniqueFingerprint(uniqueString, false, res);
                 })
-                  .then(
-                    (result) => {
-                      parsedData.trip_simplified_id =
-                        inputData.trip_simplified_id !== undefined &&
-                        inputData.trip_simplified_id !== null
-                          ? inputData.trip_simplified_id
-                          : result;
-                    },
-                    (erro) => {
-                      parsedData.trip_simplified_id =
-                        parsedData.client_id.substring(0, 15) +
-                        dateObject.milliseconds();
-                    }
-                  )
-                  .finally(() => {
-                    //continue
-                    parsedData.carTypeSelected = inputData.carTypeSelected;
-                    parsedData.isAllGoingToSameDestination =
-                      inputData.isAllGoingToSameDestination;
-                    parsedData.isArrivedToDestination =
-                      inputData.isArrivedToDestination !== undefined &&
-                      inputData.isArrivedToDestination !== null
-                        ? inputData.isArrivedToDestination
-                        : false;
-                    parsedData.date_dropoff =
-                      inputData.date_dropoff !== undefined &&
-                      inputData.date_dropoff !== null
-                        ? inputData.date_dropoff
-                        : false;
-                    parsedData.date_pickup =
-                      inputData.date_pickup !== undefined &&
-                      inputData.date_pickup !== null
-                        ? inputData.date_pickup
-                        : false;
-                    parsedData.date_requested =
-                      inputData.date_requested !== undefined &&
-                      inputData.date_requested !== null
-                        ? inputData.date_requested
-                        : new Date(chaineDateUTC);
-                    parsedData.date_accepted =
-                      inputData.date_accepted !== undefined &&
-                      inputData.date_accepted !== null
-                        ? inputData.date_accepted
-                        : false;
-                    //Parse nested data
-                    //1. Ride state vars
-                    parsedData.ride_state_vars =
-                      inputData.ride_state_vars !== undefined &&
-                      inputData.ride_state_vars !== null
-                        ? inputData.ride_state_vars
-                        : {
-                            isAccepted: false,
-                            inRideToDestination: false,
-                            isRideCompleted_driverSide: false,
-                            isRideCompleted_riderSide: false,
-                            rider_driverRating: "notYet",
-                          };
-                    //2.Pickup location infos
-                    //! Clean the city of invalid values
-                    inputData.pickupData.city =
-                      inputData.pickupData.city !== "false" &&
-                      inputData.pickupData.city !== false &&
-                      inputData.pickupData.city !== null &&
-                      inputData.pickupData.city !== undefined
-                        ? inputData.pickupData.city
-                        : "Windhoek";
-                    //...
-                    parsedData.pickup_location_infos = {
-                      pickup_type: inputData.naturePickup,
-                      coordinates: {
-                        latitude: inputData.pickupData.coordinates[0],
-                        longitude: inputData.pickupData.coordinates[1],
-                      },
-                      location_name: inputData.pickupData.location_name,
-                      street_name: inputData.pickupData.street_name,
-                      suburb: false,
-                      pickup_note: inputData.pickupNote,
-                      city:
-                        inputData.pickupData.city !== "false" &&
-                        inputData.pickupData.city !== false &&
-                        inputData.pickupData.city !== null &&
-                        inputData.pickupData.city !== undefined
-                          ? inputData.pickupData.city
-                          : "Windhoek",
-                      state: null,
-                    };
-                    //! APPLY BLUE OCEAN BUG FIX FOR THE PICKUP LOCATION COORDINATES
-                    //? Get temporary vars
-                    let pickLatitude = parseFloat(
-                      parsedData.pickup_location_infos.coordinates.latitude
-                    );
-                    let pickLongitude = parseFloat(
-                      parsedData.pickup_location_infos.coordinates.longitude
-                    );
-                    //! Coordinates order fix - major bug fix for ocean bug
-                    if (
-                      pickLatitude !== undefined &&
-                      pickLatitude !== null &&
-                      pickLatitude !== 0 &&
-                      pickLongitude !== undefined &&
-                      pickLongitude !== null &&
-                      pickLongitude !== 0
-                    ) {
-                      //? Switch latitude and longitude - check the negative sign
-                      if (parseFloat(pickLongitude) < 0) {
-                        //Negative - switch
-                        parsedData.pickup_location_infos.coordinates.latitude =
-                          pickLongitude;
-                        parsedData.pickup_location_infos.coordinates.longitude =
-                          pickLatitude;
-                      }
-                    }
-                    //!!!
-                    //Auto complete the suburb
-                    new Promise((res3) => {
-                      let url =
-                        `${
-                          /production/i.test(process.env.EVIRONMENT)
-                            ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                            : process.env.LOCAL_URL
-                        }` +
-                        ":" +
-                        process.env.PRICING_SERVICE_PORT +
-                        "/getCorrespondingSuburbInfos?location_name=" +
-                        inputData.pickupData.location_name +
-                        "&street_name=" +
-                        inputData.pickupData.street_name +
-                        "&city=" +
-                        inputData.pickupData.city +
-                        "&country=" +
-                        inputData.country +
-                        "&latitude=" +
-                        parsedData.pickup_location_infos.coordinates.latitude +
-                        "&longitude=" +
-                        parsedData.pickup_location_infos.coordinates.longitude +
-                        "&user_fingerprint=" +
-                        inputData.user_fingerprint +
-                        "&make_new=false";
-                      requestAPI(url, function (error, response, body) {
-                        if (error === null) {
-                          try {
-                            logger.error(body);
-                            body = JSON.parse(body);
-                            parsedData.pickup_location_infos.suburb =
-                              /Samora Machel Constituency/i.test(body.suburb)
-                                ? "Wanaheda"
-                                : body.suburb; //! Suburb
-                            parsedData.pickup_location_infos.state = body.state
-                              .replace(/ Region/i, "")
-                              .trim(); //! State
-                            parsedData.pickup_location_infos.location_name =
-                              body.location_name !== undefined &&
-                              body.location_name !== null &&
-                              body.location_name !== false &&
-                              body.location_name !== "false"
-                                ? body.location_name
-                                : parsedData.pickup_location_infos
-                                    .location_name; //! Location name
-                            parsedData.pickup_location_infos.street_name =
-                              body.street_name !== undefined &&
-                              body.street_name !== null &&
-                              body.street_name !== false &&
-                              body.street_name !== "false"
-                                ? body.street_name
-                                : parsedData.pickup_location_infos.street_name; //! Street name
-
-                            parsedData.pickup_location_infos.city =
-                              body.city !== undefined &&
-                              body.city !== null &&
-                              body.city !== false &&
-                              body.city !== "false"
-                                ? body.city
-                                : parsedData.pickup_location_infos.city; //! City
-
-                            res3(true);
-                          } catch (error) {
-                            res3(false);
-                          }
-                        } else {
-                          res3(false);
+                    .then(
+                        (result) => {
+                            parsedData.request_fp =
+                                inputData.request_fp !== undefined &&
+                                inputData.request_fp !== null
+                                    ? inputData.request_fp
+                                    : result; //Update with the fingerprint;
+                        },
+                        (error) => {
+                            logger.warn(error);
+                            parsedData.request_fp =
+                                parsedData.user_fingerprint + dateObject.unix(); //Make a fingerprint out of the timestamp
                         }
-                      });
-                    })
-                      .then(
-                        () => {},
-                        () => {}
-                      )
-                      .finally(() => {
+                    )
+                    .finally(() => {
                         //Continue
-                        //3. Delivery infos
-                        parsedData.delivery_infos = {
-                          receiverName_delivery:
-                            inputData.receiverName_delivery,
-                          receiverPhone_delivery:
-                            inputData.receiverPhone_delivery,
-                          packageSize: inputData.packageSizeDelivery,
-                        };
-                        //4. Rider infos
-                        parsedData.rider_infos = {
-                          actualRider: /^someonelese$/i.test(
-                            inputData.actualRider
-                          )
-                            ? "someoneelse"
-                            : "me",
-                          actualRiderPhone_number:
-                            inputData.actualRiderPhone_number,
-                        };
-
-                        //5. DESTINATION DATA
-                        let cleanInputData = { destinationData: null };
-                        //Resolve destination infos
-                        new Promise((res5) => {
-                          cleanInputData.destinationData = [];
-                          let tmpSchemaArray = new Array(
-                            parseInt(inputData.passengersNo)
-                          ).fill(1); //! Just for iterations, nothing more, instead of using for loop, but make it the right size - critical bug fix (Mandatory 4 passengers going to the same direction bug).
-                          if (inputData.passengersNo > 1) {
-                            //Many passengers
-                            //Check if all going to the same destination
-                            //? Clean the boolean
-                            inputData.isAllGoingToSameDestination =
-                              /string/i.test(
-                                typeof inputData.isAllGoingToSameDestination
-                              )
-                                ? inputData.isAllGoingToSameDestination ===
-                                  "true"
-                                  ? true
-                                  : false
-                                : inputData.isAllGoingToSameDestination;
-                            //? -----------
-                            if (
-                              inputData.isAllGoingToSameDestination &&
-                              inputData.isAllGoingToSameDestination !== false &&
-                              inputData.isAllGoingToSameDestination !== "false"
-                            ) {
-                              //yes
-                              tmpSchemaArray.map((element, index) => {
-                                cleanInputData.destinationData.push({
-                                  passenger_number_id: index + 1,
-                                  dropoff_type: "PrivateLocation",
-                                  coordinates: {
-                                    latitude:
-                                      inputData.destinationData
-                                        .passenger1Destination.coordinates[1],
-                                    longitude:
-                                      inputData.destinationData
-                                        .passenger1Destination.coordinates[0],
-                                  },
-                                  location_name:
-                                    inputData.destinationData
-                                      .passenger1Destination.location_name !==
-                                      undefined &&
-                                    inputData.destinationData
-                                      .passenger1Destination.location_name !==
-                                      false
-                                      ? inputData.destinationData
-                                          .passenger1Destination.location_name
-                                      : false,
-                                  street_name:
-                                    inputData.destinationData
-                                      .passenger1Destination.street !==
-                                      undefined &&
-                                    inputData.destinationData
-                                      .passenger1Destination.street !== false
-                                      ? inputData.destinationData
-                                          .passenger1Destination.street
-                                      : false,
-                                  receiver_infos:
-                                    /normal/i.test(
-                                      inputData.request_globality
-                                    ) ||
-                                    inputData.request_globality === undefined
-                                      ? null
-                                      : inputData.destinationData
-                                          .passenger1Destination.receiver_infos,
-                                  suburb:
-                                    inputData.destinationData
-                                      .passenger1Destination.suburb,
-                                  state:
-                                    inputData.destinationData.passenger1Destination.state
-                                      .replace(/ Region/i, "")
-                                      .trim(),
-                                  city: inputData.destinationData
-                                    .passenger1Destination.city,
-                                });
-                              });
-                              //Done
-                              res5(cleanInputData);
-                            } //Independent destinations,.....:(
+                        parsedData.taxi_id =
+                            inputData.taxi_id !== undefined &&
+                            inputData.taxi_id !== null
+                                ? inputData.taxi_id
+                                : false;
+                        parsedData.payment_method = inputData.paymentMethod
+                            .trim()
+                            .toUpperCase();
+                        parsedData.connect_type = inputData.connectType;
+                        parsedData.ride_mode = inputData.rideType;
+                        parsedData.fare = inputData.fareAmount;
+                        parsedData.isGoingUntilHome =
+                            inputData.isGoingUntilHome !== undefined &&
+                            inputData.isGoingUntilHome !== null
+                                ? /false/i.test(inputData.isGoingUntilHome)
+                                    ? false
+                                    : /true/i.test(inputData.isGoingUntilHome)
+                                    ? true
+                                    : inputData.isGoingUntilHome
+                                : false; //! Careful: Doubled the fares for the Economy type
+                        parsedData.passengers_number = inputData.passengersNo;
+                        parsedData.request_type = /now/i.test(
+                            inputData.timeScheduled
+                        )
+                            ? 'immediate'
+                            : 'scheduled';
+                        parsedData.allowed_drivers_see =
+                            inputData.taxi_id !== undefined &&
+                            inputData.taxi_id !== null
+                                ? [inputData.taxi_id]
+                                : []; //LIST OF THE DRIVERS WHO CAN SEE THE REQUEST IN THEIR APP.
+                        //? Add the ccar fingerprint if any
+                        parsedData.car_fingerprint =
+                            inputData.car_fingerprint !== undefined &&
+                            inputData.car_fingerprint !== null
+                                ? inputData.car_fingerprint
+                                : false;
+                        //? Add the delete date if any
+                        if (
+                            inputData.date_deleted !== undefined &&
+                            inputData.date_deleted !== null
+                        ) {
+                            parsedData.date_deleted = inputData.date_deleted;
+                        }
+                        //Resolve the pickup time
+                        new Promise((res1) => {
+                            if (/immediate/i.test(parsedData.request_type)) {
+                                //Now request - now date
+                                parsedData.wished_pickup_time = new Date(
+                                    chaineDateUTC
+                                );
+                                res1(true);
+                            } //Scheduled
                             else {
-                              let index = 0;
-                              for (var passengerKey in inputData.destinationData) {
-                                index += 1;
-                                logger.warn(passengerKey);
-                                let passengerData =
-                                  inputData.destinationData[passengerKey];
-                                logger.warn(passengerData);
-                                if (
-                                  passengerData !== false &&
-                                  passengerData !== "false"
-                                ) {
-                                  //Passenger model
-                                  cleanInputData.destinationData.push({
-                                    passenger_number_id: index,
-                                    dropoff_type: "PrivateLocation",
-                                    coordinates: {
-                                      latitude: passengerData.coordinates[1],
-                                      longitude: passengerData.coordinates[0],
-                                    },
-                                    location_name:
-                                      passengerData.location_name !==
-                                        undefined &&
-                                      passengerData.location_name !== false
-                                        ? passengerData.location_name
-                                        : false,
-                                    street_name:
-                                      passengerData.street !== undefined &&
-                                      passengerData.street !== false
-                                        ? passengerData.street
-                                        : false,
-                                    receiver_infos:
-                                      /normal/i.test(
-                                        inputData.request_globality
-                                      ) ||
-                                      inputData.request_globality === undefined
-                                        ? null
-                                        : passengerData.receiver_infos,
-                                    suburb: passengerData.suburb,
-                                    state: passengerData.state
-                                      .replace(/ Region/i, "")
-                                      .trim(),
-                                    city: passengerData.city,
-                                  });
+                                if (/today/i.test(inputData.timeScheduled)) {
+                                    //For today
+                                    //Generate a date mockup for today
+                                    //Timestring format of eg. Today at 14:30 - EXTREMELY IMPORTANT
+                                    let specifiedTIme = inputData.timeScheduled
+                                        .split(' ')[2]
+                                        .split(':');
+                                    let tmpDateString =
+                                        dateObject.year() +
+                                        '-' +
+                                        (dateObject.month() + 1) +
+                                        '-' +
+                                        dateObject.date() +
+                                        ' ' +
+                                        specifiedTIme[0] +
+                                        ':' +
+                                        specifiedTIme[1] +
+                                        ':00';
+                                    //...
+                                    parsedData.wished_pickup_time = new Date(
+                                        tmpDateString
+                                    );
+                                    res1(true);
+                                } //TOmorrow
+                                else {
+                                    //Generate a date mockup for tomorrow
+                                    //Timestring format of eg. Today at 14:30 - EXTREMELY IMPORTANT
+                                    let specifiedTIme = inputData.timeScheduled
+                                        .split(' ')[2]
+                                        .split(':');
+                                    let tmpDateString = new Date(
+                                        dateObject.year() +
+                                            '-' +
+                                            (dateObject.month() + 1) +
+                                            '-' +
+                                            dateObject.date() +
+                                            ' ' +
+                                            specifiedTIme[0] +
+                                            ':' +
+                                            specifiedTIme[1] +
+                                            ':00'
+                                    );
+                                    tmpDateString = tmpDateString.getTime();
+                                    tmpDateString += 86400000; //Add a day in ms
+                                    tmpDateString = moment(tmpDateString);
+                                    tmpDateString =
+                                        tmpDateString.year() +
+                                        '-' +
+                                        (tmpDateString.month() + 1) +
+                                        '-' +
+                                        tmpDateString.date() +
+                                        ' ' +
+                                        tmpDateString.hour() +
+                                        ':' +
+                                        tmpDateString.minute() +
+                                        ':' +
+                                        tmpDateString.second();
+                                    //...
+                                    parsedData.wished_pickup_time = new Date(
+                                        tmpDateString
+                                    );
+                                    res1(true);
                                 }
-                              }
-
-                              res5(cleanInputData);
                             }
-                          } //Single passenger
-                          else {
-                            cleanInputData.destinationData.push({
-                              passenger_number_id: 1,
-                              dropoff_type: "PrivateLocation",
-                              coordinates: {
-                                latitude:
-                                  inputData.destinationData
-                                    .passenger1Destination.coordinates[1],
-                                longitude:
-                                  inputData.destinationData
-                                    .passenger1Destination.coordinates[0],
-                              },
-                              location_name:
-                                inputData.destinationData.passenger1Destination
-                                  .location_name !== undefined &&
-                                inputData.destinationData.passenger1Destination
-                                  .location_name !== false
-                                  ? inputData.destinationData
-                                      .passenger1Destination.location_name
-                                  : false,
-                              street_name:
-                                inputData.destinationData.passenger1Destination
-                                  .street !== undefined &&
-                                inputData.destinationData.passenger1Destination
-                                  .street !== false
-                                  ? inputData.destinationData
-                                      .passenger1Destination.street
-                                  : false,
-                              receiver_infos:
-                                /normal/i.test(inputData.request_globality) ||
-                                inputData.request_globality === undefined
-                                  ? null
-                                  : inputData.destinationData
-                                      .passenger1Destination.receiver_infos,
-                              suburb:
-                                inputData.destinationData.passenger1Destination
-                                  .suburb,
-                              state:
-                                inputData.destinationData.passenger1Destination.state
-                                  .replace(/ Region/i, "")
-                                  .trim(),
-                              city: inputData.destinationData
-                                .passenger1Destination.city,
-                            });
-                            res5(cleanInputData);
-                          }
-                        }).then(
-                          (reslt) => {
-                            //? Autocomplete the destination data if any of them are incomplete
-                            let parentPromises = reslt.destinationData.map(
-                              (destination) => {
-                                return new Promise((resCompute) => {
-                                  if (
-                                    destination.suburb === undefined ||
-                                    destination.suburb === null ||
-                                    destination.suburb === false ||
-                                    destination.suburb === "false" ||
-                                    destination.state === undefined ||
-                                    destination.state === null ||
-                                    destination.state === false ||
-                                    destination.state === "false"
-                                  ) {
-                                    //Found some invalid input data
-                                    logger.warn(
-                                      "Found some invalid input data, resolving them..."
+                        })
+                            .then(
+                                () => {},
+                                () => {}
+                            )
+                            .finally(() => {
+                                //COntinue
+                                //! Clean the country of invalid values
+                                inputData.country =
+                                    inputData.country !== 'false' &&
+                                    inputData.country !== false &&
+                                    inputData.country !== null &&
+                                    inputData.country !== undefined
+                                        ? inputData.country
+                                        : 'Namibia';
+                                //...
+                                parsedData.country =
+                                    inputData.country !== 'false' &&
+                                    inputData.country !== false &&
+                                    inputData.country !== null &&
+                                    inputData.country !== undefined
+                                        ? inputData.country
+                                        : 'Namibia';
+                                //Compute the simplified fingerprint
+                                new Promise((res2) => {
+                                    generateUniqueFingerprint(
+                                        uniqueString,
+                                        'md5',
+                                        res2
                                     );
-                                    let url =
-                                      `${
-                                        /production/i.test(
-                                          process.env.EVIRONMENT
-                                        )
-                                          ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                                          : process.env.LOCAL_URL
-                                      }` +
-                                      ":" +
-                                      process.env.SEARCH_SERVICE_PORT +
-                                      `/brieflyCompleteSuburbAndState?latitude=${destination.coordinates.latitude}&longitude=${destination.coordinates.longitude}&city=${destination.city}&location_name=${destination.location_name}`;
-
-                                    requestAPI(
-                                      url,
-                                      function (error, response, body) {
-                                        try {
-                                          body = JSON.parse(body);
-                                          logger.warn(body);
-                                          //? Update the old record
-                                          destination.suburb = body.suburb;
-                                          destination.state = body.state
-                                            .replace(/ Region/i, "")
-                                            .trim();
-                                          //DONE
-                                          resCompute(destination);
-                                        } catch (error) {
-                                          logger.error(error);
-                                          resCompute(destination);
+                                })
+                                    .then(
+                                        (result) => {
+                                            parsedData.trip_simplified_id =
+                                                inputData.trip_simplified_id !==
+                                                    undefined &&
+                                                inputData.trip_simplified_id !==
+                                                    null
+                                                    ? inputData.trip_simplified_id
+                                                    : result;
+                                        },
+                                        (erro) => {
+                                            parsedData.trip_simplified_id =
+                                                parsedData.client_id.substring(
+                                                    0,
+                                                    15
+                                                ) + dateObject.milliseconds();
                                         }
-                                      }
-                                    );
-                                  } //Clean data
-                                  else {
-                                    if (/ Region/i.test(destination.state)) {
-                                      destination.state =
-                                        destination.state.replace(
-                                          / Region/,
-                                          ""
+                                    )
+                                    .finally(() => {
+                                        //continue
+                                        parsedData.carTypeSelected =
+                                            inputData.carTypeSelected;
+                                        parsedData.isAllGoingToSameDestination =
+                                            inputData.isAllGoingToSameDestination;
+                                        parsedData.isArrivedToDestination =
+                                            inputData.isArrivedToDestination !==
+                                                undefined &&
+                                            inputData.isArrivedToDestination !==
+                                                null
+                                                ? inputData.isArrivedToDestination
+                                                : false;
+                                        parsedData.date_dropoff =
+                                            inputData.date_dropoff !==
+                                                undefined &&
+                                            inputData.date_dropoff !== null
+                                                ? inputData.date_dropoff
+                                                : false;
+                                        parsedData.date_pickup =
+                                            inputData.date_pickup !==
+                                                undefined &&
+                                            inputData.date_pickup !== null
+                                                ? inputData.date_pickup
+                                                : false;
+                                        parsedData.date_requested =
+                                            inputData.date_requested !==
+                                                undefined &&
+                                            inputData.date_requested !== null
+                                                ? inputData.date_requested
+                                                : new Date(chaineDateUTC);
+                                        parsedData.date_accepted =
+                                            inputData.date_accepted !==
+                                                undefined &&
+                                            inputData.date_accepted !== null
+                                                ? inputData.date_accepted
+                                                : false;
+                                        //Parse nested data
+                                        //1. Ride state vars
+                                        parsedData.ride_state_vars =
+                                            inputData.ride_state_vars !==
+                                                undefined &&
+                                            inputData.ride_state_vars !== null
+                                                ? inputData.ride_state_vars
+                                                : {
+                                                      isAccepted: false,
+                                                      inRideToDestination: false,
+                                                      isRideCompleted_driverSide: false,
+                                                      isRideCompleted_riderSide: false,
+                                                      rider_driverRating:
+                                                          'notYet',
+                                                  };
+                                        //2.Pickup location infos
+                                        //! Clean the city of invalid values
+                                        inputData.pickupData.city =
+                                            inputData.pickupData.city !==
+                                                'false' &&
+                                            inputData.pickupData.city !==
+                                                false &&
+                                            inputData.pickupData.city !==
+                                                null &&
+                                            inputData.pickupData.city !==
+                                                undefined
+                                                ? inputData.pickupData.city
+                                                : 'Windhoek';
+                                        //...
+                                        parsedData.pickup_location_infos = {
+                                            pickup_type: inputData.naturePickup,
+                                            coordinates: {
+                                                latitude:
+                                                    inputData.pickupData
+                                                        .coordinates[0],
+                                                longitude:
+                                                    inputData.pickupData
+                                                        .coordinates[1],
+                                            },
+                                            location_name:
+                                                inputData.pickupData
+                                                    .location_name,
+                                            street_name:
+                                                inputData.pickupData
+                                                    .street_name,
+                                            suburb: false,
+                                            pickup_note: inputData.pickupNote,
+                                            city:
+                                                inputData.pickupData.city !==
+                                                    'false' &&
+                                                inputData.pickupData.city !==
+                                                    false &&
+                                                inputData.pickupData.city !==
+                                                    null &&
+                                                inputData.pickupData.city !==
+                                                    undefined
+                                                    ? inputData.pickupData.city
+                                                    : 'Windhoek',
+                                            state: null,
+                                        };
+                                        //! APPLY BLUE OCEAN BUG FIX FOR THE PICKUP LOCATION COORDINATES
+                                        //? Get temporary vars
+                                        let pickLatitude = parseFloat(
+                                            parsedData.pickup_location_infos
+                                                .coordinates.latitude
                                         );
-                                      resCompute(destination);
-                                    } //No problem
-                                    else {
-                                      resCompute(destination);
-                                    }
-                                  }
-                                });
-                              }
-                            );
-                            //DONE
-                            Promise.all(parentPromises)
-                              .then((result) => {
-                                //Update the destination data based on the order
-                                result.map((updatedDestination) => {
-                                  reslt.destinationData.map(
-                                    (oldDestination, index) => {
-                                      if (
-                                        parseInt(
-                                          updatedDestination.passenger_number_id
-                                        ) ===
-                                        parseInt(
-                                          oldDestination.passenger_number_id
-                                        )
-                                      ) {
-                                        //Matched record
-                                        reslt.destinationData[index] =
-                                          updatedDestination; //? Updated source record
-                                      }
-                                    }
-                                  );
-                                });
-                                //DONE
-                                //Update the destination data
-                                parsedData.destinationData =
-                                  reslt.destinationData;
-                                //? DONE
-                                resolve(parsedData);
-                              })
-                              .catch((error) => {
-                                logger.error(error);
-                                //Update the destination data
-                                parsedData.destinationData =
-                                  reslt.destinationData;
-                                //? DONE
-                                resolve(parsedData);
-                              });
-                          },
-                          (error) => {
-                            logger.error(error);
-                            resolve(false);
-                          }
-                        );
-                      });
-                  });
-              });
-          });
-      } //Invalid data
-      else {
-        logger.warn("Invalid data detected!");
-        resolve(false);
-      }
-    }
-  });
+                                        let pickLongitude = parseFloat(
+                                            parsedData.pickup_location_infos
+                                                .coordinates.longitude
+                                        );
+                                        //! Coordinates order fix - major bug fix for ocean bug
+                                        if (
+                                            pickLatitude !== undefined &&
+                                            pickLatitude !== null &&
+                                            pickLatitude !== 0 &&
+                                            pickLongitude !== undefined &&
+                                            pickLongitude !== null &&
+                                            pickLongitude !== 0
+                                        ) {
+                                            //? Switch latitude and longitude - check the negative sign
+                                            if (parseFloat(pickLongitude) < 0) {
+                                                //Negative - switch
+                                                parsedData.pickup_location_infos.coordinates.latitude =
+                                                    pickLongitude;
+                                                parsedData.pickup_location_infos.coordinates.longitude =
+                                                    pickLatitude;
+                                            }
+                                        }
+                                        //!!!
+                                        //Auto complete the suburb
+                                        new Promise((res3) => {
+                                            let url =
+                                                `${
+                                                    /production/i.test(
+                                                        process.env.EVIRONMENT
+                                                    )
+                                                        ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                                                        : process.env.LOCAL_URL
+                                                }` +
+                                                ':' +
+                                                process.env
+                                                    .PRICING_SERVICE_PORT +
+                                                '/getCorrespondingSuburbInfos?location_name=' +
+                                                inputData.pickupData
+                                                    .location_name +
+                                                '&street_name=' +
+                                                inputData.pickupData
+                                                    .street_name +
+                                                '&city=' +
+                                                inputData.pickupData.city +
+                                                '&country=' +
+                                                inputData.country +
+                                                '&latitude=' +
+                                                parsedData.pickup_location_infos
+                                                    .coordinates.latitude +
+                                                '&longitude=' +
+                                                parsedData.pickup_location_infos
+                                                    .coordinates.longitude +
+                                                '&user_fingerprint=' +
+                                                inputData.user_fingerprint +
+                                                '&make_new=false';
+                                            requestAPI(
+                                                url,
+                                                function (
+                                                    error,
+                                                    response,
+                                                    body
+                                                ) {
+                                                    if (error === null) {
+                                                        try {
+                                                            logger.error(body);
+                                                            body =
+                                                                JSON.parse(
+                                                                    body
+                                                                );
+                                                            parsedData.pickup_location_infos.suburb =
+                                                                /Samora Machel Constituency/i.test(
+                                                                    body.suburb
+                                                                )
+                                                                    ? 'Wanaheda'
+                                                                    : body.suburb; //! Suburb
+                                                            parsedData.pickup_location_infos.state =
+                                                                body.state
+                                                                    .replace(
+                                                                        / Region/i,
+                                                                        ''
+                                                                    )
+                                                                    .trim(); //! State
+                                                            parsedData.pickup_location_infos.location_name =
+                                                                body.location_name !==
+                                                                    undefined &&
+                                                                body.location_name !==
+                                                                    null &&
+                                                                body.location_name !==
+                                                                    false &&
+                                                                body.location_name !==
+                                                                    'false'
+                                                                    ? body.location_name
+                                                                    : parsedData
+                                                                          .pickup_location_infos
+                                                                          .location_name; //! Location name
+                                                            parsedData.pickup_location_infos.street_name =
+                                                                body.street_name !==
+                                                                    undefined &&
+                                                                body.street_name !==
+                                                                    null &&
+                                                                body.street_name !==
+                                                                    false &&
+                                                                body.street_name !==
+                                                                    'false'
+                                                                    ? body.street_name
+                                                                    : parsedData
+                                                                          .pickup_location_infos
+                                                                          .street_name; //! Street name
+
+                                                            parsedData.pickup_location_infos.city =
+                                                                body.city !==
+                                                                    undefined &&
+                                                                body.city !==
+                                                                    null &&
+                                                                body.city !==
+                                                                    false &&
+                                                                body.city !==
+                                                                    'false'
+                                                                    ? body.city
+                                                                    : parsedData
+                                                                          .pickup_location_infos
+                                                                          .city; //! City
+
+                                                            res3(true);
+                                                        } catch (error) {
+                                                            res3(false);
+                                                        }
+                                                    } else {
+                                                        res3(false);
+                                                    }
+                                                }
+                                            );
+                                        })
+                                            .then(
+                                                () => {},
+                                                () => {}
+                                            )
+                                            .finally(() => {
+                                                //Continue
+                                                //3. Delivery infos
+                                                parsedData.delivery_infos = {
+                                                    receiverName_delivery:
+                                                        inputData.receiverName_delivery,
+                                                    receiverPhone_delivery:
+                                                        inputData.receiverPhone_delivery,
+                                                    packageSize:
+                                                        inputData.packageSizeDelivery,
+                                                };
+                                                //4. Rider infos
+                                                parsedData.rider_infos = {
+                                                    actualRider:
+                                                        /^someonelese$/i.test(
+                                                            inputData.actualRider
+                                                        )
+                                                            ? 'someoneelse'
+                                                            : 'me',
+                                                    actualRiderPhone_number:
+                                                        inputData.actualRiderPhone_number,
+                                                };
+
+                                                //5. DESTINATION DATA
+                                                let cleanInputData = {
+                                                    destinationData: null,
+                                                };
+                                                //Resolve destination infos
+                                                new Promise((res5) => {
+                                                    cleanInputData.destinationData =
+                                                        [];
+                                                    let tmpSchemaArray =
+                                                        new Array(
+                                                            parseInt(
+                                                                inputData.passengersNo
+                                                            )
+                                                        ).fill(1); //! Just for iterations, nothing more, instead of using for loop, but make it the right size - critical bug fix (Mandatory 4 passengers going to the same direction bug).
+                                                    if (
+                                                        inputData.passengersNo >
+                                                        1
+                                                    ) {
+                                                        //Many passengers
+                                                        //Check if all going to the same destination
+                                                        //? Clean the boolean
+                                                        inputData.isAllGoingToSameDestination =
+                                                            /string/i.test(
+                                                                typeof inputData.isAllGoingToSameDestination
+                                                            )
+                                                                ? inputData.isAllGoingToSameDestination ===
+                                                                  'true'
+                                                                    ? true
+                                                                    : false
+                                                                : inputData.isAllGoingToSameDestination;
+                                                        //? -----------
+                                                        if (
+                                                            inputData.isAllGoingToSameDestination &&
+                                                            inputData.isAllGoingToSameDestination !==
+                                                                false &&
+                                                            inputData.isAllGoingToSameDestination !==
+                                                                'false'
+                                                        ) {
+                                                            //yes
+                                                            tmpSchemaArray.map(
+                                                                (
+                                                                    element,
+                                                                    index
+                                                                ) => {
+                                                                    cleanInputData.destinationData.push(
+                                                                        {
+                                                                            passenger_number_id:
+                                                                                index +
+                                                                                1,
+                                                                            dropoff_type:
+                                                                                'PrivateLocation',
+                                                                            coordinates:
+                                                                                {
+                                                                                    latitude:
+                                                                                        inputData
+                                                                                            .destinationData
+                                                                                            .passenger1Destination
+                                                                                            .coordinates[1],
+                                                                                    longitude:
+                                                                                        inputData
+                                                                                            .destinationData
+                                                                                            .passenger1Destination
+                                                                                            .coordinates[0],
+                                                                                },
+                                                                            location_name:
+                                                                                inputData
+                                                                                    .destinationData
+                                                                                    .passenger1Destination
+                                                                                    .location_name !==
+                                                                                    undefined &&
+                                                                                inputData
+                                                                                    .destinationData
+                                                                                    .passenger1Destination
+                                                                                    .location_name !==
+                                                                                    false
+                                                                                    ? inputData
+                                                                                          .destinationData
+                                                                                          .passenger1Destination
+                                                                                          .location_name
+                                                                                    : false,
+                                                                            street_name:
+                                                                                inputData
+                                                                                    .destinationData
+                                                                                    .passenger1Destination
+                                                                                    .street !==
+                                                                                    undefined &&
+                                                                                inputData
+                                                                                    .destinationData
+                                                                                    .passenger1Destination
+                                                                                    .street !==
+                                                                                    false
+                                                                                    ? inputData
+                                                                                          .destinationData
+                                                                                          .passenger1Destination
+                                                                                          .street
+                                                                                    : false,
+                                                                            receiver_infos:
+                                                                                /normal/i.test(
+                                                                                    inputData.request_globality
+                                                                                ) ||
+                                                                                inputData.request_globality ===
+                                                                                    undefined
+                                                                                    ? null
+                                                                                    : inputData
+                                                                                          .destinationData
+                                                                                          .passenger1Destination
+                                                                                          .receiver_infos,
+                                                                            suburb: inputData
+                                                                                .destinationData
+                                                                                .passenger1Destination
+                                                                                .suburb,
+                                                                            state: inputData.destinationData.passenger1Destination.state
+                                                                                .replace(
+                                                                                    / Region/i,
+                                                                                    ''
+                                                                                )
+                                                                                .trim(),
+                                                                            city: inputData
+                                                                                .destinationData
+                                                                                .passenger1Destination
+                                                                                .city,
+                                                                        }
+                                                                    );
+                                                                }
+                                                            );
+                                                            //Done
+                                                            res5(
+                                                                cleanInputData
+                                                            );
+                                                        } //Independent destinations,.....:(
+                                                        else {
+                                                            let index = 0;
+                                                            for (var passengerKey in inputData.destinationData) {
+                                                                index += 1;
+                                                                logger.warn(
+                                                                    passengerKey
+                                                                );
+                                                                let passengerData =
+                                                                    inputData
+                                                                        .destinationData[
+                                                                        passengerKey
+                                                                    ];
+                                                                logger.warn(
+                                                                    passengerData
+                                                                );
+                                                                if (
+                                                                    passengerData !==
+                                                                        false &&
+                                                                    passengerData !==
+                                                                        'false'
+                                                                ) {
+                                                                    //Passenger model
+                                                                    cleanInputData.destinationData.push(
+                                                                        {
+                                                                            passenger_number_id:
+                                                                                index,
+                                                                            dropoff_type:
+                                                                                'PrivateLocation',
+                                                                            coordinates:
+                                                                                {
+                                                                                    latitude:
+                                                                                        passengerData
+                                                                                            .coordinates[1],
+                                                                                    longitude:
+                                                                                        passengerData
+                                                                                            .coordinates[0],
+                                                                                },
+                                                                            location_name:
+                                                                                passengerData.location_name !==
+                                                                                    undefined &&
+                                                                                passengerData.location_name !==
+                                                                                    false
+                                                                                    ? passengerData.location_name
+                                                                                    : false,
+                                                                            street_name:
+                                                                                passengerData.street !==
+                                                                                    undefined &&
+                                                                                passengerData.street !==
+                                                                                    false
+                                                                                    ? passengerData.street
+                                                                                    : false,
+                                                                            receiver_infos:
+                                                                                /normal/i.test(
+                                                                                    inputData.request_globality
+                                                                                ) ||
+                                                                                inputData.request_globality ===
+                                                                                    undefined
+                                                                                    ? null
+                                                                                    : passengerData.receiver_infos,
+                                                                            suburb: passengerData.suburb,
+                                                                            state: passengerData.state
+                                                                                .replace(
+                                                                                    / Region/i,
+                                                                                    ''
+                                                                                )
+                                                                                .trim(),
+                                                                            city: passengerData.city,
+                                                                        }
+                                                                    );
+                                                                }
+                                                            }
+
+                                                            res5(
+                                                                cleanInputData
+                                                            );
+                                                        }
+                                                    } //Single passenger
+                                                    else {
+                                                        cleanInputData.destinationData.push(
+                                                            {
+                                                                passenger_number_id: 1,
+                                                                dropoff_type:
+                                                                    'PrivateLocation',
+                                                                coordinates: {
+                                                                    latitude:
+                                                                        inputData
+                                                                            .destinationData
+                                                                            .passenger1Destination
+                                                                            .coordinates[1],
+                                                                    longitude:
+                                                                        inputData
+                                                                            .destinationData
+                                                                            .passenger1Destination
+                                                                            .coordinates[0],
+                                                                },
+                                                                location_name:
+                                                                    inputData
+                                                                        .destinationData
+                                                                        .passenger1Destination
+                                                                        .location_name !==
+                                                                        undefined &&
+                                                                    inputData
+                                                                        .destinationData
+                                                                        .passenger1Destination
+                                                                        .location_name !==
+                                                                        false
+                                                                        ? inputData
+                                                                              .destinationData
+                                                                              .passenger1Destination
+                                                                              .location_name
+                                                                        : false,
+                                                                street_name:
+                                                                    inputData
+                                                                        .destinationData
+                                                                        .passenger1Destination
+                                                                        .street !==
+                                                                        undefined &&
+                                                                    inputData
+                                                                        .destinationData
+                                                                        .passenger1Destination
+                                                                        .street !==
+                                                                        false
+                                                                        ? inputData
+                                                                              .destinationData
+                                                                              .passenger1Destination
+                                                                              .street
+                                                                        : false,
+                                                                receiver_infos:
+                                                                    /normal/i.test(
+                                                                        inputData.request_globality
+                                                                    ) ||
+                                                                    inputData.request_globality ===
+                                                                        undefined
+                                                                        ? null
+                                                                        : inputData
+                                                                              .destinationData
+                                                                              .passenger1Destination
+                                                                              .receiver_infos,
+                                                                suburb: inputData
+                                                                    .destinationData
+                                                                    .passenger1Destination
+                                                                    .suburb,
+                                                                state: inputData.destinationData.passenger1Destination.state
+                                                                    .replace(
+                                                                        / Region/i,
+                                                                        ''
+                                                                    )
+                                                                    .trim(),
+                                                                city: inputData
+                                                                    .destinationData
+                                                                    .passenger1Destination
+                                                                    .city,
+                                                            }
+                                                        );
+                                                        res5(cleanInputData);
+                                                    }
+                                                }).then(
+                                                    (reslt) => {
+                                                        //? Autocomplete the destination data if any of them are incomplete
+                                                        let parentPromises =
+                                                            reslt.destinationData.map(
+                                                                (
+                                                                    destination
+                                                                ) => {
+                                                                    return new Promise(
+                                                                        (
+                                                                            resCompute
+                                                                        ) => {
+                                                                            if (
+                                                                                destination.suburb ===
+                                                                                    undefined ||
+                                                                                destination.suburb ===
+                                                                                    null ||
+                                                                                destination.suburb ===
+                                                                                    false ||
+                                                                                destination.suburb ===
+                                                                                    'false' ||
+                                                                                destination.state ===
+                                                                                    undefined ||
+                                                                                destination.state ===
+                                                                                    null ||
+                                                                                destination.state ===
+                                                                                    false ||
+                                                                                destination.state ===
+                                                                                    'false'
+                                                                            ) {
+                                                                                //Found some invalid input data
+                                                                                logger.warn(
+                                                                                    'Found some invalid input data, resolving them...'
+                                                                                );
+                                                                                let url =
+                                                                                    `${
+                                                                                        /production/i.test(
+                                                                                            process
+                                                                                                .env
+                                                                                                .EVIRONMENT
+                                                                                        )
+                                                                                            ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                                                                                            : process
+                                                                                                  .env
+                                                                                                  .LOCAL_URL
+                                                                                    }` +
+                                                                                    ':' +
+                                                                                    process
+                                                                                        .env
+                                                                                        .SEARCH_SERVICE_PORT +
+                                                                                    `/brieflyCompleteSuburbAndState?latitude=${destination.coordinates.latitude}&longitude=${destination.coordinates.longitude}&city=${destination.city}&location_name=${destination.location_name}`;
+
+                                                                                requestAPI(
+                                                                                    url,
+                                                                                    function (
+                                                                                        error,
+                                                                                        response,
+                                                                                        body
+                                                                                    ) {
+                                                                                        try {
+                                                                                            body =
+                                                                                                JSON.parse(
+                                                                                                    body
+                                                                                                );
+                                                                                            logger.warn(
+                                                                                                body
+                                                                                            );
+                                                                                            //? Update the old record
+                                                                                            destination.suburb =
+                                                                                                body.suburb;
+                                                                                            destination.state =
+                                                                                                body.state
+                                                                                                    .replace(
+                                                                                                        / Region/i,
+                                                                                                        ''
+                                                                                                    )
+                                                                                                    .trim();
+                                                                                            //DONE
+                                                                                            resCompute(
+                                                                                                destination
+                                                                                            );
+                                                                                        } catch (error) {
+                                                                                            logger.error(
+                                                                                                error
+                                                                                            );
+                                                                                            resCompute(
+                                                                                                destination
+                                                                                            );
+                                                                                        }
+                                                                                    }
+                                                                                );
+                                                                            } //Clean data
+                                                                            else {
+                                                                                if (
+                                                                                    / Region/i.test(
+                                                                                        destination.state
+                                                                                    )
+                                                                                ) {
+                                                                                    destination.state =
+                                                                                        destination.state.replace(
+                                                                                            / Region/,
+                                                                                            ''
+                                                                                        );
+                                                                                    resCompute(
+                                                                                        destination
+                                                                                    );
+                                                                                } //No problem
+                                                                                else {
+                                                                                    resCompute(
+                                                                                        destination
+                                                                                    );
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    );
+                                                                }
+                                                            );
+                                                        //DONE
+                                                        Promise.all(
+                                                            parentPromises
+                                                        )
+                                                            .then((result) => {
+                                                                //Update the destination data based on the order
+                                                                result.map(
+                                                                    (
+                                                                        updatedDestination
+                                                                    ) => {
+                                                                        reslt.destinationData.map(
+                                                                            (
+                                                                                oldDestination,
+                                                                                index
+                                                                            ) => {
+                                                                                if (
+                                                                                    parseInt(
+                                                                                        updatedDestination.passenger_number_id
+                                                                                    ) ===
+                                                                                    parseInt(
+                                                                                        oldDestination.passenger_number_id
+                                                                                    )
+                                                                                ) {
+                                                                                    //Matched record
+                                                                                    reslt.destinationData[
+                                                                                        index
+                                                                                    ] =
+                                                                                        updatedDestination; //? Updated source record
+                                                                                }
+                                                                            }
+                                                                        );
+                                                                    }
+                                                                );
+                                                                //DONE
+                                                                //Update the destination data
+                                                                parsedData.destinationData =
+                                                                    reslt.destinationData;
+                                                                //? DONE
+                                                                resolve(
+                                                                    parsedData
+                                                                );
+                                                            })
+                                                            .catch((error) => {
+                                                                logger.error(
+                                                                    error
+                                                                );
+                                                                //Update the destination data
+                                                                parsedData.destinationData =
+                                                                    reslt.destinationData;
+                                                                //? DONE
+                                                                resolve(
+                                                                    parsedData
+                                                                );
+                                                            });
+                                                    },
+                                                    (error) => {
+                                                        logger.error(error);
+                                                        resolve(false);
+                                                    }
+                                                );
+                                            });
+                                    });
+                            });
+                    });
+            } //Invalid data
+            else {
+                logger.warn('Invalid data detected!');
+                resolve(false);
+            }
+        }
+    });
 }
 
 /**
@@ -1095,17 +1361,17 @@ function parseRequestData(inputData, resolve) {
  * ? after 20 min of not accepting - AUTO cancel request
  */
 function intitiateStagedDispatch(
-  snapshotTripInfos,
-  collectionDrivers_profiles,
-  collectionRidesDeliveries_data,
-  distilledUnwantedDrivers,
-  resolve
+    snapshotTripInfos,
+    collectionDrivers_profiles,
+    collectionRidesDeliveries_data,
+    distilledUnwantedDrivers,
+    resolve
 ) {
-  //Get the list of all the closest drivers
-  /**
-   * Can use @param includeOfflineDrivers to also subscribe offline drivers to a request.
-   */
-  /*new Promise((res) => {
+    //Get the list of all the closest drivers
+    /**
+     * Can use @param includeOfflineDrivers to also subscribe offline drivers to a request.
+     */
+    /*new Promise((res) => {
     sendStagedNotificationsDrivers(
       false,
       snapshotTripInfos,
@@ -1123,124 +1389,124 @@ function intitiateStagedDispatch(
       resolve(false);
     }
   );*/
-  if (process.env.RIDES_DISPATCH_STRATEGY === "targeted") {
-    let url =
-      `${
-        /production/i.test(process.env.EVIRONMENT)
-          ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-          : process.env.LOCAL_URL
-      }` +
-      ":" +
-      process.env.MAP_SERVICE_PORT +
-      "/getVitalsETAOrRouteInfos2points?user_fingerprint=" +
-      snapshotTripInfos.user_fingerprint +
-      "&org_latitude=" +
-      snapshotTripInfos.org_latitude +
-      "&org_longitude=" +
-      snapshotTripInfos.org_longitude +
-      "&ride_type=" +
-      snapshotTripInfos.ride_type +
-      "&vehicle_type=" +
-      snapshotTripInfos.vehicle_type +
-      "&city=" +
-      snapshotTripInfos.city +
-      "&country=" +
-      snapshotTripInfos.country +
-      "&list_limit=all";
-    //? "&list_limit=all&make_new=true";
-    requestAPI(url, function (error, response, body) {
-      logger.info(body);
-      try {
-        body = JSON.parse(body);
-        if (body.response !== undefined) {
-          //Error getting the list - send to all drivers
-          new Promise((res) => {
-            sendStagedNotificationsDrivers(
-              false,
-              snapshotTripInfos,
-              collectionDrivers_profiles,
-              collectionRidesDeliveries_data,
-              distilledUnwantedDrivers,
-              res
-            );
-          }).then(
-            (result) => {
-              //logger.info(result);
-              resolve(result);
-            },
-            (error) => {
-              //logger.info(error);
-              resolve(false);
+    if (process.env.RIDES_DISPATCH_STRATEGY === 'targeted') {
+        let url =
+            `${
+                /production/i.test(process.env.EVIRONMENT)
+                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                    : process.env.LOCAL_URL
+            }` +
+            ':' +
+            process.env.MAP_SERVICE_PORT +
+            '/getVitalsETAOrRouteInfos2points?user_fingerprint=' +
+            snapshotTripInfos.user_fingerprint +
+            '&org_latitude=' +
+            snapshotTripInfos.org_latitude +
+            '&org_longitude=' +
+            snapshotTripInfos.org_longitude +
+            '&ride_type=' +
+            snapshotTripInfos.ride_type +
+            '&vehicle_type=' +
+            snapshotTripInfos.vehicle_type +
+            '&city=' +
+            snapshotTripInfos.city +
+            '&country=' +
+            snapshotTripInfos.country +
+            '&list_limit=all';
+        //? "&list_limit=all&make_new=true";
+        requestAPI(url, function (error, response, body) {
+            logger.info(body);
+            try {
+                body = JSON.parse(body);
+                if (body.response !== undefined) {
+                    //Error getting the list - send to all drivers
+                    new Promise((res) => {
+                        sendStagedNotificationsDrivers(
+                            false,
+                            snapshotTripInfos,
+                            collectionDrivers_profiles,
+                            collectionRidesDeliveries_data,
+                            distilledUnwantedDrivers,
+                            res
+                        );
+                    }).then(
+                        (result) => {
+                            //logger.info(result);
+                            resolve(result);
+                        },
+                        (error) => {
+                            //logger.info(error);
+                            resolve(false);
+                        }
+                    );
+                } //Successfully got the list
+                else {
+                    new Promise((res) => {
+                        sendStagedNotificationsDrivers(
+                            body,
+                            snapshotTripInfos,
+                            collectionDrivers_profiles,
+                            collectionRidesDeliveries_data,
+                            distilledUnwantedDrivers,
+                            res
+                        );
+                    }).then(
+                        (result) => {
+                            //logger.info(result);
+                            resolve(result);
+                        },
+                        (error) => {
+                            //logger.info(error);
+                            resolve(false);
+                        }
+                    );
+                }
+            } catch (error) {
+                //logger.info(error);
+                //Error getting the list of closest drivers - send to all the drivers
+                new Promise((res) => {
+                    sendStagedNotificationsDrivers(
+                        false,
+                        snapshotTripInfos,
+                        collectionDrivers_profiles,
+                        collectionRidesDeliveries_data,
+                        distilledUnwantedDrivers,
+                        res
+                    );
+                }).then(
+                    (result) => {
+                        //logger.info(result);
+                        resolve(result);
+                    },
+                    (error) => {
+                        //logger.info(error);
+                        resolve(false);
+                    }
+                );
             }
-          );
-        } //Successfully got the list
-        else {
-          new Promise((res) => {
-            sendStagedNotificationsDrivers(
-              body,
-              snapshotTripInfos,
-              collectionDrivers_profiles,
-              collectionRidesDeliveries_data,
-              distilledUnwantedDrivers,
-              res
-            );
-          }).then(
-            (result) => {
-              //logger.info(result);
-              resolve(result);
-            },
-            (error) => {
-              //logger.info(error);
-              resolve(false);
-            }
-          );
-        }
-      } catch (error) {
-        //logger.info(error);
-        //Error getting the list of closest drivers - send to all the drivers
+        });
+    } //General dispatch
+    else {
         new Promise((res) => {
-          sendStagedNotificationsDrivers(
-            false,
-            snapshotTripInfos,
-            collectionDrivers_profiles,
-            collectionRidesDeliveries_data,
-            distilledUnwantedDrivers,
-            res
-          );
+            sendStagedNotificationsDrivers(
+                false,
+                snapshotTripInfos,
+                collectionDrivers_profiles,
+                collectionRidesDeliveries_data,
+                distilledUnwantedDrivers,
+                res
+            );
         }).then(
-          (result) => {
-            //logger.info(result);
-            resolve(result);
-          },
-          (error) => {
-            //logger.info(error);
-            resolve(false);
-          }
+            (result) => {
+                //logger.info(result);
+                resolve(result);
+            },
+            (error) => {
+                //logger.info(error);
+                resolve(false);
+            }
         );
-      }
-    });
-  } //General dispatch
-  else {
-    new Promise((res) => {
-      sendStagedNotificationsDrivers(
-        false,
-        snapshotTripInfos,
-        collectionDrivers_profiles,
-        collectionRidesDeliveries_data,
-        distilledUnwantedDrivers,
-        res
-      );
-    }).then(
-      (result) => {
-        //logger.info(result);
-        resolve(result);
-      },
-      (error) => {
-        //logger.info(error);
-        resolve(false);
-      }
-    );
-  }
+    }
 }
 
 /**
@@ -1270,40 +1536,40 @@ function intitiateStagedDispatch(
  * * ************ the request, decreasing the probability of the optimal driver to accept.
  */
 function sendStagedNotificationsDrivers(
-  closestDriversList,
-  snapshotTripInfos,
-  collectionDrivers_profiles,
-  collectionRidesDeliveries_data,
-  distilledUnwantedDrivers,
-  resolve
+    closestDriversList,
+    snapshotTripInfos,
+    collectionDrivers_profiles,
+    collectionRidesDeliveries_data,
+    distilledUnwantedDrivers,
+    resolve
 ) {
-  logger.error(
-    `DISPATCH STRATEGY TEST: ${/general/i.test(
-      process.env.RIDES_DISPATCH_STRATEGY
-    )}`
-  );
-  if (/general/i.test(process.env.RIDES_DISPATCH_STRATEGY)) {
-    //Send to all the drivers
-    //1. Filter the drivers based on trip requirements
-    //2. Register their fp in the allowed_drivers_see on the requests
-    //3. Send the notifications to each selected one.
-    let driverFilter = {
-      "operational_state.status": { $in: ["online"] },
-      //! "operational_state.last_location.city": snapshotTripInfos.city,
-      /*"operational_state.last_location.country": snapshotTripInfos.country,
+    logger.error(
+        `DISPATCH STRATEGY TEST: ${/general/i.test(
+            process.env.RIDES_DISPATCH_STRATEGY
+        )}`
+    );
+    if (/general/i.test(process.env.RIDES_DISPATCH_STRATEGY)) {
+        //Send to all the drivers
+        //1. Filter the drivers based on trip requirements
+        //2. Register their fp in the allowed_drivers_see on the requests
+        //3. Send the notifications to each selected one.
+        let driverFilter = {
+            'operational_state.status': { $in: ['online'] },
+            //! "operational_state.last_location.city": snapshotTripInfos.city,
+            /*"operational_state.last_location.country": snapshotTripInfos.country,
       operation_clearances: snapshotTripInfos.ride_type,*/
-      //Filter the drivers based on the vehicle type if provided
-      "operational_state.default_selected_car.vehicle_type":
-        snapshotTripInfos.vehicle_type,
-    };
-    //..
-    collectionDrivers_profiles
-      .find(driverFilter)
-      .toArray(function (err, driversProfiles) {
-        //Filter the drivers based on their car's maximum capacity (the amount of passengers it can handle)
-        //They can receive 3 additional requests on top of the limit of sits in their selected cars.
-        //! DISBALE PASSENGERS CHECK
-        /*driversProfiles = driversProfiles.filter(
+            //Filter the drivers based on the vehicle type if provided
+            'operational_state.default_selected_car.vehicle_type':
+                snapshotTripInfos.vehicle_type,
+        };
+        //..
+        collectionDrivers_profiles
+            .find(driverFilter)
+            .toArray(function (err, driversProfiles) {
+                //Filter the drivers based on their car's maximum capacity (the amount of passengers it can handle)
+                //They can receive 3 additional requests on top of the limit of sits in their selected cars.
+                //! DISBALE PASSENGERS CHECK
+                /*driversProfiles = driversProfiles.filter(
           (dData) =>
             dData.operational_state.accepted_requests_infos === null ||
             dData.operational_state.accepted_requests_infos
@@ -1317,326 +1583,392 @@ function sendStagedNotificationsDrivers(
               .total_passengers_number === null
         );*/
 
-        //...Register the drivers fp so that thei can see tne requests
-        //TODO: Filter the driver's fingerprint based on the regional clearances as well.
-        let driversFp = driversProfiles.map((data) => {
-          if (
-            distilledUnwantedDrivers.includes(data.driver_fingerprint) === false
-          ) {
-            data.driver_fingerprint;
-          }
-        }); //Drivers fingerprints
-        let driversPushNotif_token = driversProfiles.map((data) => {
-          if (
-            /online/i.test(data.operational_state.status) &&
-            distilledUnwantedDrivers.includes(data.driver_fingerprint) === false
-          ) {
-            let driverData = data;
-            if (
-              snapshotTripInfos.isIntercity_trip === true ||
-              snapshotTripInfos.isIntercity_trip === "true"
-            ) {
-              //? Intercity trip
-              //? Check that the region and the city is within the driver's regional clearances.
-              logger.info("Intercity trip detected");
-              let driverRegionalClearances =
-                driverData.regional_clearances !== undefined &&
-                driverData.regional_clearances !== null
-                  ? driverData.regional_clearances
-                  : false;
-              //...
-              let driverCity =
-                driverData.operational_state.last_location !== null &&
-                driverData.operational_state.last_location !== undefined &&
-                driverData.operational_state.last_location.city !== undefined &&
-                driverData.operational_state.last_location.city != null
-                  ? driverData.operational_state.last_location.city
-                  : false;
-              //...
-              if (driverRegionalClearances !== false && driverCity !== false) {
-                //Has a regional clearance
-                // logger.info(trip.origin_destination_infos.destination_infos);
-                if (
-                  driverRegionalClearances[snapshotTripInfos.region] !==
-                    undefined &&
-                  driverRegionalClearances[snapshotTripInfos.region] !== null
-                ) {
-                  //! Sort the clearances array
-                  driverRegionalClearances[snapshotTripInfos.region].sort();
-
-                  //? Found a valid clearance rule
-                  //? 1. Check if the pickup AND destination towns is included in the clearances
-                  let tripTowns_summary = [
-                    snapshotTripInfos.city,
-                    ...snapshotTripInfos.destination_infos.map(
-                      (dest) => dest.city
-                    ),
-                  ];
-                  // Normalize
-                  tripTowns_summary = tripTowns_summary.map((el) =>
-                    el.trim().toUpperCase()
-                  );
-                  // Sort
-                  tripTowns_summary.sort();
-                  if (
-                    arrayEquals(
-                      tripTowns_summary,
-                      driverRegionalClearances[snapshotTripInfos.region]
-                    )
-                  ) {
-                    //TOWNS WITHIN THE CLEARANCES
-                    //? 2. Check that the driver's current location (city) as equal to one of the towns allowed by his regional credentials.
-                    driverCity = driverCity.trim().toUpperCase();
-                    //...
+                //...Register the drivers fp so that thei can see tne requests
+                //TODO: Filter the driver's fingerprint based on the regional clearances as well.
+                let driversFp = driversProfiles.map((data) => {
                     if (
-                      driverRegionalClearances[
-                        snapshotTripInfos.region
-                      ].includes(driverCity)
+                        distilledUnwantedDrivers.includes(
+                            data.driver_fingerprint
+                        ) === false
                     ) {
-                      //? Driver's current location is within the regional clearances
-                      logger.info(
-                        `Intercity trip allowed for driver's interaction -> ${driverData.driver_fingerprint.substring(
-                          0,
-                          15
-                        )}`
-                      );
-                      return data.operational_state.push_notification_token !==
-                        null &&
-                        data.operational_state.push_notification_token !==
-                          undefined
-                        ? data.operational_state.push_notification_token.userId
-                        : null;
-                    } //! The driver's current location is not within the regional clearances
-                    else {
-                      logger.warn(
-                        `The driver's current location is not within the regional clearances`
-                      );
-                      return null;
+                        data.driver_fingerprint;
                     }
-                  } //Towns for the trip not fitting in the driver's regional clearances
-                  else {
-                    logger.warn(
-                      `Towns for the trip not fitting in the driver's regional clearances`
-                    );
-                    return null;
-                  }
-                } //No valid rule found
-                else {
-                  logger.warn("No valid regional clearance rule found.");
-                  return null;
-                }
-              } //?No regional clearances
-              else {
-                logger.warn("No regional clearances found for this driver.");
-                return null;
-              }
-            } //? Not intercity trip - filter based on the drivers location
-            else {
-              logger.info("Normal innercity trip detected");
-              let driverCity =
-                driverData.operational_state.last_location !== null &&
-                driverData.operational_state.last_location !== undefined &&
-                driverData.operational_state.last_location.city !== undefined &&
-                driverData.operational_state.last_location.city != null
-                  ? driverData.operational_state.last_location.city
-                  : "MISSING";
-              //...
-              logger.error(snapshotTripInfos.city.trim().toUpperCase());
-              logger.error(driverCity.trim().toUpperCase());
-              if (
-                snapshotTripInfos.city.trim().toUpperCase() ===
-                driverCity.trim().toUpperCase()
-              ) {
-                return data.operational_state.push_notification_token !==
-                  null &&
-                  data.operational_state.push_notification_token !== undefined
-                  ? data.operational_state.push_notification_token.userId
-                  : null;
-              } //not elligible driver
-              else {
-                return null;
-              }
-            }
-          } else {
-            return null; //Only notify the drivers that are online.
-          }
-        }); //Push notification token
-        logger.error(driversPushNotif_token);
-        dynamo_update(
-          "rides_deliveries_requests",
-          { request_fp: snapshotTripInfos.request_fp },
-          "set allowed_drivers_see = :val1",
-          {
-            ":val1": driversFp,
-          }
-        )
-          .then((result) => {
-            //Send the push notifications - FOR DRIVERS
-            //! Safety net against undefined suburbs
-            snapshotTripInfos.pickup_suburb =
-              snapshotTripInfos.pickup_suburb === undefined
-                ? false
-                : snapshotTripInfos.pickup_suburb;
-            //!
-            // new Promise((resNotify) => {
-            //   let message = {
-            //     app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
-            //     android_channel_id: /RIDE/i.test(snapshotTripInfos.ride_type)
-            //       ? process.env.DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION
-            //       : process.env.DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
-            //     priority: 10,
-            //     contents: /RIDE/i.test(snapshotTripInfos.ride_type)
-            //       ? {
-            //           en:
-            //             "You have a new ride request " +
-            //             (snapshotTripInfos.pickup_suburb !== false
-            //               ? "from " + snapshotTripInfos.pickup_suburb !==
-            //                   undefined &&
-            //                 snapshotTripInfos.pickup_suburb !== false &&
-            //                 snapshotTripInfos.pickup_suburb !== null
-            //                 ? snapshotTripInfos.pickup_suburb.toUpperCase()
-            //                 : "near your location" +
-            //                     " to " +
-            //                     snapshotTripInfos.destination_suburb !==
-            //                     undefined &&
-            //                   snapshotTripInfos.destination_suburb !== false &&
-            //                   snapshotTripInfos.destination_suburb !== null
-            //                 ? snapshotTripInfos.destination_suburb.toUpperCase()
-            //                 : "near your location" +
-            //                   ". Click here for more details."
-            //               : "near your location, click here for more details."),
-            //         }
-            //       : {
-            //           en:
-            //             "You have a new delivery request " +
-            //             (snapshotTripInfos.pickup_suburb !== false
-            //               ? "from " + snapshotTripInfos.pickup_suburb !==
-            //                   undefined &&
-            //                 snapshotTripInfos.pickup_suburb !== false &&
-            //                 snapshotTripInfos.pickup_suburb !== null
-            //                 ? snapshotTripInfos.pickup_suburb.toUpperCase()
-            //                 : "near your location" +
-            //                     " to " +
-            //                     snapshotTripInfos.destination_suburb !==
-            //                     undefined &&
-            //                   snapshotTripInfos.destination_suburb !== false &&
-            //                   snapshotTripInfos.destination_suburb !== null
-            //                 ? snapshotTripInfos.destination_suburb.toUpperCase()
-            //                 : "near your location" +
-            //                   ". Click here for more details."
-            //               : "near your location, click here for more details."),
-            //         },
-            //     headings: /RIDE/i.test(snapshotTripInfos.ride_type)
-            //       ? { en: "New ride request, N$" + snapshotTripInfos.fare }
-            //       : { en: "New delivery request, N$" + snapshotTripInfos.fare },
-            //     content_available: true,
-            //     include_player_ids: driversPushNotif_token,
-            //   };
-            //   //Send
-            //   sendPushUPNotification(message);
-            //   resNotify(true);
-            // })
-            //   .then()
-            //   .catch();
+                }); //Drivers fingerprints
+                let driversPushNotif_token = driversProfiles.map((data) => {
+                    if (
+                        /online/i.test(data.operational_state.status) &&
+                        distilledUnwantedDrivers.includes(
+                            data.driver_fingerprint
+                        ) === false
+                    ) {
+                        let driverData = data;
+                        if (
+                            snapshotTripInfos.isIntercity_trip === true ||
+                            snapshotTripInfos.isIntercity_trip === 'true'
+                        ) {
+                            //? Intercity trip
+                            //? Check that the region and the city is within the driver's regional clearances.
+                            logger.info('Intercity trip detected');
+                            let driverRegionalClearances =
+                                driverData.regional_clearances !== undefined &&
+                                driverData.regional_clearances !== null
+                                    ? driverData.regional_clearances
+                                    : false;
+                            //...
+                            let driverCity =
+                                driverData.operational_state.last_location !==
+                                    null &&
+                                driverData.operational_state.last_location !==
+                                    undefined &&
+                                driverData.operational_state.last_location
+                                    .city !== undefined &&
+                                driverData.operational_state.last_location
+                                    .city != null
+                                    ? driverData.operational_state.last_location
+                                          .city
+                                    : false;
+                            //...
+                            if (
+                                driverRegionalClearances !== false &&
+                                driverCity !== false
+                            ) {
+                                //Has a regional clearance
+                                // logger.info(trip.origin_destination_infos.destination_infos);
+                                if (
+                                    driverRegionalClearances[
+                                        snapshotTripInfos.region
+                                    ] !== undefined &&
+                                    driverRegionalClearances[
+                                        snapshotTripInfos.region
+                                    ] !== null
+                                ) {
+                                    //! Sort the clearances array
+                                    driverRegionalClearances[
+                                        snapshotTripInfos.region
+                                    ].sort();
 
-            new Promise((resNotify) => {
-              let message = {
-                app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
-                android_channel_id: /RIDE/i.test(snapshotTripInfos.ride_type)
-                  ? process.env.DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION
-                  : process.env.DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
-                priority: 10,
-                contents: /RIDE/i.test(snapshotTripInfos.ride_type)
-                  ? {
-                      en:
-                        "You have a new ride request " +
-                        (snapshotTripInfos.pickup_suburb !== false
-                          ? "from " + snapshotTripInfos.pickup_suburb !==
-                              undefined &&
-                            snapshotTripInfos.pickup_suburb !== false &&
-                            snapshotTripInfos.pickup_suburb !== null
-                            ? snapshotTripInfos.pickup_suburb.toUpperCase()
-                            : "near your location" +
-                                " to " +
-                                snapshotTripInfos.destination_suburb !==
-                                undefined &&
-                              snapshotTripInfos.destination_suburb !== false &&
-                              snapshotTripInfos.destination_suburb !== null
-                            ? snapshotTripInfos.destination_suburb.toUpperCase()
-                            : "near your location" +
-                              ". Click here for more details."
-                          : "near your location, click here for more details."),
+                                    //? Found a valid clearance rule
+                                    //? 1. Check if the pickup AND destination towns is included in the clearances
+                                    let tripTowns_summary = [
+                                        snapshotTripInfos.city,
+                                        ...snapshotTripInfos.destination_infos.map(
+                                            (dest) => dest.city
+                                        ),
+                                    ];
+                                    // Normalize
+                                    tripTowns_summary = tripTowns_summary.map(
+                                        (el) => el.trim().toUpperCase()
+                                    );
+                                    // Sort
+                                    tripTowns_summary.sort();
+                                    if (
+                                        arrayEquals(
+                                            tripTowns_summary,
+                                            driverRegionalClearances[
+                                                snapshotTripInfos.region
+                                            ]
+                                        )
+                                    ) {
+                                        //TOWNS WITHIN THE CLEARANCES
+                                        //? 2. Check that the driver's current location (city) as equal to one of the towns allowed by his regional credentials.
+                                        driverCity = driverCity
+                                            .trim()
+                                            .toUpperCase();
+                                        //...
+                                        if (
+                                            driverRegionalClearances[
+                                                snapshotTripInfos.region
+                                            ].includes(driverCity)
+                                        ) {
+                                            //? Driver's current location is within the regional clearances
+                                            logger.info(
+                                                `Intercity trip allowed for driver's interaction -> ${driverData.driver_fingerprint.substring(
+                                                    0,
+                                                    15
+                                                )}`
+                                            );
+                                            return data.operational_state
+                                                .push_notification_token !==
+                                                null &&
+                                                data.operational_state
+                                                    .push_notification_token !==
+                                                    undefined
+                                                ? data.operational_state
+                                                      .push_notification_token
+                                                      .userId
+                                                : null;
+                                        } //! The driver's current location is not within the regional clearances
+                                        else {
+                                            logger.warn(
+                                                `The driver's current location is not within the regional clearances`
+                                            );
+                                            return null;
+                                        }
+                                    } //Towns for the trip not fitting in the driver's regional clearances
+                                    else {
+                                        logger.warn(
+                                            `Towns for the trip not fitting in the driver's regional clearances`
+                                        );
+                                        return null;
+                                    }
+                                } //No valid rule found
+                                else {
+                                    logger.warn(
+                                        'No valid regional clearance rule found.'
+                                    );
+                                    return null;
+                                }
+                            } //?No regional clearances
+                            else {
+                                logger.warn(
+                                    'No regional clearances found for this driver.'
+                                );
+                                return null;
+                            }
+                        } //? Not intercity trip - filter based on the drivers location
+                        else {
+                            logger.info('Normal innercity trip detected');
+                            let driverCity =
+                                driverData.operational_state.last_location !==
+                                    null &&
+                                driverData.operational_state.last_location !==
+                                    undefined &&
+                                driverData.operational_state.last_location
+                                    .city !== undefined &&
+                                driverData.operational_state.last_location
+                                    .city != null
+                                    ? driverData.operational_state.last_location
+                                          .city
+                                    : 'MISSING';
+                            //...
+                            logger.error(
+                                snapshotTripInfos.city.trim().toUpperCase()
+                            );
+                            logger.error(driverCity.trim().toUpperCase());
+                            if (
+                                snapshotTripInfos.city.trim().toUpperCase() ===
+                                driverCity.trim().toUpperCase()
+                            ) {
+                                return data.operational_state
+                                    .push_notification_token !== null &&
+                                    data.operational_state
+                                        .push_notification_token !== undefined
+                                    ? data.operational_state
+                                          .push_notification_token.userId
+                                    : null;
+                            } //not elligible driver
+                            else {
+                                return null;
+                            }
+                        }
+                    } else {
+                        return null; //Only notify the drivers that are online.
                     }
-                  : {
-                      en:
-                        "You have a new delivery request " +
-                        (snapshotTripInfos.pickup_suburb !== false
-                          ? "from " + snapshotTripInfos.pickup_suburb !==
-                              undefined &&
-                            snapshotTripInfos.pickup_suburb !== false &&
-                            snapshotTripInfos.pickup_suburb !== null
-                            ? snapshotTripInfos.pickup_suburb.toUpperCase()
-                            : "near your location" +
-                                " to " +
-                                snapshotTripInfos.destination_suburb !==
-                                undefined &&
-                              snapshotTripInfos.destination_suburb !== false &&
-                              snapshotTripInfos.destination_suburb !== null
-                            ? snapshotTripInfos.destination_suburb.toUpperCase()
-                            : "near your location" +
-                              ". Click here for more details."
-                          : "near your location, click here for more details."),
-                    },
-                headings: /RIDE/i.test(snapshotTripInfos.ride_type)
-                  ? { en: "New ride request, N$" + snapshotTripInfos.fare }
-                  : { en: "New delivery request, N$" + snapshotTripInfos.fare },
-                content_available: true,
-                include_player_ids: driversPushNotif_token,
-              };
-              //Send
-              sendPushUPNotification(message);
-              resNotify(true);
-            })
-              .then()
-              .catch();
+                }); //Push notification token
+                logger.error(driversPushNotif_token);
+                dynamo_update(
+                    'rides_deliveries_requests',
+                    { request_fp: snapshotTripInfos.request_fp },
+                    'set allowed_drivers_see = :val1',
+                    {
+                        ':val1': driversFp,
+                    }
+                )
+                    .then((result) => {
+                        //Send the push notifications - FOR DRIVERS
+                        //! Safety net against undefined suburbs
+                        snapshotTripInfos.pickup_suburb =
+                            snapshotTripInfos.pickup_suburb === undefined
+                                ? false
+                                : snapshotTripInfos.pickup_suburb;
+                        //!
+                        // new Promise((resNotify) => {
+                        //   let message = {
+                        //     app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
+                        //     android_channel_id: /RIDE/i.test(snapshotTripInfos.ride_type)
+                        //       ? process.env.DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION
+                        //       : process.env.DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
+                        //     priority: 10,
+                        //     contents: /RIDE/i.test(snapshotTripInfos.ride_type)
+                        //       ? {
+                        //           en:
+                        //             "You have a new ride request " +
+                        //             (snapshotTripInfos.pickup_suburb !== false
+                        //               ? "from " + snapshotTripInfos.pickup_suburb !==
+                        //                   undefined &&
+                        //                 snapshotTripInfos.pickup_suburb !== false &&
+                        //                 snapshotTripInfos.pickup_suburb !== null
+                        //                 ? snapshotTripInfos.pickup_suburb.toUpperCase()
+                        //                 : "near your location" +
+                        //                     " to " +
+                        //                     snapshotTripInfos.destination_suburb !==
+                        //                     undefined &&
+                        //                   snapshotTripInfos.destination_suburb !== false &&
+                        //                   snapshotTripInfos.destination_suburb !== null
+                        //                 ? snapshotTripInfos.destination_suburb.toUpperCase()
+                        //                 : "near your location" +
+                        //                   ". Click here for more details."
+                        //               : "near your location, click here for more details."),
+                        //         }
+                        //       : {
+                        //           en:
+                        //             "You have a new delivery request " +
+                        //             (snapshotTripInfos.pickup_suburb !== false
+                        //               ? "from " + snapshotTripInfos.pickup_suburb !==
+                        //                   undefined &&
+                        //                 snapshotTripInfos.pickup_suburb !== false &&
+                        //                 snapshotTripInfos.pickup_suburb !== null
+                        //                 ? snapshotTripInfos.pickup_suburb.toUpperCase()
+                        //                 : "near your location" +
+                        //                     " to " +
+                        //                     snapshotTripInfos.destination_suburb !==
+                        //                     undefined &&
+                        //                   snapshotTripInfos.destination_suburb !== false &&
+                        //                   snapshotTripInfos.destination_suburb !== null
+                        //                 ? snapshotTripInfos.destination_suburb.toUpperCase()
+                        //                 : "near your location" +
+                        //                   ". Click here for more details."
+                        //               : "near your location, click here for more details."),
+                        //         },
+                        //     headings: /RIDE/i.test(snapshotTripInfos.ride_type)
+                        //       ? { en: "New ride request, N$" + snapshotTripInfos.fare }
+                        //       : { en: "New delivery request, N$" + snapshotTripInfos.fare },
+                        //     content_available: true,
+                        //     include_player_ids: driversPushNotif_token,
+                        //   };
+                        //   //Send
+                        //   sendPushUPNotification(message);
+                        //   resNotify(true);
+                        // })
+                        //   .then()
+                        //   .catch();
 
-            //?---Done
-            resolve({ response: "successfully_dispatched" });
-          })
-          .catch((error) => {
-            logger.error(error);
-            resolve(false);
-          });
-      });
-  } //? TARGETED DISPATCH
-  else {
-    if (
-      closestDriversList === false ||
-      closestDriversList[0] === undefined ||
-      closestDriversList.response !== undefined ||
-      /no_close_drivers_found/i.test(closestDriversList.response)
-    ) {
-      //Send to all the drivers
-      //1. Filter the drivers based on trip requirements
-      //2. Register their fp in the allowed_drivers_see on the requests
-      //3. Send the notifications to each selected one.
-      let driverFilter = {
-        "operational_state.status": { $in: ["online"] },
-        "operational_state.last_location.city": snapshotTripInfos.city,
-        /*"operational_state.last_location.country": snapshotTripInfos.country,
+                        new Promise((resNotify) => {
+                            let message = {
+                                app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
+                                android_channel_id: /RIDE/i.test(
+                                    snapshotTripInfos.ride_type
+                                )
+                                    ? process.env
+                                          .DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION
+                                    : process.env
+                                          .DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
+                                priority: 10,
+                                contents: /RIDE/i.test(
+                                    snapshotTripInfos.ride_type
+                                )
+                                    ? {
+                                          en:
+                                              'You have a new ride request ' +
+                                              (snapshotTripInfos.pickup_suburb !==
+                                              false
+                                                  ? 'from ' +
+                                                        snapshotTripInfos.pickup_suburb !==
+                                                        undefined &&
+                                                    snapshotTripInfos.pickup_suburb !==
+                                                        false &&
+                                                    snapshotTripInfos.pickup_suburb !==
+                                                        null
+                                                      ? snapshotTripInfos.pickup_suburb.toUpperCase()
+                                                      : 'near your location' +
+                                                            ' to ' +
+                                                            snapshotTripInfos.destination_suburb !==
+                                                            undefined &&
+                                                        snapshotTripInfos.destination_suburb !==
+                                                            false &&
+                                                        snapshotTripInfos.destination_suburb !==
+                                                            null
+                                                      ? snapshotTripInfos.destination_suburb.toUpperCase()
+                                                      : 'near your location' +
+                                                        '. Click here for more details.'
+                                                  : 'near your location, click here for more details.'),
+                                      }
+                                    : {
+                                          en:
+                                              'You have a new delivery request ' +
+                                              (snapshotTripInfos.pickup_suburb !==
+                                              false
+                                                  ? 'from ' +
+                                                        snapshotTripInfos.pickup_suburb !==
+                                                        undefined &&
+                                                    snapshotTripInfos.pickup_suburb !==
+                                                        false &&
+                                                    snapshotTripInfos.pickup_suburb !==
+                                                        null
+                                                      ? snapshotTripInfos.pickup_suburb.toUpperCase()
+                                                      : 'near your location' +
+                                                            ' to ' +
+                                                            snapshotTripInfos.destination_suburb !==
+                                                            undefined &&
+                                                        snapshotTripInfos.destination_suburb !==
+                                                            false &&
+                                                        snapshotTripInfos.destination_suburb !==
+                                                            null
+                                                      ? snapshotTripInfos.destination_suburb.toUpperCase()
+                                                      : 'near your location' +
+                                                        '. Click here for more details.'
+                                                  : 'near your location, click here for more details.'),
+                                      },
+                                headings: /RIDE/i.test(
+                                    snapshotTripInfos.ride_type
+                                )
+                                    ? {
+                                          en:
+                                              'New ride request, N$' +
+                                              snapshotTripInfos.fare,
+                                      }
+                                    : {
+                                          en:
+                                              'New delivery request, N$' +
+                                              snapshotTripInfos.fare,
+                                      },
+                                content_available: true,
+                                include_player_ids: driversPushNotif_token,
+                            };
+                            //Send
+                            sendPushUPNotification(message);
+                            resNotify(true);
+                        })
+                            .then()
+                            .catch();
+
+                        //?---Done
+                        resolve({ response: 'successfully_dispatched' });
+                    })
+                    .catch((error) => {
+                        logger.error(error);
+                        resolve(false);
+                    });
+            });
+    } //? TARGETED DISPATCH
+    else {
+        if (
+            closestDriversList === false ||
+            closestDriversList[0] === undefined ||
+            closestDriversList.response !== undefined ||
+            /no_close_drivers_found/i.test(closestDriversList.response)
+        ) {
+            //Send to all the drivers
+            //1. Filter the drivers based on trip requirements
+            //2. Register their fp in the allowed_drivers_see on the requests
+            //3. Send the notifications to each selected one.
+            let driverFilter = {
+                'operational_state.status': { $in: ['online'] },
+                'operational_state.last_location.city': snapshotTripInfos.city,
+                /*"operational_state.last_location.country": snapshotTripInfos.country,
         operation_clearances: snapshotTripInfos.ride_type,*/
-        //Filter the drivers based on the vehicle type if provided
-        "operational_state.default_selected_car.vehicle_type":
-          snapshotTripInfos.vehicle_type,
-      };
-      //..
-      collectionDrivers_profiles
-        .find(driverFilter)
-        .toArray(function (err, driversProfiles) {
-          //Filter the drivers based on their car's maximum capacity (the amount of passengers it can handle)
-          //They can receive 3 additional requests on top of the limit of sits in their selected cars.
-          //! DISBALE PASSENGERS CHECK
-          /*driversProfiles = driversProfiles.filter(
+                //Filter the drivers based on the vehicle type if provided
+                'operational_state.default_selected_car.vehicle_type':
+                    snapshotTripInfos.vehicle_type,
+            };
+            //..
+            collectionDrivers_profiles
+                .find(driverFilter)
+                .toArray(function (err, driversProfiles) {
+                    //Filter the drivers based on their car's maximum capacity (the amount of passengers it can handle)
+                    //They can receive 3 additional requests on top of the limit of sits in their selected cars.
+                    //! DISBALE PASSENGERS CHECK
+                    /*driversProfiles = driversProfiles.filter(
           (dData) =>
             dData.operational_state.accepted_requests_infos === null ||
             dData.operational_state.accepted_requests_infos
@@ -1650,333 +1982,402 @@ function sendStagedNotificationsDrivers(
               .total_passengers_number === null
         );*/
 
-          //...Register the drivers fp so that thei can see tne requests
-          let driversFp = driversProfiles.map((data) => {
-            if (
-              distilledUnwantedDrivers.includes(data.driver_fingerprint) ===
-              false
-            ) {
-              data.driver_fingerprint;
-            }
-          }); //Drivers fingerprints
-          let driversPushNotif_token = driversProfiles.map((data) => {
-            if (
-              /online/i.test(data.operational_state.status) &&
-              distilledUnwantedDrivers.includes(data.driver_fingerprint) ===
-                false
-            ) {
-              return data.operational_state.push_notification_token !== null &&
-                data.operational_state.push_notification_token !== undefined
-                ? data.operational_state.push_notification_token.userId
-                : null;
-            } else {
-              return null; //Only notify the drivers that are online.
-            }
-          }); //Push notification token
+                    //...Register the drivers fp so that thei can see tne requests
+                    let driversFp = driversProfiles.map((data) => {
+                        if (
+                            distilledUnwantedDrivers.includes(
+                                data.driver_fingerprint
+                            ) === false
+                        ) {
+                            data.driver_fingerprint;
+                        }
+                    }); //Drivers fingerprints
+                    let driversPushNotif_token = driversProfiles.map((data) => {
+                        if (
+                            /online/i.test(data.operational_state.status) &&
+                            distilledUnwantedDrivers.includes(
+                                data.driver_fingerprint
+                            ) === false
+                        ) {
+                            return data.operational_state
+                                .push_notification_token !== null &&
+                                data.operational_state
+                                    .push_notification_token !== undefined
+                                ? data.operational_state.push_notification_token
+                                      .userId
+                                : null;
+                        } else {
+                            return null; //Only notify the drivers that are online.
+                        }
+                    }); //Push notification token
 
-          dynamo_update(
-            "rides_deliveries_requests",
-            { request_fp: snapshotTripInfos.request_fp },
-            "set allowed_drivers_see = :val1",
-            {
-              ":val1": driversFp,
-            }
-          )
-            .then((result) => {
-              //Send the push notifications - FOR DRIVERS
-              let message = {
-                app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
-                android_channel_id: /RIDE/i.test(snapshotTripInfos.ride_type)
-                  ? process.env.DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION
-                  : process.env.DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
-                priority: 10,
-                contents: /RIDE/i.test(snapshotTripInfos.ride_type)
-                  ? {
-                      en:
-                        "You have a new ride request " +
-                        (snapshotTripInfos.pickup_suburb !== false
-                          ? "from " + snapshotTripInfos.pickup_suburb !==
-                              undefined &&
-                            snapshotTripInfos.pickup_suburb !== false &&
-                            snapshotTripInfos.pickup_suburb !== null
-                            ? snapshotTripInfos.pickup_suburb.toUpperCase()
-                            : "near your location" +
-                                " to " +
-                                snapshotTripInfos.destination_suburb !==
-                                undefined &&
-                              snapshotTripInfos.destination_suburb !== false &&
-                              snapshotTripInfos.destination_suburb !== null
-                            ? snapshotTripInfos.destination_suburb.toUpperCase()
-                            : "near your location" +
-                              ". Click here for more details."
-                          : "near your location, click here for more details."),
-                    }
-                  : {
-                      en:
-                        "You have a new delivery request " +
-                        (snapshotTripInfos.pickup_suburb !== false
-                          ? "from " + snapshotTripInfos.pickup_suburb !==
-                              undefined &&
-                            snapshotTripInfos.pickup_suburb !== false &&
-                            snapshotTripInfos.pickup_suburb !== null
-                            ? snapshotTripInfos.pickup_suburb.toUpperCase()
-                            : "near your location" +
-                                " to " +
-                                snapshotTripInfos.destination_suburb !==
-                                undefined &&
-                              snapshotTripInfos.destination_suburb !== false &&
-                              snapshotTripInfos.destination_suburb !== null
-                            ? snapshotTripInfos.destination_suburb.toUpperCase()
-                            : "near your location" +
-                              ". Click here for more details."
-                          : "near your location, click here for more details."),
-                    },
-                headings: /RIDE/i.test(snapshotTripInfos.ride_type)
-                  ? { en: "New ride request, N$" + snapshotTripInfos.fare }
-                  : { en: "New delivery request, N$" + snapshotTripInfos.fare },
-                content_available: true,
-                include_player_ids: driversPushNotif_token,
-              };
-              //Send
-              sendPushUPNotification(message);
-              resolve({ response: "successfully_dispatched" });
-            })
-            .catch((error) => {
-              logger.error(error);
-              resolve(false);
-            });
-        });
-    } //Staged send
-    else {
-      logger.info("Staged send");
-      //...Register the drivers fp so that they can see tne requests
-      let driversFp = closestDriversList.map((data) => data.driver_fingerprint); //Drivers fingerprints
-      let driversPushNotif_token = closestDriversList.map(
-        (data) => data.push_notification_token
-      ); //Push notification token
+                    dynamo_update(
+                        'rides_deliveries_requests',
+                        { request_fp: snapshotTripInfos.request_fp },
+                        'set allowed_drivers_see = :val1',
+                        {
+                            ':val1': driversFp,
+                        }
+                    )
+                        .then((result) => {
+                            //Send the push notifications - FOR DRIVERS
+                            let message = {
+                                app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
+                                android_channel_id: /RIDE/i.test(
+                                    snapshotTripInfos.ride_type
+                                )
+                                    ? process.env
+                                          .DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION
+                                    : process.env
+                                          .DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
+                                priority: 10,
+                                contents: /RIDE/i.test(
+                                    snapshotTripInfos.ride_type
+                                )
+                                    ? {
+                                          en:
+                                              'You have a new ride request ' +
+                                              (snapshotTripInfos.pickup_suburb !==
+                                              false
+                                                  ? 'from ' +
+                                                        snapshotTripInfos.pickup_suburb !==
+                                                        undefined &&
+                                                    snapshotTripInfos.pickup_suburb !==
+                                                        false &&
+                                                    snapshotTripInfos.pickup_suburb !==
+                                                        null
+                                                      ? snapshotTripInfos.pickup_suburb.toUpperCase()
+                                                      : 'near your location' +
+                                                            ' to ' +
+                                                            snapshotTripInfos.destination_suburb !==
+                                                            undefined &&
+                                                        snapshotTripInfos.destination_suburb !==
+                                                            false &&
+                                                        snapshotTripInfos.destination_suburb !==
+                                                            null
+                                                      ? snapshotTripInfos.destination_suburb.toUpperCase()
+                                                      : 'near your location' +
+                                                        '. Click here for more details.'
+                                                  : 'near your location, click here for more details.'),
+                                      }
+                                    : {
+                                          en:
+                                              'You have a new delivery request ' +
+                                              (snapshotTripInfos.pickup_suburb !==
+                                              false
+                                                  ? 'from ' +
+                                                        snapshotTripInfos.pickup_suburb !==
+                                                        undefined &&
+                                                    snapshotTripInfos.pickup_suburb !==
+                                                        false &&
+                                                    snapshotTripInfos.pickup_suburb !==
+                                                        null
+                                                      ? snapshotTripInfos.pickup_suburb.toUpperCase()
+                                                      : 'near your location' +
+                                                            ' to ' +
+                                                            snapshotTripInfos.destination_suburb !==
+                                                            undefined &&
+                                                        snapshotTripInfos.destination_suburb !==
+                                                            false &&
+                                                        snapshotTripInfos.destination_suburb !==
+                                                            null
+                                                      ? snapshotTripInfos.destination_suburb.toUpperCase()
+                                                      : 'near your location' +
+                                                        '. Click here for more details.'
+                                                  : 'near your location, click here for more details.'),
+                                      },
+                                headings: /RIDE/i.test(
+                                    snapshotTripInfos.ride_type
+                                )
+                                    ? {
+                                          en:
+                                              'New ride request, N$' +
+                                              snapshotTripInfos.fare,
+                                      }
+                                    : {
+                                          en:
+                                              'New delivery request, N$' +
+                                              snapshotTripInfos.fare,
+                                      },
+                                content_available: true,
+                                include_player_ids: driversPushNotif_token,
+                            };
+                            //Send
+                            sendPushUPNotification(message);
+                            resolve({ response: 'successfully_dispatched' });
+                        })
+                        .catch((error) => {
+                            logger.error(error);
+                            resolve(false);
+                        });
+                });
+        } //Staged send
+        else {
+            logger.info('Staged send');
+            //...Register the drivers fp so that they can see tne requests
+            let driversFp = closestDriversList.map(
+                (data) => data.driver_fingerprint
+            ); //Drivers fingerprints
+            let driversPushNotif_token = closestDriversList.map(
+                (data) => data.push_notification_token
+            ); //Push notification token
 
-      new Promise((res) => {
-        //Answer
-        logger.info(
-          "[1] Closest drivers ---ticket: " + snapshotTripInfos.request_fp
-        );
-        new Promise((res5) => {
-          registerAllowedDriversForRidesAndNotify(
-            snapshotTripInfos.request_fp,
-            snapshotTripInfos,
-            { drivers_fp: driversFp, pushNotif_tokens: driversPushNotif_token },
-            collectionRidesDeliveries_data,
-            1,
-            res5
-          );
-        }).then(
-          (reslt) => {
-            if (/staged_dispatch_successfull/i.test(reslt.response)) {
-              //CONCLUDE THE REQUEST - Nope
-              //resolve({ response: "successfully_dispatched" });
-              //Proceed with the staged dispatch
-              //1. Wait for 1 min 00'' - in ms
-              logger.info(
-                "Waiting for 35sec. ---ticket: " + snapshotTripInfos.request_fp
-              );
-              setTimeout(() => {
-                new Promise((res2) => {
-                  logger.info(
-                    "[2] Less closest after 30sec. ---ticket: " +
-                      snapshotTripInfos.request_fp
-                  );
-                  new Promise((res6) => {
+            new Promise((res) => {
+                //Answer
+                logger.info(
+                    '[1] Closest drivers ---ticket: ' +
+                        snapshotTripInfos.request_fp
+                );
+                new Promise((res5) => {
                     registerAllowedDriversForRidesAndNotify(
-                      snapshotTripInfos.request_fp,
-                      snapshotTripInfos,
-                      {
-                        drivers_fp: driversFp,
-                        pushNotif_tokens: driversPushNotif_token,
-                      },
-                      collectionRidesDeliveries_data,
-                      2,
-                      res6
+                        snapshotTripInfos.request_fp,
+                        snapshotTripInfos,
+                        {
+                            drivers_fp: driversFp,
+                            pushNotif_tokens: driversPushNotif_token,
+                        },
+                        collectionRidesDeliveries_data,
+                        1,
+                        res5
                     );
-                  }).then(
+                }).then(
                     (reslt) => {
-                      if (/staged_dispatch_successfull/i.test(reslt.response)) {
-                        //Proceed with the staged dispatch
-                        //Allow these drivers to see the requests athen resolve 2
-                        res2(true); //Conclude promise 2
-                      } //End the staged dispatch - done
-                      else {
-                        logger.info(
-                          "DONE STAGED DISPATCH  ---ticket: " +
-                            snapshotTripInfos.request_fp
-                        );
-                        res2({ response: "successfully_dispatched" });
-                      }
+                        if (
+                            /staged_dispatch_successfull/i.test(reslt.response)
+                        ) {
+                            //CONCLUDE THE REQUEST - Nope
+                            //resolve({ response: "successfully_dispatched" });
+                            //Proceed with the staged dispatch
+                            //1. Wait for 1 min 00'' - in ms
+                            logger.info(
+                                'Waiting for 35sec. ---ticket: ' +
+                                    snapshotTripInfos.request_fp
+                            );
+                            setTimeout(() => {
+                                new Promise((res2) => {
+                                    logger.info(
+                                        '[2] Less closest after 30sec. ---ticket: ' +
+                                            snapshotTripInfos.request_fp
+                                    );
+                                    new Promise((res6) => {
+                                        registerAllowedDriversForRidesAndNotify(
+                                            snapshotTripInfos.request_fp,
+                                            snapshotTripInfos,
+                                            {
+                                                drivers_fp: driversFp,
+                                                pushNotif_tokens:
+                                                    driversPushNotif_token,
+                                            },
+                                            collectionRidesDeliveries_data,
+                                            2,
+                                            res6
+                                        );
+                                    }).then(
+                                        (reslt) => {
+                                            if (
+                                                /staged_dispatch_successfull/i.test(
+                                                    reslt.response
+                                                )
+                                            ) {
+                                                //Proceed with the staged dispatch
+                                                //Allow these drivers to see the requests athen resolve 2
+                                                res2(true); //Conclude promise 2
+                                            } //End the staged dispatch - done
+                                            else {
+                                                logger.info(
+                                                    'DONE STAGED DISPATCH  ---ticket: ' +
+                                                        snapshotTripInfos.request_fp
+                                                );
+                                                res2({
+                                                    response:
+                                                        'successfully_dispatched',
+                                                });
+                                            }
+                                        },
+                                        (error) => {
+                                            logger.info(
+                                                'DONE STAGED DISPATCH  ---ticket: ' +
+                                                    snapshotTripInfos.request_fp
+                                            );
+                                            //Error - but notify dispatch as successfull
+                                            res2(true);
+                                        }
+                                    );
+                                }).then((result) => {
+                                    if (
+                                        result.response !== undefined &&
+                                        result.response !== null
+                                    ) {
+                                        //?Successfully dispatched
+                                        res(true);
+                                        resolve({
+                                            response: 'successfully_dispatched',
+                                        });
+                                    } //? Not yet done, continue with the dispatch
+                                    else {
+                                        //2. Wait for 30 sec
+                                        logger.info(
+                                            'Waiting for 30sec ---ticket: ' +
+                                                snapshotTripInfos.request_fp
+                                        );
+                                        setTimeout(() => {
+                                            new Promise((res3) => {
+                                                logger.info(
+                                                    '[3] Less*2 closest after 30sec. ---ticket: ' +
+                                                        snapshotTripInfos.request_fp
+                                                );
+                                                new Promise((res7) => {
+                                                    registerAllowedDriversForRidesAndNotify(
+                                                        snapshotTripInfos.request_fp,
+                                                        snapshotTripInfos,
+                                                        {
+                                                            drivers_fp:
+                                                                driversFp,
+                                                            pushNotif_tokens:
+                                                                driversPushNotif_token,
+                                                        },
+                                                        collectionRidesDeliveries_data,
+                                                        3,
+                                                        res7
+                                                    );
+                                                }).then(
+                                                    (reslt) => {
+                                                        if (
+                                                            /staged_dispatch_successfull/i.test(
+                                                                reslt.response
+                                                            )
+                                                        ) {
+                                                            //Proceed with the staged dispatch
+                                                            //Allow these drivers to see the requests athen resolve 3
+                                                            res3(true); //Conclude promise 3
+                                                        } //End the staged dispatch - done
+                                                        else {
+                                                            logger.info(
+                                                                'DONE STAGED DISPATCH  ---ticket: ' +
+                                                                    snapshotTripInfos.request_fp
+                                                            );
+                                                            res3({
+                                                                response:
+                                                                    'successfully_dispatched',
+                                                            });
+                                                        }
+                                                    },
+                                                    (error) => {
+                                                        logger.info(
+                                                            'DONE STAGED DISPATCH  ---ticket: ' +
+                                                                snapshotTripInfos.request_fp
+                                                        );
+                                                        //Error - but notify dispatch as successfull
+                                                        res3(false);
+                                                    }
+                                                );
+                                            }).then((result) => {
+                                                if (
+                                                    result.response !==
+                                                        undefined &&
+                                                    result.response !== null
+                                                ) {
+                                                    //?Successfully dispatched
+                                                    res(true);
+                                                    resolve({
+                                                        response:
+                                                            'successfully_dispatched',
+                                                    });
+                                                } //Continue with the staged process
+                                                else {
+                                                    //3. Wait for 1 min
+                                                    logger.info(
+                                                        'Waiting for 30sec ---ticket: ' +
+                                                            snapshotTripInfos.request_fp
+                                                    );
+                                                    setTimeout(() => {
+                                                        new Promise((res4) => {
+                                                            logger.info(
+                                                                '[4] Less*3 closest after 30sec. ---ticket: ' +
+                                                                    snapshotTripInfos.request_fp
+                                                            );
+                                                            new Promise(
+                                                                (res8) => {
+                                                                    registerAllowedDriversForRidesAndNotify(
+                                                                        snapshotTripInfos.request_fp,
+                                                                        snapshotTripInfos,
+                                                                        {
+                                                                            drivers_fp:
+                                                                                driversFp,
+                                                                            pushNotif_tokens:
+                                                                                driversPushNotif_token,
+                                                                        },
+                                                                        collectionRidesDeliveries_data,
+                                                                        4,
+                                                                        res8
+                                                                    );
+                                                                }
+                                                            ).then(
+                                                                (reslt) => {
+                                                                    if (
+                                                                        /staged_dispatch_successfull/i.test(
+                                                                            reslt.response
+                                                                        )
+                                                                    ) {
+                                                                        //Proceed with the staged dispatch
+                                                                        //Allow these drivers to see the requests athen resolve 4
+                                                                        res4(
+                                                                            true
+                                                                        ); //Conclude promise 4
+                                                                    } //End the staged dispatch - done
+                                                                    else {
+                                                                        logger.info(
+                                                                            'DONE STAGED DISPATCH  ---ticket: ' +
+                                                                                snapshotTripInfos.request_fp
+                                                                        );
+                                                                        res4({
+                                                                            response:
+                                                                                'successfully_dispatched',
+                                                                        });
+                                                                    }
+                                                                },
+                                                                (error) => {
+                                                                    logger.info(
+                                                                        'DONE STAGED DISPATCH  ---ticket: ' +
+                                                                            snapshotTripInfos.request_fp
+                                                                    );
+                                                                    //Error - but notify dispatch as successfull
+                                                                    res4(false);
+                                                                }
+                                                            );
+                                                        })
+                                                            .then()
+                                                            .finally(() => {
+                                                                logger.info(
+                                                                    'DONE STAGED DISPATCH  ---ticket: ' +
+                                                                        snapshotTripInfos.request_fp
+                                                                );
+                                                                //Done FULL STAGED DISPATCH!
+                                                                resolve({
+                                                                    response:
+                                                                        'successfully_dispatched',
+                                                                });
+                                                            });
+                                                    }, 1 * 30 * 1000);
+                                                }
+                                            });
+                                        }, 1 * 30 * 1000);
+                                    }
+                                });
+                            }, 35 * 1000);
+                        } //End the staged dispatch - done
+                        else {
+                            resolve({ response: 'successfully_dispatched' });
+                        }
                     },
                     (error) => {
-                      logger.info(
-                        "DONE STAGED DISPATCH  ---ticket: " +
-                          snapshotTripInfos.request_fp
-                      );
-                      //Error - but notify dispatch as successfull
-                      res2(true);
+                        //Error - but notify dispatch as successfull
+                        resolve({ response: 'successfully_dispatched' });
                     }
-                  );
-                }).then((result) => {
-                  if (
-                    result.response !== undefined &&
-                    result.response !== null
-                  ) {
-                    //?Successfully dispatched
-                    res(true);
-                    resolve({ response: "successfully_dispatched" });
-                  } //? Not yet done, continue with the dispatch
-                  else {
-                    //2. Wait for 30 sec
-                    logger.info(
-                      "Waiting for 30sec ---ticket: " +
-                        snapshotTripInfos.request_fp
-                    );
-                    setTimeout(() => {
-                      new Promise((res3) => {
-                        logger.info(
-                          "[3] Less*2 closest after 30sec. ---ticket: " +
-                            snapshotTripInfos.request_fp
-                        );
-                        new Promise((res7) => {
-                          registerAllowedDriversForRidesAndNotify(
-                            snapshotTripInfos.request_fp,
-                            snapshotTripInfos,
-                            {
-                              drivers_fp: driversFp,
-                              pushNotif_tokens: driversPushNotif_token,
-                            },
-                            collectionRidesDeliveries_data,
-                            3,
-                            res7
-                          );
-                        }).then(
-                          (reslt) => {
-                            if (
-                              /staged_dispatch_successfull/i.test(
-                                reslt.response
-                              )
-                            ) {
-                              //Proceed with the staged dispatch
-                              //Allow these drivers to see the requests athen resolve 3
-                              res3(true); //Conclude promise 3
-                            } //End the staged dispatch - done
-                            else {
-                              logger.info(
-                                "DONE STAGED DISPATCH  ---ticket: " +
-                                  snapshotTripInfos.request_fp
-                              );
-                              res3({ response: "successfully_dispatched" });
-                            }
-                          },
-                          (error) => {
-                            logger.info(
-                              "DONE STAGED DISPATCH  ---ticket: " +
-                                snapshotTripInfos.request_fp
-                            );
-                            //Error - but notify dispatch as successfull
-                            res3(false);
-                          }
-                        );
-                      }).then((result) => {
-                        if (
-                          result.response !== undefined &&
-                          result.response !== null
-                        ) {
-                          //?Successfully dispatched
-                          res(true);
-                          resolve({ response: "successfully_dispatched" });
-                        } //Continue with the staged process
-                        else {
-                          //3. Wait for 1 min
-                          logger.info(
-                            "Waiting for 30sec ---ticket: " +
-                              snapshotTripInfos.request_fp
-                          );
-                          setTimeout(() => {
-                            new Promise((res4) => {
-                              logger.info(
-                                "[4] Less*3 closest after 30sec. ---ticket: " +
-                                  snapshotTripInfos.request_fp
-                              );
-                              new Promise((res8) => {
-                                registerAllowedDriversForRidesAndNotify(
-                                  snapshotTripInfos.request_fp,
-                                  snapshotTripInfos,
-                                  {
-                                    drivers_fp: driversFp,
-                                    pushNotif_tokens: driversPushNotif_token,
-                                  },
-                                  collectionRidesDeliveries_data,
-                                  4,
-                                  res8
-                                );
-                              }).then(
-                                (reslt) => {
-                                  if (
-                                    /staged_dispatch_successfull/i.test(
-                                      reslt.response
-                                    )
-                                  ) {
-                                    //Proceed with the staged dispatch
-                                    //Allow these drivers to see the requests athen resolve 4
-                                    res4(true); //Conclude promise 4
-                                  } //End the staged dispatch - done
-                                  else {
-                                    logger.info(
-                                      "DONE STAGED DISPATCH  ---ticket: " +
-                                        snapshotTripInfos.request_fp
-                                    );
-                                    res4({
-                                      response: "successfully_dispatched",
-                                    });
-                                  }
-                                },
-                                (error) => {
-                                  logger.info(
-                                    "DONE STAGED DISPATCH  ---ticket: " +
-                                      snapshotTripInfos.request_fp
-                                  );
-                                  //Error - but notify dispatch as successfull
-                                  res4(false);
-                                }
-                              );
-                            })
-                              .then()
-                              .finally(() => {
-                                logger.info(
-                                  "DONE STAGED DISPATCH  ---ticket: " +
-                                    snapshotTripInfos.request_fp
-                                );
-                                //Done FULL STAGED DISPATCH!
-                                resolve({
-                                  response: "successfully_dispatched",
-                                });
-                              });
-                          }, 1 * 30 * 1000);
-                        }
-                      });
-                    }, 1 * 30 * 1000);
-                  }
-                });
-              }, 35 * 1000);
-            } //End the staged dispatch - done
-            else {
-              resolve({ response: "successfully_dispatched" });
-            }
-          },
-          (error) => {
-            //Error - but notify dispatch as successfull
-            resolve({ response: "successfully_dispatched" });
-          }
-        );
-      });
+                );
+            });
+        }
     }
-  }
 }
 
 /**
@@ -1993,252 +2394,289 @@ function sendStagedNotificationsDrivers(
  * Also CHECK IF THE NUMBER OF CLOSEST DRIVERS ALLOW the incremental stage numer.
  */
 function registerAllowedDriversForRidesAndNotify(
-  request_fp,
-  snapshotTripInfos,
-  driversSnap,
-  collectionRidesDeliveries_data,
-  incrementalStage = 1,
-  resolve
+    request_fp,
+    snapshotTripInfos,
+    driversSnap,
+    collectionRidesDeliveries_data,
+    incrementalStage = 1,
+    resolve
 ) {
-  //? Fit back to boundary.limit max
-  if (incrementalStage > 4) {
-    incrementalStage = 4;
-  }
-  //Staged boundaries
-  let stagedBoundaries = {
-    1: { start: 0, end: 1 },
-    2: { start: 1, end: 6 },
-    3: { start: 4, end: 11 },
-    4: { start: 9, end: false },
-  };
-  let originalAllDrivers_fp = driversSnap.drivers_fp;
-  //Slice the drivers fp and push notif tokens to be within the boundaries
-  driversSnap.drivers_fp = driversSnap.drivers_fp.slice(
-    stagedBoundaries[incrementalStage].start,
-    stagedBoundaries[incrementalStage].end === false
-      ? driversSnap.drivers_fp.length
-      : stagedBoundaries[incrementalStage].end
-  );
-  driversSnap.pushNotif_tokens = driversSnap.pushNotif_tokens.slice(
-    stagedBoundaries[incrementalStage].start,
-    stagedBoundaries[incrementalStage].end === false
-      ? driversSnap.pushNotif_tokens.length
-      : stagedBoundaries[incrementalStage].end
-  );
+    //? Fit back to boundary.limit max
+    if (incrementalStage > 4) {
+        incrementalStage = 4;
+    }
+    //Staged boundaries
+    let stagedBoundaries = {
+        1: { start: 0, end: 1 },
+        2: { start: 1, end: 6 },
+        3: { start: 4, end: 11 },
+        4: { start: 9, end: false },
+    };
+    let originalAllDrivers_fp = driversSnap.drivers_fp;
+    //Slice the drivers fp and push notif tokens to be within the boundaries
+    driversSnap.drivers_fp = driversSnap.drivers_fp.slice(
+        stagedBoundaries[incrementalStage].start,
+        stagedBoundaries[incrementalStage].end === false
+            ? driversSnap.drivers_fp.length
+            : stagedBoundaries[incrementalStage].end
+    );
+    driversSnap.pushNotif_tokens = driversSnap.pushNotif_tokens.slice(
+        stagedBoundaries[incrementalStage].start,
+        stagedBoundaries[incrementalStage].end === false
+            ? driversSnap.pushNotif_tokens.length
+            : stagedBoundaries[incrementalStage].end
+    );
 
-  logger.warn(stagedBoundaries[incrementalStage]);
-  logger.warn(
-    "List of drivers cherry picked for the staged dispatch in progress"
-  );
-  logger.warn(driversSnap.drivers_fp);
+    logger.warn(stagedBoundaries[incrementalStage]);
+    logger.warn(
+        'List of drivers cherry picked for the staged dispatch in progress'
+    );
+    logger.warn(driversSnap.drivers_fp);
 
-  //Check whether the request was accepted or not.
-  let checkAcceptance = {
-    "ride_state_vars.isAccepted": false,
-    request_fp: request_fp,
-  }; //?Indexed
+    //Check whether the request was accepted or not.
+    let checkAcceptance = {
+        'ride_state_vars.isAccepted': false,
+        request_fp: request_fp,
+    }; //?Indexed
 
-  dynamo_find_query({
-    table_name: "rides_deliveries_requests",
-    IndexName: "request_fp",
-    KeyConditionExpression: "request_fp = :val1, #r.#i = :val2",
-    ExpressionAttributeValues: {
-      ":val1": checkAcceptance.request_fp,
-      ":val2": false,
-    },
-    ExpressionAttributeNames: {
-      "#r": "ride_state_vars",
-      "#i": "isAccepted",
-    },
-  })
-    .then((requestInfos) => {
-      if (
-        requestInfos !== null &&
-        requestInfos !== undefined &&
-        requestInfos.length > 0 &&
-        driversSnap.drivers_fp.length > 0
-      ) {
-        //Not yet accepted
-        requestInfos = requestInfos[0];
-        //...
-        new Promise((resComputeNotif) => {
-          //Send notifications to the newly registered drivers to the allowed_drivers_see
-          //Send the push notifications
-          let message = {
-            app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
-            android_channel_id: /RIDE/i.test(snapshotTripInfos.ride_type)
-              ? process.env.DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION
-              : process.env.DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
-            priority: 10,
-            contents: /RIDE/i.test(snapshotTripInfos.ride_type)
-              ? {
-                  en:
-                    "You have a new ride request " +
-                    (snapshotTripInfos.pickup_suburb !== false
-                      ? "from " + snapshotTripInfos.pickup_suburb !== undefined
-                        ? snapshotTripInfos.pickup_suburb !== undefined &&
-                          snapshotTripInfos.pickup_suburb !== false &&
-                          snapshotTripInfos.pickup_suburb !== null
-                          ? snapshotTripInfos.pickup_suburb.toUpperCase()
-                          : "near your location"
-                        : "near your location" +
-                            " to " +
-                            snapshotTripInfos.pickup_suburb !==
-                          undefined
-                        ? snapshotTripInfos.pickup_suburb !== undefined &&
-                          snapshotTripInfos.pickup_suburb !== false &&
-                          snapshotTripInfos.pickup_suburb !== null
-                          ? snapshotTripInfos.pickup_suburb.toUpperCase()
-                          : "near your location"
-                        : "near your location" +
-                          ". Click here for more details."
-                      : "near your location, click here for more details."),
-                }
-              : {
-                  en:
-                    "You have a new delivery request " +
-                    (snapshotTripInfos.pickup_suburb !== false
-                      ? "from " + snapshotTripInfos.pickup_suburb !== undefined
-                        ? snapshotTripInfos.pickup_suburb !== undefined &&
-                          snapshotTripInfos.pickup_suburb !== false &&
-                          snapshotTripInfos.pickup_suburb !== null
-                          ? snapshotTripInfos.pickup_suburb.toUpperCase()
-                          : "near your location"
-                        : "near your location" +
-                            " to " +
-                            snapshotTripInfos.pickup_suburb !==
-                          undefined
-                        ? snapshotTripInfos.pickup_suburb !== undefined &&
-                          snapshotTripInfos.pickup_suburb !== false &&
-                          snapshotTripInfos.pickup_suburb !== null
-                          ? snapshotTripInfos.pickup_suburb.toUpperCase()
-                          : "near your location"
-                        : "near your location" +
-                          ". Click here for more details."
-                      : "near your location, click here for more details."),
-                },
-            headings: /RIDE/i.test(snapshotTripInfos.ride_type)
-              ? { en: "New ride request, N$" + snapshotTripInfos.fare }
-              : { en: "New delivery request, N$" + snapshotTripInfos.fare },
-            content_available: true,
-            include_player_ids: driversSnap.pushNotif_tokens,
-          };
-          //logger.info(message);
-          //Send
-          sendPushUPNotification(message);
-          //...
-          resComputeNotif(true);
-        })
-          .then(() => {})
-          .catch(() => {});
-        //Add the drivers' fingerprints to the allowed_drivers_see
-        let updatedAllowedSee = {
-          $set: {
-            allowed_drivers_see: [
-              ...new Set([
-                ...requestInfos.allowed_drivers_see,
-                ...driversSnap.drivers_fp,
-              ]),
-            ],
-          },
-        };
-
-        dynamo_update(
-          "rides_deliveries_requests",
-          {
-            request_fp: request_fp,
-            "ride_state_vars.isAccepted": false,
-          },
-          "set allowed_drivers_see = :val1",
-          {
-            ":val1": updatedAllowedSee,
-          }
-        )
-          .then((result) => {
-            if (result === false) {
-              resolve({ response: "staged_dispatch_successfull" });
-            }
-            //logger.info(err);
-            resolve({ response: "staged_dispatch_successfull" });
-          })
-          .catch((error) => {
-            logger.error(error);
-            resolve({ response: "staged_dispatch_successfull" });
-          });
-      } //Request already accepted
-      else {
-        //! Give access to all the qualified drivers
-        let checkAcceptance = {
-          "ride_state_vars.isRideCompleted_driverSide": false,
-          request_fp: request_fp,
-        }; //?Indexed
-        dynamo_find_query({
-          table_name: "rides_deliveries_requests",
-          IndexName: "request_fp",
-          KeyConditionExpression: "request_fp = :val1, #r.#i = :val2",
-          ExpressionAttributeValues: {
-            ":val1": checkAcceptance.request_fp,
-            ":val2": false,
-          },
-          ExpressionAttributeNames: {
-            "#r": "ride_state_vars",
-            "#i": "isRideCompleted_driverSide",
-          },
-        })
-          .then((requestInfos) => {
-            if (requestInfos.length > 0 && driversSnap.drivers_fp.length > 0) {
-              //Not yet accepted
-              requestInfos = requestInfos[0];
-              //...
-              //Add the drivers' fingerprints to the allowed_drivers_see
-              let updatedAllowedSee = {
-                $set: {
-                  allowed_drivers_see: [
-                    ...new Set([
-                      ...requestInfos.allowed_drivers_see,
-                      ...originalAllDrivers_fp,
-                    ]),
-                  ],
-                },
-              };
-
-              //      "ride_state_vars.isRideCompleted_driverSide": false,
-              // request_fp: request_fp,
-              dynamo_update(
-                "rides_deliveries_requests",
-                requestInfos._id,
-                "set allowed_drivers_see = :val1",
-                {
-                  ":val1": [
-                    ...new Set([
-                      ...requestInfos.allowed_drivers_see,
-                      ...originalAllDrivers_fp,
-                    ]),
-                  ],
-                }
-              )
-                .then((result) => {
-                  resolve({ response: "request_already_accepted" });
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  resolve({ response: "request_already_accepted" });
-                });
-            } //Already completed
-            else {
-              resolve({ response: "request_already_accepted" });
-            }
-          })
-          .catch((error) => {
-            logger.error(error);
-            resolve({ response: "staged_dispatch_successfull" });
-          });
-      }
+    dynamo_find_query({
+        table_name: 'rides_deliveries_requests',
+        IndexName: 'request_fp',
+        KeyConditionExpression: 'request_fp = :val1, #r.#i = :val2',
+        ExpressionAttributeValues: {
+            ':val1': checkAcceptance.request_fp,
+            ':val2': false,
+        },
+        ExpressionAttributeNames: {
+            '#r': 'ride_state_vars',
+            '#i': 'isAccepted',
+        },
     })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: "staged_dispatch_successfull" });
-    });
+        .then((requestInfos) => {
+            if (
+                requestInfos !== null &&
+                requestInfos !== undefined &&
+                requestInfos.length > 0 &&
+                driversSnap.drivers_fp.length > 0
+            ) {
+                //Not yet accepted
+                requestInfos = requestInfos[0];
+                //...
+                new Promise((resComputeNotif) => {
+                    //Send notifications to the newly registered drivers to the allowed_drivers_see
+                    //Send the push notifications
+                    let message = {
+                        app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
+                        android_channel_id: /RIDE/i.test(
+                            snapshotTripInfos.ride_type
+                        )
+                            ? process.env
+                                  .DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION
+                            : process.env
+                                  .DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
+                        priority: 10,
+                        contents: /RIDE/i.test(snapshotTripInfos.ride_type)
+                            ? {
+                                  en:
+                                      'You have a new ride request ' +
+                                      (snapshotTripInfos.pickup_suburb !== false
+                                          ? 'from ' +
+                                                snapshotTripInfos.pickup_suburb !==
+                                            undefined
+                                              ? snapshotTripInfos.pickup_suburb !==
+                                                    undefined &&
+                                                snapshotTripInfos.pickup_suburb !==
+                                                    false &&
+                                                snapshotTripInfos.pickup_suburb !==
+                                                    null
+                                                  ? snapshotTripInfos.pickup_suburb.toUpperCase()
+                                                  : 'near your location'
+                                              : 'near your location' +
+                                                    ' to ' +
+                                                    snapshotTripInfos.pickup_suburb !==
+                                                undefined
+                                              ? snapshotTripInfos.pickup_suburb !==
+                                                    undefined &&
+                                                snapshotTripInfos.pickup_suburb !==
+                                                    false &&
+                                                snapshotTripInfos.pickup_suburb !==
+                                                    null
+                                                  ? snapshotTripInfos.pickup_suburb.toUpperCase()
+                                                  : 'near your location'
+                                              : 'near your location' +
+                                                '. Click here for more details.'
+                                          : 'near your location, click here for more details.'),
+                              }
+                            : {
+                                  en:
+                                      'You have a new delivery request ' +
+                                      (snapshotTripInfos.pickup_suburb !== false
+                                          ? 'from ' +
+                                                snapshotTripInfos.pickup_suburb !==
+                                            undefined
+                                              ? snapshotTripInfos.pickup_suburb !==
+                                                    undefined &&
+                                                snapshotTripInfos.pickup_suburb !==
+                                                    false &&
+                                                snapshotTripInfos.pickup_suburb !==
+                                                    null
+                                                  ? snapshotTripInfos.pickup_suburb.toUpperCase()
+                                                  : 'near your location'
+                                              : 'near your location' +
+                                                    ' to ' +
+                                                    snapshotTripInfos.pickup_suburb !==
+                                                undefined
+                                              ? snapshotTripInfos.pickup_suburb !==
+                                                    undefined &&
+                                                snapshotTripInfos.pickup_suburb !==
+                                                    false &&
+                                                snapshotTripInfos.pickup_suburb !==
+                                                    null
+                                                  ? snapshotTripInfos.pickup_suburb.toUpperCase()
+                                                  : 'near your location'
+                                              : 'near your location' +
+                                                '. Click here for more details.'
+                                          : 'near your location, click here for more details.'),
+                              },
+                        headings: /RIDE/i.test(snapshotTripInfos.ride_type)
+                            ? {
+                                  en:
+                                      'New ride request, N$' +
+                                      snapshotTripInfos.fare,
+                              }
+                            : {
+                                  en:
+                                      'New delivery request, N$' +
+                                      snapshotTripInfos.fare,
+                              },
+                        content_available: true,
+                        include_player_ids: driversSnap.pushNotif_tokens,
+                    };
+                    //logger.info(message);
+                    //Send
+                    sendPushUPNotification(message);
+                    //...
+                    resComputeNotif(true);
+                })
+                    .then(() => {})
+                    .catch(() => {});
+                //Add the drivers' fingerprints to the allowed_drivers_see
+                let updatedAllowedSee = {
+                    $set: {
+                        allowed_drivers_see: [
+                            ...new Set([
+                                ...requestInfos.allowed_drivers_see,
+                                ...driversSnap.drivers_fp,
+                            ]),
+                        ],
+                    },
+                };
+
+                dynamo_update(
+                    'rides_deliveries_requests',
+                    {
+                        request_fp: request_fp,
+                        'ride_state_vars.isAccepted': false,
+                    },
+                    'set allowed_drivers_see = :val1',
+                    {
+                        ':val1': updatedAllowedSee,
+                    }
+                )
+                    .then((result) => {
+                        if (result === false) {
+                            resolve({
+                                response: 'staged_dispatch_successfull',
+                            });
+                        }
+                        //logger.info(err);
+                        resolve({ response: 'staged_dispatch_successfull' });
+                    })
+                    .catch((error) => {
+                        logger.error(error);
+                        resolve({ response: 'staged_dispatch_successfull' });
+                    });
+            } //Request already accepted
+            else {
+                //! Give access to all the qualified drivers
+                let checkAcceptance = {
+                    'ride_state_vars.isRideCompleted_driverSide': false,
+                    request_fp: request_fp,
+                }; //?Indexed
+                dynamo_find_query({
+                    table_name: 'rides_deliveries_requests',
+                    IndexName: 'request_fp',
+                    KeyConditionExpression: 'request_fp = :val1, #r.#i = :val2',
+                    ExpressionAttributeValues: {
+                        ':val1': checkAcceptance.request_fp,
+                        ':val2': false,
+                    },
+                    ExpressionAttributeNames: {
+                        '#r': 'ride_state_vars',
+                        '#i': 'isRideCompleted_driverSide',
+                    },
+                })
+                    .then((requestInfos) => {
+                        if (
+                            requestInfos.length > 0 &&
+                            driversSnap.drivers_fp.length > 0
+                        ) {
+                            //Not yet accepted
+                            requestInfos = requestInfos[0];
+                            //...
+                            //Add the drivers' fingerprints to the allowed_drivers_see
+                            let updatedAllowedSee = {
+                                $set: {
+                                    allowed_drivers_see: [
+                                        ...new Set([
+                                            ...requestInfos.allowed_drivers_see,
+                                            ...originalAllDrivers_fp,
+                                        ]),
+                                    ],
+                                },
+                            };
+
+                            //      "ride_state_vars.isRideCompleted_driverSide": false,
+                            // request_fp: request_fp,
+                            dynamo_update(
+                                'rides_deliveries_requests',
+                                requestInfos._id,
+                                'set allowed_drivers_see = :val1',
+                                {
+                                    ':val1': [
+                                        ...new Set([
+                                            ...requestInfos.allowed_drivers_see,
+                                            ...originalAllDrivers_fp,
+                                        ]),
+                                    ],
+                                }
+                            )
+                                .then((result) => {
+                                    resolve({
+                                        response: 'request_already_accepted',
+                                    });
+                                })
+                                .catch((error) => {
+                                    logger.error(error);
+                                    resolve({
+                                        response: 'request_already_accepted',
+                                    });
+                                });
+                        } //Already completed
+                        else {
+                            resolve({ response: 'request_already_accepted' });
+                        }
+                    })
+                    .catch((error) => {
+                        logger.error(error);
+                        resolve({ response: 'staged_dispatch_successfull' });
+                    });
+            }
+        })
+        .catch((error) => {
+            logger.error(error);
+            resolve({ response: 'staged_dispatch_successfull' });
+        });
 }
 
 /**
@@ -2257,94 +2695,98 @@ function registerAllowedDriversForRidesAndNotify(
  * ! Reinforce all drop off vars in case
  */
 function confirmDropoff_fromRider_side(
-  dropOffMeta_bundle,
-  collectionRidesDeliveries_data,
-  collectionDrivers_profiles,
-  resolve
+    dropOffMeta_bundle,
+    collectionRidesDeliveries_data,
+    collectionDrivers_profiles,
+    resolve
 ) {
-  resolveDate();
+    resolveDate();
 
-  let retrieveTrip = {
-    client_id: dropOffMeta_bundle.user_fingerprint,
-    request_fp: dropOffMeta_bundle.request_fp,
-  };
-  //Updatedd data
-  let dropOffDataUpdate = {
-    $set: {
-      isArrivedToDestination: true,
-      date_dropoff: new Date(chaineDateUTC),
-      ride_state_vars: {
-        isAccepted: true,
-        inRideToDestination: true,
-        isRideCompleted_driverSide: true,
-        isRideCompleted_riderSide: true,
-        rider_driverRating: dropOffMeta_bundle.rating_score,
-        rating_compliment: dropOffMeta_bundle.dropoff_compliments,
-        rating_personal_note: dropOffMeta_bundle.dropoff_personal_note,
-      },
-    },
-  };
-  //..
-  dynamo_update(
-    "rides_deliveries_requests",
-    {
-      request_fp: dropOffMeta_bundle.request_fp,
-    },
-    "set isArrivedToDestination = :val1, date_dropoff = :val2, ride_state_vars = :val3",
-    {
-      ":val1": true,
-      ":val2": new Date(chaineDateUTC).toISOString(),
-      ":val3": {
-        isAccepted: true,
-        inRideToDestination: true,
-        isRideCompleted_driverSide: true,
-        isRideCompleted_riderSide: true,
-        rider_driverRating: dropOffMeta_bundle.rating_score,
-        rating_compliment: dropOffMeta_bundle.dropoff_compliments,
-        rating_personal_note: dropOffMeta_bundle.dropoff_personal_note,
-      },
-    }
-  )
-    .then((result) => {
-      if (result === false) {
-        resolve({ response: "error" });
-      }
-      //...
-      collectionRidesDeliveries_data
-        .find(retrieveTrip)
-        .toArray(function (err, result) {
-          if (err) {
-            resolve({ response: "successfully_confirmed" });
-          }
-          //...
-          if (result !== undefined && result.length > 0) {
-            result = result[0];
-            //? Send the drop off receipt for corporate deliveries
-            new Promise((resSendReceipt) => {
-              let dataBundle = {
-                amount: result.fare,
-                user_fp: result.client_id,
-                tripHistory: result,
-              };
-              sendReceipt(dataBundle, "dropoffReceipt", resSendReceipt);
-            })
-              .then()
-              .catch((error) => logger.error(error));
-            //?...
+    let retrieveTrip = {
+        client_id: dropOffMeta_bundle.user_fingerprint,
+        request_fp: dropOffMeta_bundle.request_fp,
+    };
+    //Updatedd data
+    let dropOffDataUpdate = {
+        $set: {
+            isArrivedToDestination: true,
+            date_dropoff: new Date(chaineDateUTC),
+            ride_state_vars: {
+                isAccepted: true,
+                inRideToDestination: true,
+                isRideCompleted_driverSide: true,
+                isRideCompleted_riderSide: true,
+                rider_driverRating: dropOffMeta_bundle.rating_score,
+                rating_compliment: dropOffMeta_bundle.dropoff_compliments,
+                rating_personal_note: dropOffMeta_bundle.dropoff_personal_note,
+            },
+        },
+    };
+    //..
+    dynamo_update(
+        'rides_deliveries_requests',
+        {
+            request_fp: dropOffMeta_bundle.request_fp,
+        },
+        'set isArrivedToDestination = :val1, date_dropoff = :val2, ride_state_vars = :val3',
+        {
+            ':val1': true,
+            ':val2': new Date(chaineDateUTC).toISOString(),
+            ':val3': {
+                isAccepted: true,
+                inRideToDestination: true,
+                isRideCompleted_driverSide: true,
+                isRideCompleted_riderSide: true,
+                rider_driverRating: dropOffMeta_bundle.rating_score,
+                rating_compliment: dropOffMeta_bundle.dropoff_compliments,
+                rating_personal_note: dropOffMeta_bundle.dropoff_personal_note,
+            },
+        }
+    )
+        .then((result) => {
+            if (result === false) {
+                resolve({ response: 'error' });
+            }
+            //...
+            collectionRidesDeliveries_data
+                .find(retrieveTrip)
+                .toArray(function (err, result) {
+                    if (err) {
+                        resolve({ response: 'successfully_confirmed' });
+                    }
+                    //...
+                    if (result !== undefined && result.length > 0) {
+                        result = result[0];
+                        //? Send the drop off receipt for corporate deliveries
+                        new Promise((resSendReceipt) => {
+                            let dataBundle = {
+                                amount: result.fare,
+                                user_fp: result.client_id,
+                                tripHistory: result,
+                            };
+                            sendReceipt(
+                                dataBundle,
+                                'dropoffReceipt',
+                                resSendReceipt
+                            );
+                        })
+                            .then()
+                            .catch((error) => logger.error(error));
+                        //?...
 
-            resolve({
-              response: "successfully_confirmed",
-              driver_fp: result.taxi_id,
-            });
-          } else {
-            resolve({ response: "successfully_confirmed" });
-          }
+                        resolve({
+                            response: 'successfully_confirmed',
+                            driver_fp: result.taxi_id,
+                        });
+                    } else {
+                        resolve({ response: 'successfully_confirmed' });
+                    }
+                });
+        })
+        .catch((error) => {
+            logger.error(error);
+            resolve({ response: 'error' });
         });
-    })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: "error" });
-    });
 }
 
 /**
@@ -2355,72 +2797,82 @@ function confirmDropoff_fromRider_side(
  * @param resolve
  */
 function sendReceipt(metaDataBundle, scenarioType, resolve) {
-  if (/dropoffReceipt/i.test(scenarioType)) {
-    //Drop off receipt confirmation
-    let dpo_gateway_deduction_fees =
-      (parseFloat(metaDataBundle.amount) *
-        process.env.DPO_GATEWAY_CHARGES_PERCENTAGE) /
-      100;
-    let taxiconnect_service_fees =
-      (parseFloat(metaDataBundle.amount) *
-        process.env.TAXICONNECT_WALLET_TOPUP_SERVICE_FEES) /
-      100;
-    let amountRecomputed =
-      parseFloat(metaDataBundle.amount) -
-      dpo_gateway_deduction_fees -
-      taxiconnect_service_fees; //! VERY IMPORTANT - REMOVE DPO AND TAXICONNECT DEDUCTIONS
-    //...
-    //Get the company data
-    collectionDedicatedServices_accounts
-      .find({
-        company_fp: metaDataBundle.user_fp,
-      })
-      .toArray(function (err, companyData) {
-        if (err) {
-          logger.error(err);
-          resolve(false);
-        }
-        logger.info(companyData);
+    if (/dropoffReceipt/i.test(scenarioType)) {
+        //Drop off receipt confirmation
+        let dpo_gateway_deduction_fees =
+            (parseFloat(metaDataBundle.amount) *
+                process.env.DPO_GATEWAY_CHARGES_PERCENTAGE) /
+            100;
+        let taxiconnect_service_fees =
+            (parseFloat(metaDataBundle.amount) *
+                process.env.TAXICONNECT_WALLET_TOPUP_SERVICE_FEES) /
+            100;
+        let amountRecomputed =
+            parseFloat(metaDataBundle.amount) -
+            dpo_gateway_deduction_fees -
+            taxiconnect_service_fees; //! VERY IMPORTANT - REMOVE DPO AND TAXICONNECT DEDUCTIONS
         //...
-        if (companyData !== undefined && companyData.length > 0) {
-          companyData = companyData[0];
-          /// Get the general pickup data
-          let pickup_location_name =
-            metaDataBundle.tripHistory.pickup_location_infos.location_name !==
-              undefined &&
-            metaDataBundle.tripHistory.pickup_location_infos.location_name !==
-              false
-              ? metaDataBundle.tripHistory.pickup_location_infos.location_name
-              : metaDataBundle.tripHistory.pickup_location_infos.street_name;
-
-          let pickup_street_name =
-            metaDataBundle.tripHistory.pickup_location_infos.street_name;
-          //...
-          let pickup_suburb =
-            metaDataBundle.tripHistory.pickup_location_infos.suburb;
-          //....
-
-          let receiptFp = Math.round(new Date(chaineDateUTC).getTime())
-            .toString()
-            .substring(0, 7);
-          //Found the company
-          //? Generate a receipt fingerprint
-          new Promise((resGenerateFp) => {
-            generateUniqueFingerprint(
-              `${metaDataBundle.user_fp}-${new Date(chaineDateUTC).getTime()}`,
-              "md5",
-              resGenerateFp
-            );
-          })
-            .then((result) => {
-              receiptFp = result.toString().toUpperCase().substring(0, 7);
+        //Get the company data
+        collectionDedicatedServices_accounts
+            .find({
+                company_fp: metaDataBundle.user_fp,
             })
-            .catch((error) => {
-              logger.error(error);
-              //...
-            })
-            .finally(() => {
-              let emailTemplate = `
+            .toArray(function (err, companyData) {
+                if (err) {
+                    logger.error(err);
+                    resolve(false);
+                }
+                logger.info(companyData);
+                //...
+                if (companyData !== undefined && companyData.length > 0) {
+                    companyData = companyData[0];
+                    /// Get the general pickup data
+                    let pickup_location_name =
+                        metaDataBundle.tripHistory.pickup_location_infos
+                            .location_name !== undefined &&
+                        metaDataBundle.tripHistory.pickup_location_infos
+                            .location_name !== false
+                            ? metaDataBundle.tripHistory.pickup_location_infos
+                                  .location_name
+                            : metaDataBundle.tripHistory.pickup_location_infos
+                                  .street_name;
+
+                    let pickup_street_name =
+                        metaDataBundle.tripHistory.pickup_location_infos
+                            .street_name;
+                    //...
+                    let pickup_suburb =
+                        metaDataBundle.tripHistory.pickup_location_infos.suburb;
+                    //....
+
+                    let receiptFp = Math.round(
+                        new Date(chaineDateUTC).getTime()
+                    )
+                        .toString()
+                        .substring(0, 7);
+                    //Found the company
+                    //? Generate a receipt fingerprint
+                    new Promise((resGenerateFp) => {
+                        generateUniqueFingerprint(
+                            `${metaDataBundle.user_fp}-${new Date(
+                                chaineDateUTC
+                            ).getTime()}`,
+                            'md5',
+                            resGenerateFp
+                        );
+                    })
+                        .then((result) => {
+                            receiptFp = result
+                                .toString()
+                                .toUpperCase()
+                                .substring(0, 7);
+                        })
+                        .catch((error) => {
+                            logger.error(error);
+                            //...
+                        })
+                        .finally(() => {
+                            let emailTemplate = `
                 <!doctype html>
                 <html>
 
@@ -2724,17 +3176,19 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
                                       <div style="margin-bottom: 13px;">
                                           <div style="font-weight: bold;font-size: 11px;">DATE</div>
                                           <div style="font-size: 14px;color:#272626bb;margin-top: 4px;">${
-                                            new Date(chaineDateUTC)
-                                              .toDateString()
-                                              .split(" ")[1]
+                                              new Date(chaineDateUTC)
+                                                  .toDateString()
+                                                  .split(' ')[1]
                                           } ${new Date(
-                chaineDateUTC
-              ).getDate()}, ${new Date(chaineDateUTC).getFullYear()}</div>
+                                chaineDateUTC
+                            ).getDate()}, ${new Date(
+                                chaineDateUTC
+                            ).getFullYear()}</div>
                                       </div>
                                       <div style="margin-bottom: 25px;min-width: 100px;">
                                           <div style="font-weight: bold;font-size: 11px;">BALANCE DUE</div>
                                           <div style="font-size: 14px;color:#272626bb;margin-top: 4px;">NAD $${parseFloat(
-                                            metaDataBundle.amount
+                                              metaDataBundle.amount
                                           ).toFixed(2)}</div>
                                       </div>
                                   </div>
@@ -2760,24 +3214,25 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
 
 
                               ${metaDataBundle.tripHistory.destinationData
-                                .map((destination, index) => {
-                                  let dest_location_name =
-                                    destination.location_name !== undefined &&
-                                    destination.location_name !== false
-                                      ? destination.location_name
-                                      : destination.street_name;
+                                  .map((destination, index) => {
+                                      let dest_location_name =
+                                          destination.location_name !==
+                                              undefined &&
+                                          destination.location_name !== false
+                                              ? destination.location_name
+                                              : destination.street_name;
 
-                                  let dest_street_name =
-                                    destination.street_name;
-                                  //...
-                                  let dest_suburb = destination.suburb;
-                                  let singlePrice =
-                                    /Elisenheim/i.test(pickup_suburb) ||
-                                    /Elisenheim/i.test(dest_suburb)
-                                      ? 70
-                                      : 50;
+                                      let dest_street_name =
+                                          destination.street_name;
+                                      //...
+                                      let dest_suburb = destination.suburb;
+                                      let singlePrice =
+                                          /Elisenheim/i.test(pickup_suburb) ||
+                                          /Elisenheim/i.test(dest_suburb)
+                                              ? 70
+                                              : 50;
 
-                                  return `<div style="border-bottom:1px dashed #272626bb; display: flex;flex-direction: row;color:#000;padding-bottom: 10px;padding-top:10px;margin-top: 10px;width:100%">
+                                      return `<div style="border-bottom:1px dashed #272626bb; display: flex;flex-direction: row;color:#000;padding-bottom: 10px;padding-top:10px;margin-top: 10px;width:100%">
                                       <div style="flex:1;width:50%;">
                                       <div style="align-items: flex-end;font-weight: bold;font-size: 15px;margin-bottom: 5px;">Delivery</div>
                                       <div style="color: #272626bb;font-size: 13px;">
@@ -2787,17 +3242,17 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
                                       </div>
                                       <div style="display: flex;flex-direction: row;text-align: right;font-size: 14px;color:#272626bb;flex:1;justify-content: space-between;width:50%">
                                           <div style="flex:1;width:33%;">$${parseFloat(
-                                            singlePrice
+                                              singlePrice
                                           ).toFixed(2)}</div>
                                           <div style="flex:1;width:33%;">1</div>
                                           <div style="flex:1;width:33%;">$${parseFloat(
-                                            singlePrice
+                                              singlePrice
                                           ).toFixed(2)}</div>
                                       </div>
                                     </div>`;
-                                })
-                                .toString()
-                                .replace(/,/g, "")}
+                                  })
+                                  .toString()
+                                  .replace(/,/g, '')}
                           
                               <div style="display: flex;flex-direction: row;justify-content: space-between;margin-top: 30px;align-items: center;width:100%">
                                   <div style="flex:1;color:#272626bb;font-size: 12px;padding-right: 30px;min-width:150px;">Thank you for choosing DulcetDash for all your business delivery needs.</div>
@@ -2808,7 +3263,7 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
                                             <div style="display:flex;flex-direction:row;justify-content: space-between;align-items: center;margin-bottom: 5px;width:100%;">
                                                 <div style="font-weight: bold;font-size:11px;width:50%;position:relative;top:5px;text-align:left;">SUBTOTAL</div>
                                                 <div style="font-size: 14px;color:#272626bb;width:50%;text-align:right;position:relative;bottom:3px">$${parseFloat(
-                                                  metaDataBundle.amount
+                                                    metaDataBundle.amount
                                                 ).toFixed(2)}</div>
                                             </div>
                                         </tr>
@@ -2816,9 +3271,9 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
                                             <div style="border-bottom:1px solid #d0d0d0;padding-bottom:10px;display:flex;flex-direction:row;justify-content: space-between;align-items: center;margin-bottom: 10px;">
                                                 <div style="font-weight: bold;font-size:11px;width:50%;position:relative;top:5px">SERVICE FEE (4%)</div>
                                                 <div style="font-size: 14px;color:#272626bb;width:50%;text-align:right;position:relative;bottom:3px">$${(
-                                                  parseFloat(
-                                                    metaDataBundle.amount
-                                                  ) * 0.04
+                                                    parseFloat(
+                                                        metaDataBundle.amount
+                                                    ) * 0.04
                                                 ).toFixed(2)}</div>
                                             </div>
                                         </tr>
@@ -2826,7 +3281,7 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
                                             <div style="border-bottom:1px solid #d0d0d0;padding-bottom:10px;display:flex;flex-direction:row;justify-content: space-between;align-items: center;margin-bottom: 15px;">
                                                 <div style="font-weight: bold;font-size:11px;width:50%;position:relative;top:5px">TOTAL</div>
                                                 <div style="font-size: 14px;color:#272626bb;width:50%;text-align:right;position:relative;bottom:3px">$${parseFloat(
-                                                  metaDataBundle.amount
+                                                    metaDataBundle.amount
                                                 ).toFixed(2)}</div>
                                             </div>
                                         </tr>
@@ -2834,7 +3289,7 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
                                             <div style="border-bottom:1px solid #d0d0d0;padding-bottom:10px;display:flex;flex-direction:row;justify-content: space-between;align-items: center;margin-bottom: 5px;">
                                                 <div style="font-weight: bold;font-size:12px;flex:1;width:50%;position:relative;top:5px">BALANCE PAID</div>
                                                 <div style="font-size: 15px;color:#272626bb;font-weight: bold;width:50%;text-align:right;position:relative;bottom:3px">NAD $${parseFloat(
-                                                  metaDataBundle.amount
+                                                    metaDataBundle.amount
                                                 ).toFixed(2)}</div>
                                             </div>
                                         </tr>
@@ -2858,51 +3313,54 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
                 </html>
               `;
 
-              //? Save the email dispatch event
-              new Promise((saveEvent) => {
-                let eventBundle = {
-                  event_name: "Delivery_trip_email_receipt_dipstach",
-                  user_fingerprint: metaDataBundle.user_fp,
-                  user_nature: "rider",
-                  city: "Windhoek",
-                  receipt_fp: receiptFp,
-                  email_data: emailTemplate,
-                  date: new Date(chaineDateUTC),
-                };
-                //...
-                dynamo_insert("global_events", eventBundle)
-                  .then((result) => {
-                    saveEvent(result);
-                  })
-                  .catch((error) => {
-                    logger.error(error);
-                    saveEvent(false);
-                  });
-              })
-                .then()
-                .catch((error) => logger.error(error));
+                            //? Save the email dispatch event
+                            new Promise((saveEvent) => {
+                                let eventBundle = {
+                                    event_name:
+                                        'Delivery_trip_email_receipt_dipstach',
+                                    user_fingerprint: metaDataBundle.user_fp,
+                                    user_nature: 'rider',
+                                    city: 'Windhoek',
+                                    receipt_fp: receiptFp,
+                                    email_data: emailTemplate,
+                                    date: new Date(chaineDateUTC),
+                                };
+                                //...
+                                dynamo_insert('global_events', eventBundle)
+                                    .then((result) => {
+                                        saveEvent(result);
+                                    })
+                                    .catch((error) => {
+                                        logger.error(error);
+                                        saveEvent(false);
+                                    });
+                            })
+                                .then()
+                                .catch((error) => logger.error(error));
 
-              //? Send email
-              let info = transporterNoReplay.sendMail({
-                from: process.env.NOREPLY_EMAIL, // sender address
-                to: companyData.email, // list of receivers
-                subject: `Delivery receipt (${receiptFp})`, // Subject line
-                html: emailTemplate,
-              });
+                            //? Send email
+                            let info = transporterNoReplay.sendMail({
+                                from: process.env.NOREPLY_EMAIL, // sender address
+                                to: companyData.email, // list of receivers
+                                subject: `Delivery receipt (${receiptFp})`, // Subject line
+                                html: emailTemplate,
+                            });
 
-              //?DONE
-              logger.info(`Sending receipt email...to ${companyData.email}`);
-              logger.info(info.messageId);
-              resolve(true);
+                            //?DONE
+                            logger.info(
+                                `Sending receipt email...to ${companyData.email}`
+                            );
+                            logger.info(info.messageId);
+                            resolve(true);
+                        });
+                } //Unknown company
+                else {
+                    resolve(false);
+                }
             });
-        } //Unknown company
-        else {
-          resolve(false);
-        }
-      });
-  } else {
-    resolve(false);
-  }
+    } else {
+        resolve(false);
+    }
 }
 
 /**
@@ -2912,14 +3370,14 @@ function sendReceipt(metaDataBundle, scenarioType, resolve) {
  * @param resolve
  */
 function clearDailyRequestAmountCached(driver_fingerprint, resolve) {
-  resolveDate();
-  //Form the redis key
-  let refDate = new Date(chaineDateUTC);
-  let redisKey = `dailyAmount-${refDate.getDay()}-${refDate.getMonth()}-${refDate.getFullYear()}-${driver_fingerprint}`;
-  //...
-  redisCluster.del(redisKey, function () {
-    resolve(true);
-  });
+    resolveDate();
+    //Form the redis key
+    let refDate = new Date(chaineDateUTC);
+    let redisKey = `dailyAmount-${refDate.getDay()}-${refDate.getMonth()}-${refDate.getFullYear()}-${driver_fingerprint}`;
+    //...
+    redisCluster.del(redisKey, function () {
+        resolve(true);
+    });
 }
 
 /**
@@ -2933,131 +3391,157 @@ function clearDailyRequestAmountCached(driver_fingerprint, resolve) {
  * Responsible for cancelling requests for riders and all the related processes.
  */
 function cancelRider_request(
-  requestBundle_data,
-  collectionRidesDeliveries_data,
-  collection_cancelledRidesDeliveryData,
-  collectionDrivers_profiles,
-  resolve,
-  additionalData
+    requestBundle_data,
+    collectionRidesDeliveries_data,
+    collection_cancelledRidesDeliveryData,
+    collectionDrivers_profiles,
+    resolve,
+    additionalData
 ) {
-  resolveDate();
-  //Get the request first, if empty - error (very strange), if got something - migrate to the cancelled collection
-  //AND delete from the active requests collection.
-  let checkRequest = {
-    client_id: requestBundle_data.user_fingerprint,
-    request_fp: requestBundle_data.request_fp,
-  };
-  //Get data
-  collectionRidesDeliveries_data
-    .find(checkRequest)
-    .toArray(function (err, requestData) {
-      if (err) {
-        resolve({ response: "error_cancelling" });
-      }
-      //...
-      if (requestData.length > 0) {
-        let driver_fp = requestData[0].taxi_id; //If any
-        let pickup_suburb = requestData[0].pickup_location_infos.suburb;
-        let destination_suburb = requestData[0].destinationData[0].suburb;
-        //Found something
-        //Add the cancelling reason
-        requestData[0]["rider_cancellation_reason"] = requestBundle_data.reason;
-        //Add the deleted date
-        requestData[0].date_deleted = new Date(chaineDateUTC);
-        //Add any additional data
-        requestData[0].additionalData = additionalData;
-        //Save in the cancelled collection
-        dynamo_insert("cancelled_rides_deliveries_requests", requestData[0])
-          .then((result) => {
-            if (result === false) {
-              resolve({ response: "error_cancelling" });
+    resolveDate();
+    //Get the request first, if empty - error (very strange), if got something - migrate to the cancelled collection
+    //AND delete from the active requests collection.
+    let checkRequest = {
+        client_id: requestBundle_data.user_fingerprint,
+        request_fp: requestBundle_data.request_fp,
+    };
+    //Get data
+    collectionRidesDeliveries_data
+        .find(checkRequest)
+        .toArray(function (err, requestData) {
+            if (err) {
+                resolve({ response: 'error_cancelling' });
             }
             //...
-            //Remove from the active collection!!!!
-            dynamo_delete("rides_deliveries_requests", requestData[0]._id)
-              .then((result) => {
-                if (result === false) {
-                  resolve({ response: "error_cancelling" });
-                }
-                //? Notify the driver if any is linked to this request
-                //Send the push notifications - FOR drivers
-                new Promise((resSendNotif) => {
-                  if (
-                    driver_fp !== false &&
-                    driver_fp !== "false" &&
-                    driver_fp !== undefined &&
-                    driver_fp !== null
-                  ) {
-                    //Has a linked driver
-                    //? Get the driver's notification ID
-                    //? Get the rider's details
-                    collectionDrivers_profiles
-                      .find({
-                        driver_fingerprint: driver_fp,
-                      })
-                      .toArray(function (err, driverDetails) {
-                        if (err) {
-                          resSendNotif(false);
+            if (requestData.length > 0) {
+                let driver_fp = requestData[0].taxi_id; //If any
+                let pickup_suburb = requestData[0].pickup_location_infos.suburb;
+                let destination_suburb =
+                    requestData[0].destinationData[0].suburb;
+                //Found something
+                //Add the cancelling reason
+                requestData[0]['rider_cancellation_reason'] =
+                    requestBundle_data.reason;
+                //Add the deleted date
+                requestData[0].date_deleted = new Date(chaineDateUTC);
+                //Add any additional data
+                requestData[0].additionalData = additionalData;
+                //Save in the cancelled collection
+                dynamo_insert(
+                    'cancelled_rides_deliveries_requests',
+                    requestData[0]
+                )
+                    .then((result) => {
+                        if (result === false) {
+                            resolve({ response: 'error_cancelling' });
                         }
-                        //...push_notification_token
-                        if (
-                          driverDetails.length > 0 &&
-                          driverDetails[0].driver_fingerprint !== undefined &&
-                          driverDetails[0].operational_state.pushnotif_token !==
-                            null &&
-                          driverDetails[0].operational_state.pushnotif_token !==
-                            undefined &&
-                          driverDetails[0].operational_state.pushnotif_token
-                            .userId !== undefined
-                        ) {
-                          let message = {
-                            app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
-                            android_channel_id:
-                              process.env
-                                .DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
-                            priority: 10,
-                            contents: {
-                              en: `Your request from ${pickup_suburb} to ${destination_suburb} has been cancelled.`,
-                            },
-                            headings: { en: "Request cancelled" },
-                            content_available: true,
-                            include_player_ids: [
-                              String(
-                                driverDetails[0].operational_state
-                                  .pushnotif_token.userId
-                              ),
-                            ],
-                          };
-                          logger.info(message);
-                          //Send
-                          sendPushUPNotification(message);
-                          resSendNotif(false);
-                        } else {
-                          resSendNotif(false);
-                        }
-                      });
-                  }
-                }).then(
-                  () => {},
-                  () => {}
-                );
-                //...DONE
-                resolve({ response: "successully_cancelled" });
-              })
-              .catch((error) => {
-                logger.error(error);
-                resolve({ response: "error_cancelling" });
-              });
-          })
-          .catch((err2) => {
-            logger.error(err2);
-            resolve({ response: "error_cancelling" });
-          });
-      } //No records found of the request - very strange -error
-      else {
-        resolve({ response: "error_cancelling" });
-      }
-    });
+                        //...
+                        //Remove from the active collection!!!!
+                        dynamo_delete(
+                            'rides_deliveries_requests',
+                            requestData[0]._id
+                        )
+                            .then((result) => {
+                                if (result === false) {
+                                    resolve({ response: 'error_cancelling' });
+                                }
+                                //? Notify the driver if any is linked to this request
+                                //Send the push notifications - FOR drivers
+                                new Promise((resSendNotif) => {
+                                    if (
+                                        driver_fp !== false &&
+                                        driver_fp !== 'false' &&
+                                        driver_fp !== undefined &&
+                                        driver_fp !== null
+                                    ) {
+                                        //Has a linked driver
+                                        //? Get the driver's notification ID
+                                        //? Get the rider's details
+                                        collectionDrivers_profiles
+                                            .find({
+                                                driver_fingerprint: driver_fp,
+                                            })
+                                            .toArray(function (
+                                                err,
+                                                driverDetails
+                                            ) {
+                                                if (err) {
+                                                    resSendNotif(false);
+                                                }
+                                                //...push_notification_token
+                                                if (
+                                                    driverDetails.length > 0 &&
+                                                    driverDetails[0]
+                                                        .driver_fingerprint !==
+                                                        undefined &&
+                                                    driverDetails[0]
+                                                        .operational_state
+                                                        .pushnotif_token !==
+                                                        null &&
+                                                    driverDetails[0]
+                                                        .operational_state
+                                                        .pushnotif_token !==
+                                                        undefined &&
+                                                    driverDetails[0]
+                                                        .operational_state
+                                                        .pushnotif_token
+                                                        .userId !== undefined
+                                                ) {
+                                                    let message = {
+                                                        app_id: process.env
+                                                            .DRIVERS_APP_ID_ONESIGNAL,
+                                                        android_channel_id:
+                                                            process.env
+                                                                .DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
+                                                        priority: 10,
+                                                        contents: {
+                                                            en: `Your request from ${pickup_suburb} to ${destination_suburb} has been cancelled.`,
+                                                        },
+                                                        headings: {
+                                                            en: 'Request cancelled',
+                                                        },
+                                                        content_available: true,
+                                                        include_player_ids: [
+                                                            String(
+                                                                driverDetails[0]
+                                                                    .operational_state
+                                                                    .pushnotif_token
+                                                                    .userId
+                                                            ),
+                                                        ],
+                                                    };
+                                                    logger.info(message);
+                                                    //Send
+                                                    sendPushUPNotification(
+                                                        message
+                                                    );
+                                                    resSendNotif(false);
+                                                } else {
+                                                    resSendNotif(false);
+                                                }
+                                            });
+                                    }
+                                }).then(
+                                    () => {},
+                                    () => {}
+                                );
+                                //...DONE
+                                resolve({ response: 'successully_cancelled' });
+                            })
+                            .catch((error) => {
+                                logger.error(error);
+                                resolve({ response: 'error_cancelling' });
+                            });
+                    })
+                    .catch((err2) => {
+                        logger.error(err2);
+                        resolve({ response: 'error_cancelling' });
+                    });
+            } //No records found of the request - very strange -error
+            else {
+                resolve({ response: 'error_cancelling' });
+            }
+        });
 }
 
 /**
@@ -3068,135 +3552,160 @@ function cancelRider_request(
  * @param resolve
  */
 function declineRequest_driver(bundleWorkingData, resolve) {
-  //? Resolve the requestType
-  bundleWorkingData["requestType"] =
-    bundleWorkingData.requestType !== undefined &&
-    bundleWorkingData.requestType !== null
-      ? bundleWorkingData.requestType
-      : "RIDE";
+    //? Resolve the requestType
+    bundleWorkingData['requestType'] =
+        bundleWorkingData.requestType !== undefined &&
+        bundleWorkingData.requestType !== null
+            ? bundleWorkingData.requestType
+            : 'RIDE';
 
-  resolveDate();
-  //Only decline if not yet accepted by the driver
-  dynamo_find_query({
-    table_name: "requests_central",
-    IndexName: "shopper_id",
-    KeyConditionExpression: "shopper_id = :val1",
-    FilterExpression: "request_fp = :val2",
-    ExpressionAttributeValues: {
-      ":val1": bundleWorkingData.driver_fingerprint,
-      ":val2": bundleWorkingData.request_fp,
-    },
-  })
-    .then((result) => {
-      if (result !== undefined && result.length <= 0) {
-        //Wasn't accepted by this driver - proceed to the declining
-        //Save the declining event
-        new Promise((res) => {
-          dynamo_insert("global_events", {
-            event_name: "driver_declining_request",
-            request_fp: bundleWorkingData.request_fp,
-            requestType: bundleWorkingData.requestType,
-            driver_fingerprint: bundleWorkingData.driver_fingerprint,
-            date: new Date(chaineDateUTC).toISOString(),
-          })
-            .then()
-            .catch((error) => logger.error(error));
-          //...
-          res(true);
-        }).then(
-          () => {},
-          () => {}
-        );
-        //...Get the request
-        dynamo_find_query({
-          table_name: "requests_central",
-          IndexName: "request_fp",
-          KeyConditionExpression: "request_fp = :val1",
-          ExpressionAttributeValues: {
-            ":val1": bundleWorkingData.request_fp,
-          },
-        })
-          .then((trueRequest) => {
-            if (trueRequest !== undefined && trueRequest.length > 0) {
-              trueRequest = trueRequest[0];
-              //Request still exists - proceed
-              let oldItDeclineList =
-                trueRequest.intentional_request_decline !== undefined &&
-                trueRequest.intentional_request_decline !== null
-                  ? trueRequest.intentional_request_decline
-                  : [];
-              //Update the old list
-              oldItDeclineList.push(bundleWorkingData.driver_fingerprint);
-              //..
-              dynamo_update({
-                table_name: "requests_central",
-                _idKey: trueRequest._id,
-                UpdateExpression: "set intentional_request_decline = :val1",
-                ExpressionAttributeValues: {
-                  ":val1": oldItDeclineList,
-                },
-              })
-                .then((result) => {
-                  if (result === false) {
-                    resolve({ response: "unable_to_decline_request_error" });
-                  }
-
-                  //! Clear the request cached list for all the drivers in the same city
-                  new Promise((resClearRedis) => {
-                    clearCityDriversCacheLists({
-                      city: trueRequest.locations.pickup.city,
-                      requestType: trueRequest.ride_mode,
-                      resolve: resClearRedis,
-                    });
-                  })
-                    .then()
-                    .catch((error) => logger.error(error));
-
-                  //! Clear the cached daily amount for THIS driver
-                  new Promise((resClearDaily) => {
-                    clearDailyRequestAmountCached(
-                      bundleWorkingData.driver_fingerprint,
-                      resClearDaily
-                    );
-                  })
-                    .then()
-                    .catch((error) => logger.error(error));
-
-                  //! Clear the cached global numbers for THIS driver
-                  new Promise((resClearDaily) => {
-                    clearDriversGlobalAccountNumbersCache({
-                      driver_fingerprint: bundleWorkingData.driver_fingerprint,
-                      resolve: resClearDaily,
-                    });
-                  })
-                    .then()
-                    .catch((error) => logger.error(error));
-
-                  //DONE
-                  resolve({ response: "successfully_declined" });
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  resolve({ response: "unable_to_decline_request_error" });
-                });
-            } //Request not existing anymore - error
-            else {
-              resolve({ response: "unable_to_decline_request_error_notExist" });
-            }
-          })
-          .catch((error) => {
-            logger.error(error);
-            resolve({ response: "unable_to_decline_request_error" });
-          });
-      } //Ride accepted by this driver previously - abort the declining
-      else {
-        resolve({ response: "unable_to_decline_request_prev_accepted" });
-      }
+    resolveDate();
+    //Only decline if not yet accepted by the driver
+    dynamo_find_query({
+        table_name: 'requests_central',
+        IndexName: 'shopper_id',
+        KeyConditionExpression: 'shopper_id = :val1',
+        FilterExpression: 'request_fp = :val2',
+        ExpressionAttributeValues: {
+            ':val1': bundleWorkingData.driver_fingerprint,
+            ':val2': bundleWorkingData.request_fp,
+        },
     })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: "unable_to_decline_request_error" });
-    });
+        .then((result) => {
+            if (result !== undefined && result.length <= 0) {
+                //Wasn't accepted by this driver - proceed to the declining
+                //Save the declining event
+                new Promise((res) => {
+                    dynamo_insert('global_events', {
+                        event_name: 'driver_declining_request',
+                        request_fp: bundleWorkingData.request_fp,
+                        requestType: bundleWorkingData.requestType,
+                        driver_fingerprint:
+                            bundleWorkingData.driver_fingerprint,
+                        date: new Date(chaineDateUTC).toISOString(),
+                    })
+                        .then()
+                        .catch((error) => logger.error(error));
+                    //...
+                    res(true);
+                }).then(
+                    () => {},
+                    () => {}
+                );
+                //...Get the request
+                dynamo_find_query({
+                    table_name: 'requests_central',
+                    IndexName: 'request_fp',
+                    KeyConditionExpression: 'request_fp = :val1',
+                    ExpressionAttributeValues: {
+                        ':val1': bundleWorkingData.request_fp,
+                    },
+                })
+                    .then((trueRequest) => {
+                        if (
+                            trueRequest !== undefined &&
+                            trueRequest.length > 0
+                        ) {
+                            trueRequest = trueRequest[0];
+                            //Request still exists - proceed
+                            let oldItDeclineList =
+                                trueRequest.intentional_request_decline !==
+                                    undefined &&
+                                trueRequest.intentional_request_decline !== null
+                                    ? trueRequest.intentional_request_decline
+                                    : [];
+                            //Update the old list
+                            oldItDeclineList.push(
+                                bundleWorkingData.driver_fingerprint
+                            );
+                            //..
+                            dynamo_update({
+                                table_name: 'requests_central',
+                                _idKey: trueRequest._id,
+                                UpdateExpression:
+                                    'set intentional_request_decline = :val1',
+                                ExpressionAttributeValues: {
+                                    ':val1': oldItDeclineList,
+                                },
+                            })
+                                .then((result) => {
+                                    if (result === false) {
+                                        resolve({
+                                            response:
+                                                'unable_to_decline_request_error',
+                                        });
+                                    }
+
+                                    //! Clear the request cached list for all the drivers in the same city
+                                    new Promise((resClearRedis) => {
+                                        clearCityDriversCacheLists({
+                                            city: trueRequest.locations.pickup
+                                                .city,
+                                            requestType: trueRequest.ride_mode,
+                                            resolve: resClearRedis,
+                                        });
+                                    })
+                                        .then()
+                                        .catch((error) => logger.error(error));
+
+                                    //! Clear the cached daily amount for THIS driver
+                                    new Promise((resClearDaily) => {
+                                        clearDailyRequestAmountCached(
+                                            bundleWorkingData.driver_fingerprint,
+                                            resClearDaily
+                                        );
+                                    })
+                                        .then()
+                                        .catch((error) => logger.error(error));
+
+                                    //! Clear the cached global numbers for THIS driver
+                                    new Promise((resClearDaily) => {
+                                        clearDriversGlobalAccountNumbersCache({
+                                            driver_fingerprint:
+                                                bundleWorkingData.driver_fingerprint,
+                                            resolve: resClearDaily,
+                                        });
+                                    })
+                                        .then()
+                                        .catch((error) => logger.error(error));
+
+                                    //DONE
+                                    resolve({
+                                        response: 'successfully_declined',
+                                    });
+                                })
+                                .catch((error) => {
+                                    logger.error(error);
+                                    resolve({
+                                        response:
+                                            'unable_to_decline_request_error',
+                                    });
+                                });
+                        } //Request not existing anymore - error
+                        else {
+                            resolve({
+                                response:
+                                    'unable_to_decline_request_error_notExist',
+                            });
+                        }
+                    })
+                    .catch((error) => {
+                        logger.error(error);
+                        resolve({
+                            response: 'unable_to_decline_request_error',
+                        });
+                    });
+            } //Ride accepted by this driver previously - abort the declining
+            else {
+                resolve({
+                    response: 'unable_to_decline_request_prev_accepted',
+                });
+            }
+        })
+        .catch((error) => {
+            logger.error(error);
+            resolve({ response: 'unable_to_decline_request_error' });
+        });
 }
 
 /**
@@ -3207,301 +3716,358 @@ function declineRequest_driver(bundleWorkingData, resolve) {
  * @param resolve
  */
 function acceptRequest_driver(bundleWorkingData, resolve) {
-  resolveDate();
-  //? Autoassign a requestType
-  bundleWorkingData["requestType"] =
-    bundleWorkingData.requestType !== undefined &&
-    bundleWorkingData.requestType !== null
-      ? bundleWorkingData.requestType
-      : "UNCLEAR";
-  //Only accept if not yet accepted by the driver
-  dynamo_find_query({
-    table_name: "requests_central",
-    IndexName: "shopper_id",
-    KeyConditionExpression: "shopper_id = :val1",
-    FilterExpression: "request_fp = :val2",
-    ExpressionAttributeValues: {
-      ":val1": "false",
-      ":val2": bundleWorkingData.request_fp,
-    },
-  })
-    .then((result) => {
-      //...
-      if (result !== undefined && result !== null && result.length > 0) {
-        let requestData = result[0];
-        //Wasn't accepted by a driver yet - proceed to the accepting
-        //Save the accepting event
-        new Promise((res) => {
-          dynamo_insert("global_events", {
-            event_name: "driver_accepting_request",
-            request_fp: bundleWorkingData.request_fp,
-            request_type: bundleWorkingData.requestType,
-            driver_fingerprint: bundleWorkingData.driver_fingerprint,
-            date: new Date(chaineDateUTC).toISOString(),
-          })
-            .then()
-            .catch((error) => logger.error(error));
-          //...
-          res(true);
-        }).then(
-          () => {},
-          () => {}
-        );
-        //! Get the driver's details - to fetch the car's fingerprint
-        dynamo_find_query({
-          table_name: "drivers_shoppers_central",
-          IndexName: "driver_fingerprint",
-          KeyConditionExpression: "driver_fingerprint = :val1",
-          ExpressionAttributeValues: {
-            ":val1": bundleWorkingData.driver_fingerprint,
-          },
-        })
-          .then((driverData) => {
-            if (
-              driverData !== undefined &&
-              driverData !== null &&
-              driverData.length > 0
-            ) {
-              //Found driver's data
-              //Update the true request
-              //? Dynamically generate the update expression based on the request type
-              let dynamicUpdateExpression = /RIDE/i.test(
-                bundleWorkingData.requestType
-              )
-                ? {
-                    table_name: "requests_central",
-                    _idKey: requestData._id,
-                    UpdateExpression:
-                      "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRoute = :val5",
-                    ExpressionAttributeValues: {
-                      ":val1": bundleWorkingData.driver_fingerprint,
-                      ":val2": true,
-                      ":val3": new Date(chaineDateUTC).toISOString(),
-                      ":val4":
-                        driverData[0].operational_state.default_selected_car
-                          .car_fingerprint,
-                      ":val5": true,
-                    },
-                    ExpressionAttributeNames: {
-                      "#r": "request_state_vars",
-                      "#i": "isAccepted",
-                      "#inRoute": "inRouteToPickup",
-                    },
-                  }
-                : /DELIVERY/i.test(bundleWorkingData.requestType)
-                ? /cash/i.test(requestData.payment_method)
-                  ? {
-                      table_name: "requests_central",
-                      _idKey: requestData._id,
-                      UpdateExpression:
-                        "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#inRouteDrop = :val6",
-                      ExpressionAttributeValues: {
-                        ":val1": bundleWorkingData.driver_fingerprint,
-                        ":val2": true,
-                        ":val3": new Date(chaineDateUTC).toISOString(),
-                        ":val4":
-                          driverData[0].operational_state.default_selected_car
-                            .car_fingerprint,
-                        ":val5": true,
-                        ":val6": false,
-                      },
-                      ExpressionAttributeNames: {
-                        "#r": "request_state_vars",
-                        "#i": "isAccepted",
-                        "#inRouteCash": "inRouteToPickupCash",
-                        "#inRouteDrop": "inRouteToDropoff",
-                      },
-                    }
-                  : //Ewallet payment - delivery
-                    {
-                      table_name: "requests_central",
-                      _idKey: requestData._id,
-                      UpdateExpression:
-                        "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#didPCash = :val6, #r.#inRouteDrop = :val7",
-                      ExpressionAttributeValues: {
-                        ":val1": bundleWorkingData.driver_fingerprint,
-                        ":val2": true,
-                        ":val3": new Date(chaineDateUTC).toISOString(),
-                        ":val4":
-                          driverData[0].operational_state.default_selected_car
-                            .car_fingerprint,
-                        ":val5": true,
-                        ":val6": true,
-                        ":val7": false,
-                      },
-                      ExpressionAttributeNames: {
-                        "#r": "request_state_vars",
-                        "#i": "isAccepted",
-                        "#inRouteCash": "inRouteToPickupCash",
-                        "#didPCash": "didPickupCash",
-                        "#inRouteDrop": "inRouteToDropoff",
-                      },
-                    }
-                : //SHOPPING
-                /cash/i.test(requestData.payment_method)
-                ? {
-                    table_name: "requests_central",
-                    _idKey: requestData._id,
-                    UpdateExpression:
-                      "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#inRouteShop = :val6",
-                    ExpressionAttributeValues: {
-                      ":val1": bundleWorkingData.driver_fingerprint,
-                      ":val2": true,
-                      ":val3": new Date(chaineDateUTC).toISOString(),
-                      ":val4":
-                        driverData[0].operational_state.default_selected_car
-                          .car_fingerprint,
-                      ":val5": true,
-                      ":val6": true,
-                    },
-                    ExpressionAttributeNames: {
-                      "#r": "request_state_vars",
-                      "#i": "isAccepted",
-                      "#inRouteCash": "inRouteToPickupCash",
-                      "#inRouteShop": "inRouteToShop",
-                    },
-                  }
-                : //Ewallet payment - shopping
-                  {
-                    table_name: "requests_central",
-                    _idKey: requestData._id,
-                    UpdateExpression:
-                      "set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#inRouteShop = :val7",
-                    ExpressionAttributeValues: {
-                      ":val1": bundleWorkingData.driver_fingerprint,
-                      ":val2": true,
-                      ":val3": new Date(chaineDateUTC).toISOString(),
-                      ":val4":
-                        driverData[0].operational_state.default_selected_car
-                          .car_fingerprint,
-                      ":val5": true,
-                      ":val7": true,
-                    },
-                    ExpressionAttributeNames: {
-                      "#r": "request_state_vars",
-                      "#i": "isAccepted",
-                      "#inRouteCash": "inRouteToPickupCash",
-                      "#inRouteShop": "inRouteToShop",
-                    },
-                  };
-
-              dynamo_update(dynamicUpdateExpression)
-                .then((result) => {
-                  if (result === false) {
-                    //logger.info(err);
-                    resolve({ response: "unable_to_accept_request_error" });
-                  }
-                  //Get the regional list of all the drivers online/offline
-                  //?Notify the cllient
-                  //Send the push notifications - FOR Passengers
-                  new Promise((resSendNotif) => {
-                    //? Get the rider's details
-                    dynamo_find_query({
-                      table_name: "users_central",
-                      IndexName: "user_identifier",
-                      KeyConditionExpression: "user_identifier = :val1",
-                      ExpressionAttributeValues: {
-                        ":val1": requestData.client_id,
-                      },
+    resolveDate();
+    //? Autoassign a requestType
+    bundleWorkingData['requestType'] =
+        bundleWorkingData.requestType !== undefined &&
+        bundleWorkingData.requestType !== null
+            ? bundleWorkingData.requestType
+            : 'UNCLEAR';
+    //Only accept if not yet accepted by the driver
+    dynamo_find_query({
+        table_name: 'requests_central',
+        IndexName: 'shopper_id',
+        KeyConditionExpression: 'shopper_id = :val1',
+        FilterExpression: 'request_fp = :val2',
+        ExpressionAttributeValues: {
+            ':val1': 'false',
+            ':val2': bundleWorkingData.request_fp,
+        },
+    })
+        .then((result) => {
+            //...
+            if (result !== undefined && result !== null && result.length > 0) {
+                let requestData = result[0];
+                //Wasn't accepted by a driver yet - proceed to the accepting
+                //Save the accepting event
+                new Promise((res) => {
+                    dynamo_insert('global_events', {
+                        event_name: 'driver_accepting_request',
+                        request_fp: bundleWorkingData.request_fp,
+                        request_type: bundleWorkingData.requestType,
+                        driver_fingerprint:
+                            bundleWorkingData.driver_fingerprint,
+                        date: new Date(chaineDateUTC).toISOString(),
                     })
-                      .then((ridersDetails) => {
-                        if (
-                          ridersDetails.length > 0 &&
-                          ridersDetails[0].user_fingerprint !== undefined &&
-                          ridersDetails[0].pushnotif_token !== null &&
-                          ridersDetails[0].pushnotif_token !== undefined &&
-                          ridersDetails[0].pushnotif_token.userId !== undefined
-                        ) {
-                          let message = {
-                            app_id: process.env.ONESIGNAL_RIDERS_APP_ID,
-                            // android_channel_id:
-                            //   process.env
-                            //     .RIDERS_ONESIGNAL_CHANNEL_ACCEPTTEDD_REQUEST, //Ride or delivery channel
-                            priority: 10,
-                            contents: {
-                              en: "We've found a driver for you. click here for more.",
-                            },
-                            headings: { en: "Request accepted" },
-                            content_available: true,
-                            include_player_ids: [
-                              String(ridersDetails[0].pushnotif_token.userId),
-                            ],
-                          };
-                          //Send
-                          sendPushUPNotification(message);
-                          resSendNotif(false);
-                        } else {
-                          resSendNotif(false);
-                        }
-                      })
-                      .catch((error) => {
-                        logger.error(error);
-                        resSendNotif(false);
-                      });
-                  }).then(
+                        .then()
+                        .catch((error) => logger.error(error));
+                    //...
+                    res(true);
+                }).then(
                     () => {},
                     () => {}
-                  );
-
-                  //! Clear the request cached list for all the drivers in the same city
-                  new Promise((resClearRedis) => {
-                    clearCityDriversCacheLists({
-                      city: requestData.locations.pickup.city,
-                      requestType: requestData.ride_mode,
-                      resolve: resClearRedis,
-                    });
-                  })
-                    .then()
-                    .catch((error) => logger.error(error));
-
-                  //! Clear the cached daily amount for THIS driver
-                  new Promise((resClearDaily) => {
-                    clearDailyRequestAmountCached(
-                      bundleWorkingData.driver_fingerprint,
-                      resClearDaily
-                    );
-                  })
-                    .then()
-                    .catch((error) => logger.error(error));
-
-                  //! Clear the cached global numbers for THIS driver
-                  new Promise((resClearDaily) => {
-                    clearDriversGlobalAccountNumbersCache({
-                      driver_fingerprint: bundleWorkingData.driver_fingerprint,
-                      resolve: resClearDaily,
-                    });
-                  })
-                    .then()
-                    .catch((error) => logger.error(error));
-
-                  //DONE
-                  resolve({
-                    response: "successfully_accepted",
-                    rider_fp: requestData.client_id,
-                  });
+                );
+                //! Get the driver's details - to fetch the car's fingerprint
+                dynamo_find_query({
+                    table_name: 'drivers_shoppers_central',
+                    IndexName: 'driver_fingerprint',
+                    KeyConditionExpression: 'driver_fingerprint = :val1',
+                    ExpressionAttributeValues: {
+                        ':val1': bundleWorkingData.driver_fingerprint,
+                    },
                 })
-                .catch((error) => {
-                  logger.error(error);
-                  resolve({ response: "unable_to_accept_request_error" });
-                });
-            } //?Very strange, could not find the driver's information
+                    .then((driverData) => {
+                        if (
+                            driverData !== undefined &&
+                            driverData !== null &&
+                            driverData.length > 0
+                        ) {
+                            //Found driver's data
+                            //Update the true request
+                            //? Dynamically generate the update expression based on the request type
+                            let dynamicUpdateExpression = /RIDE/i.test(
+                                bundleWorkingData.requestType
+                            )
+                                ? {
+                                      table_name: 'requests_central',
+                                      _idKey: requestData._id,
+                                      UpdateExpression:
+                                          'set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRoute = :val5',
+                                      ExpressionAttributeValues: {
+                                          ':val1':
+                                              bundleWorkingData.driver_fingerprint,
+                                          ':val2': true,
+                                          ':val3': new Date(
+                                              chaineDateUTC
+                                          ).toISOString(),
+                                          ':val4':
+                                              driverData[0].operational_state
+                                                  .default_selected_car
+                                                  .car_fingerprint,
+                                          ':val5': true,
+                                      },
+                                      ExpressionAttributeNames: {
+                                          '#r': 'request_state_vars',
+                                          '#i': 'isAccepted',
+                                          '#inRoute': 'inRouteToPickup',
+                                      },
+                                  }
+                                : /DELIVERY/i.test(
+                                      bundleWorkingData.requestType
+                                  )
+                                ? /cash/i.test(requestData.payment_method)
+                                    ? {
+                                          table_name: 'requests_central',
+                                          _idKey: requestData._id,
+                                          UpdateExpression:
+                                              'set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#inRouteDrop = :val6',
+                                          ExpressionAttributeValues: {
+                                              ':val1':
+                                                  bundleWorkingData.driver_fingerprint,
+                                              ':val2': true,
+                                              ':val3': new Date(
+                                                  chaineDateUTC
+                                              ).toISOString(),
+                                              ':val4':
+                                                  driverData[0]
+                                                      .operational_state
+                                                      .default_selected_car
+                                                      .car_fingerprint,
+                                              ':val5': true,
+                                              ':val6': false,
+                                          },
+                                          ExpressionAttributeNames: {
+                                              '#r': 'request_state_vars',
+                                              '#i': 'isAccepted',
+                                              '#inRouteCash':
+                                                  'inRouteToPickupCash',
+                                              '#inRouteDrop':
+                                                  'inRouteToDropoff',
+                                          },
+                                      }
+                                    : //Ewallet payment - delivery
+                                      {
+                                          table_name: 'requests_central',
+                                          _idKey: requestData._id,
+                                          UpdateExpression:
+                                              'set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#didPCash = :val6, #r.#inRouteDrop = :val7',
+                                          ExpressionAttributeValues: {
+                                              ':val1':
+                                                  bundleWorkingData.driver_fingerprint,
+                                              ':val2': true,
+                                              ':val3': new Date(
+                                                  chaineDateUTC
+                                              ).toISOString(),
+                                              ':val4':
+                                                  driverData[0]
+                                                      .operational_state
+                                                      .default_selected_car
+                                                      .car_fingerprint,
+                                              ':val5': true,
+                                              ':val6': true,
+                                              ':val7': false,
+                                          },
+                                          ExpressionAttributeNames: {
+                                              '#r': 'request_state_vars',
+                                              '#i': 'isAccepted',
+                                              '#inRouteCash':
+                                                  'inRouteToPickupCash',
+                                              '#didPCash': 'didPickupCash',
+                                              '#inRouteDrop':
+                                                  'inRouteToDropoff',
+                                          },
+                                      }
+                                : //SHOPPING
+                                /cash/i.test(requestData.payment_method)
+                                ? {
+                                      table_name: 'requests_central',
+                                      _idKey: requestData._id,
+                                      UpdateExpression:
+                                          'set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#inRouteShop = :val6',
+                                      ExpressionAttributeValues: {
+                                          ':val1':
+                                              bundleWorkingData.driver_fingerprint,
+                                          ':val2': true,
+                                          ':val3': new Date(
+                                              chaineDateUTC
+                                          ).toISOString(),
+                                          ':val4':
+                                              driverData[0].operational_state
+                                                  .default_selected_car
+                                                  .car_fingerprint,
+                                          ':val5': true,
+                                          ':val6': true,
+                                      },
+                                      ExpressionAttributeNames: {
+                                          '#r': 'request_state_vars',
+                                          '#i': 'isAccepted',
+                                          '#inRouteCash': 'inRouteToPickupCash',
+                                          '#inRouteShop': 'inRouteToShop',
+                                      },
+                                  }
+                                : //Ewallet payment - shopping
+                                  {
+                                      table_name: 'requests_central',
+                                      _idKey: requestData._id,
+                                      UpdateExpression:
+                                          'set shopper_id = :val1, #r.#i = :val2, date_accepted = :val3, car_fingerprint = :val4, #r.#inRouteCash = :val5, #r.#inRouteShop = :val7',
+                                      ExpressionAttributeValues: {
+                                          ':val1':
+                                              bundleWorkingData.driver_fingerprint,
+                                          ':val2': true,
+                                          ':val3': new Date(
+                                              chaineDateUTC
+                                          ).toISOString(),
+                                          ':val4':
+                                              driverData[0].operational_state
+                                                  .default_selected_car
+                                                  .car_fingerprint,
+                                          ':val5': true,
+                                          ':val7': true,
+                                      },
+                                      ExpressionAttributeNames: {
+                                          '#r': 'request_state_vars',
+                                          '#i': 'isAccepted',
+                                          '#inRouteCash': 'inRouteToPickupCash',
+                                          '#inRouteShop': 'inRouteToShop',
+                                      },
+                                  };
+
+                            dynamo_update(dynamicUpdateExpression)
+                                .then((result) => {
+                                    if (result === false) {
+                                        //logger.info(err);
+                                        resolve({
+                                            response:
+                                                'unable_to_accept_request_error',
+                                        });
+                                    }
+                                    //Get the regional list of all the drivers online/offline
+                                    //?Notify the cllient
+                                    //Send the push notifications - FOR Passengers
+                                    new Promise((resSendNotif) => {
+                                        //? Get the rider's details
+                                        dynamo_find_query({
+                                            table_name: 'users_central',
+                                            IndexName: 'user_identifier',
+                                            KeyConditionExpression:
+                                                'user_identifier = :val1',
+                                            ExpressionAttributeValues: {
+                                                ':val1': requestData.client_id,
+                                            },
+                                        })
+                                            .then((ridersDetails) => {
+                                                if (
+                                                    ridersDetails.length > 0 &&
+                                                    ridersDetails[0]
+                                                        .user_fingerprint !==
+                                                        undefined &&
+                                                    ridersDetails[0]
+                                                        .pushnotif_token !==
+                                                        null &&
+                                                    ridersDetails[0]
+                                                        .pushnotif_token !==
+                                                        undefined &&
+                                                    ridersDetails[0]
+                                                        .pushnotif_token
+                                                        .userId !== undefined
+                                                ) {
+                                                    let message = {
+                                                        app_id: process.env
+                                                            .ONESIGNAL_RIDERS_APP_ID,
+                                                        // android_channel_id:
+                                                        //   process.env
+                                                        //     .RIDERS_ONESIGNAL_CHANNEL_ACCEPTTEDD_REQUEST, //Ride or delivery channel
+                                                        priority: 10,
+                                                        contents: {
+                                                            en: "We've found a driver for you. click here for more.",
+                                                        },
+                                                        headings: {
+                                                            en: 'Request accepted',
+                                                        },
+                                                        content_available: true,
+                                                        include_player_ids: [
+                                                            String(
+                                                                ridersDetails[0]
+                                                                    .pushnotif_token
+                                                                    .userId
+                                                            ),
+                                                        ],
+                                                    };
+                                                    //Send
+                                                    sendPushUPNotification(
+                                                        message
+                                                    );
+                                                    resSendNotif(false);
+                                                } else {
+                                                    resSendNotif(false);
+                                                }
+                                            })
+                                            .catch((error) => {
+                                                logger.error(error);
+                                                resSendNotif(false);
+                                            });
+                                    }).then(
+                                        () => {},
+                                        () => {}
+                                    );
+
+                                    //! Clear the request cached list for all the drivers in the same city
+                                    new Promise((resClearRedis) => {
+                                        clearCityDriversCacheLists({
+                                            city: requestData.locations.pickup
+                                                .city,
+                                            requestType: requestData.ride_mode,
+                                            resolve: resClearRedis,
+                                        });
+                                    })
+                                        .then()
+                                        .catch((error) => logger.error(error));
+
+                                    //! Clear the cached daily amount for THIS driver
+                                    new Promise((resClearDaily) => {
+                                        clearDailyRequestAmountCached(
+                                            bundleWorkingData.driver_fingerprint,
+                                            resClearDaily
+                                        );
+                                    })
+                                        .then()
+                                        .catch((error) => logger.error(error));
+
+                                    //! Clear the cached global numbers for THIS driver
+                                    new Promise((resClearDaily) => {
+                                        clearDriversGlobalAccountNumbersCache({
+                                            driver_fingerprint:
+                                                bundleWorkingData.driver_fingerprint,
+                                            resolve: resClearDaily,
+                                        });
+                                    })
+                                        .then()
+                                        .catch((error) => logger.error(error));
+
+                                    //DONE
+                                    resolve({
+                                        response: 'successfully_accepted',
+                                        rider_fp: requestData.client_id,
+                                    });
+                                })
+                                .catch((error) => {
+                                    logger.error(error);
+                                    resolve({
+                                        response:
+                                            'unable_to_accept_request_error',
+                                    });
+                                });
+                        } //?Very strange, could not find the driver's information
+                        else {
+                            resolve({
+                                response: 'unable_to_accept_request_error',
+                            });
+                        }
+                    })
+                    .catch((error) => {
+                        logger.error(error);
+                        resolve({ response: 'unable_to_accept_request_error' });
+                    });
+            } //abort the accepting
             else {
-              resolve({ response: "unable_to_accept_request_error" });
+                resolve({ response: 'unable_to_accept_request_already_taken' });
             }
-          })
-          .catch((error) => {
+        })
+        .catch((error) => {
             logger.error(error);
-            resolve({ response: "unable_to_accept_request_error" });
-          });
-      } //abort the accepting
-      else {
-        resolve({ response: "unable_to_accept_request_already_taken" });
-      }
-    })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: "unable_to_accept_request_error" });
-    });
+            resolve({ response: 'unable_to_accept_request_error' });
+        });
 }
 
 /**
@@ -3513,51 +4079,53 @@ function acceptRequest_driver(bundleWorkingData, resolve) {
  * @param resolve
  */
 function clearCityDriversCacheLists({ city = false, requestType, resolve }) {
-  if (city !== false) {
-    //? 1 . Get all the drivers from the city
-    dynamo_get_all({
-      table_name: "drivers_shoppers_central",
-      FilterExpression: "contains(regional_clearances, :val1)",
-      ExpressionAttributeValues: {
-        ":val1": city,
-      },
-    }).then((driversListData) => {
-      if (driversListData !== undefined && driversListData.length > 0) {
-        //Found some drivers in the city
-        //? 2. Assemble each redis keys for their request list
-        let parentPromises = driversListData.map((driver) => {
-          return new Promise((resCompute) => {
-            let redisKeyReformed = `${driver.driver_fingerprint}-rideDeliveryMade-holder-${requestType}`;
-            logger.info(redisKeyReformed);
+    if (city !== false) {
+        //? 1 . Get all the drivers from the city
+        dynamo_get_all({
+            table_name: 'drivers_shoppers_central',
+            FilterExpression: 'contains(regional_clearances, :val1)',
+            ExpressionAttributeValues: {
+                ':val1': city,
+            },
+        }).then((driversListData) => {
+            if (driversListData !== undefined && driversListData.length > 0) {
+                //Found some drivers in the city
+                //? 2. Assemble each redis keys for their request list
+                let parentPromises = driversListData.map((driver) => {
+                    return new Promise((resCompute) => {
+                        let redisKeyReformed = `${driver.driver_fingerprint}-rideDeliveryMade-holder-${requestType}`;
+                        logger.info(redisKeyReformed);
 
-            //! CLEAR
-            redisCluster.del(redisKeyReformed, function (err, resp) {
-              console.log(err, resp);
-              //DONE
-              resCompute(true);
-            });
-          });
+                        //! CLEAR
+                        redisCluster.del(
+                            redisKeyReformed,
+                            function (err, resp) {
+                                //DONE
+                                resCompute(true);
+                            }
+                        );
+                    });
+                });
+                //...
+                Promise.all(parentPromises)
+                    .then((result) => {
+                        logger.warn(result);
+                        resolve(true);
+                    })
+                    .catch((error) => {
+                        logger.error(error);
+                        resolve(false);
+                    });
+            } //No no drivers found in this city
+            else {
+                resolve(false);
+            }
         });
-        //...
-        Promise.all(parentPromises)
-          .then((result) => {
-            logger.warn(result);
-            resolve(true);
-          })
-          .catch((error) => {
-            logger.error(error);
-            resolve(false);
-          });
-      } //No no drivers found in this city
-      else {
+    } //No city specified
+    else {
+        logger.warn('No cities specified for the clearing operation.');
         resolve(false);
-      }
-    });
-  } //No city specified
-  else {
-    logger.warn("No cities specified for the clearing operation.");
-    resolve(false);
-  }
+    }
 }
 
 /**
@@ -3565,12 +4133,12 @@ function clearCityDriversCacheLists({ city = false, requestType, resolve }) {
  * ! Responsible for comparing 2 arrays.
  */
 function arrayEquals(a, b) {
-  return (
-    Array.isArray(a) &&
-    Array.isArray(b) &&
-    a.length === b.length &&
-    a.every((val, index) => val === b[index])
-  );
+    return (
+        Array.isArray(a) &&
+        Array.isArray(b) &&
+        a.length === b.length &&
+        a.every((val, index) => val === b[index])
+    );
 }
 
 /**
@@ -3580,507 +4148,518 @@ function arrayEquals(a, b) {
  * @param resolve
  */
 function cancelRequest_driver(bundleWorkingData, resolve) {
-  //? Resolve the requestType
-  bundleWorkingData["requestType"] =
-    bundleWorkingData.requestType !== undefined &&
-    bundleWorkingData.requestType !== null
-      ? bundleWorkingData.requestType
-      : "RIDE";
+    //? Resolve the requestType
+    bundleWorkingData['requestType'] =
+        bundleWorkingData.requestType !== undefined &&
+        bundleWorkingData.requestType !== null
+            ? bundleWorkingData.requestType
+            : 'RIDE';
 
-  resolveDate();
+    resolveDate();
 
-  dynamo_find_query({
-    table_name: "requests_central",
-    IndexName: "shopper_id",
-    KeyConditionExpression: "shopper_id = :val1",
-    FilterExpression: "request_fp = :val2",
-    ExpressionAttributeValues: {
-      ":val1": bundleWorkingData.driver_fingerprint,
-      ":val2": bundleWorkingData.request_fp,
-    },
-  }).then((result) => {
-    if (result !== undefined && result.length > 0) {
-      let tripData = result[0];
-      //...
-      //! Check if the driver did not cancel more than MAXIMUM_CANCELLATION_DRIVER_REQUESTS_LIMIT requests today
-      let refDate = new Date(chaineDateUTC);
-      let today_beginning = `${refDate.getFullYear()}-${
-        refDate.getMonth() + 1 > 10
-          ? refDate.getMonth() + 1
-          : `0${refDate.getMonth() + 1}`
-      }-${refDate.getDate()}T00:00:00.000Z`;
-      let today_end = `${refDate.getFullYear()}-${
-        refDate.getMonth() + 1 > 10
-          ? refDate.getMonth() + 1
-          : `0${refDate.getMonth() + 1}`
-      }-${refDate.getDate()}T21:59:59.000Z`;
-      //....
-      dynamo_find_query({
-        table_name: "global_events",
-        IndexName: "event_name",
-        KeyConditionExpression:
-          "event_name = :val1 AND #date_word BETWEEN :start_date AND :end_date",
-        FilterExpression: "driver_fingerprint = :val2",
-        ScanIndexForward: false,
+    dynamo_find_query({
+        table_name: 'requests_central',
+        IndexName: 'shopper_id',
+        KeyConditionExpression: 'shopper_id = :val1',
+        FilterExpression: 'request_fp = :val2',
         ExpressionAttributeValues: {
-          ":val1": "driver_cancelling_request",
-          ":val2": bundleWorkingData.driver_fingerprint,
-          ":start_date": today_beginning,
-          ":end_date": today_end,
+            ':val1': bundleWorkingData.driver_fingerprint,
+            ':val2': bundleWorkingData.request_fp,
         },
-        ExpressionAttributeNames: {
-          "#date_word": "date",
-        },
-      })
-        .then((resultCancelledRequests) => {
-          if (
-            resultCancelledRequests !== undefined &&
-            resultCancelledRequests.length <=
-              parseInt(process.env.MAXIMUM_CANCELLATION_DRIVER_REQUESTS_LIMIT)
-          ) {
-            //! Check if the driver held the request for more than 15min.
-            let requestDateMade = new Date(tripData.date_requested);
+    }).then((result) => {
+        if (result !== undefined && result.length > 0) {
+            let tripData = result[0];
+            //...
+            //! Check if the driver did not cancel more than MAXIMUM_CANCELLATION_DRIVER_REQUESTS_LIMIT requests today
+            let refDate = new Date(chaineDateUTC);
+            let today_beginning = `${refDate.getFullYear()}-${
+                refDate.getMonth() + 1 > 10
+                    ? refDate.getMonth() + 1
+                    : `0${refDate.getMonth() + 1}`
+            }-${refDate.getDate()}T00:00:00.000Z`;
+            let today_end = `${refDate.getFullYear()}-${
+                refDate.getMonth() + 1 > 10
+                    ? refDate.getMonth() + 1
+                    : `0${refDate.getMonth() + 1}`
+            }-${refDate.getDate()}T21:59:59.000Z`;
+            //....
+            dynamo_find_query({
+                table_name: 'global_events',
+                IndexName: 'event_name',
+                KeyConditionExpression:
+                    'event_name = :val1 AND #date_word BETWEEN :start_date AND :end_date',
+                FilterExpression: 'driver_fingerprint = :val2',
+                ScanIndexForward: false,
+                ExpressionAttributeValues: {
+                    ':val1': 'driver_cancelling_request',
+                    ':val2': bundleWorkingData.driver_fingerprint,
+                    ':start_date': today_beginning,
+                    ':end_date': today_end,
+                },
+                ExpressionAttributeNames: {
+                    '#date_word': 'date',
+                },
+            })
+                .then((resultCancelledRequests) => {
+                    if (
+                        resultCancelledRequests !== undefined &&
+                        resultCancelledRequests.length <=
+                            parseInt(
+                                process.env
+                                    .MAXIMUM_CANCELLATION_DRIVER_REQUESTS_LIMIT
+                            )
+                    ) {
+                        //! Check if the driver held the request for more than 15min.
+                        let requestDateMade = new Date(tripData.date_requested);
 
-            // if (diff >= 15) {
-            //!The driver held the request for at least 15min - can cancel
-            //Can cancel
-            //The driver requesting for the cancellation is the one who's currently associated to the request - proceed to the cancellation
-            //Save the cancellation event
-            new Promise((res) => {
-              dynamo_insert("global_events", {
-                event_name: "driver_cancelling_request",
-                request_fp: bundleWorkingData.request_fp,
-                request_type: bundleWorkingData.requestType,
-                driver_fingerprint: bundleWorkingData.driver_fingerprint,
-                date: new Date(chaineDateUTC).toISOString(),
-              })
-                .then((result) => res(result))
-                .catch((error) => logger.error(error));
-            }).then(
-              () => {},
-              () => {}
-            );
-            //Update the true request
-            //? Dynamically generaten the update expression
-            let dynamicUpdateExpression = /RIDE/i.test(
-              bundleWorkingData.requestType
-            )
-              ? {
-                  table_name: "requests_central",
-                  _idKey: tripData._id,
-                  UpdateExpression:
-                    "set shopper_id = :val1, #r.#i = :val2, car_fingerprint = :val3, #r.#inRoute = :val4",
-                  ExpressionAttributeValues: {
-                    ":val1": "false",
-                    ":val2": false,
-                    ":val3": "false",
-                    ":val4": false,
-                  },
-                  ExpressionAttributeNames: {
-                    "#r": "request_state_vars",
-                    "#i": "isAccepted",
-                    "#inRoute": "inRouteToPickup",
-                  },
-                }
-              : /DELIVERY/i.test(bundleWorkingData.requestType)
-              ? {
-                  table_name: "requests_central",
-                  _idKey: tripData._id,
-                  UpdateExpression:
-                    "set shopper_id = :val1, #r.#i = :val2, car_fingerprint = :val3, #r.#complDrp = :val4, #r.#routeToPCash = :val5, #r.#didPCash = :val6, #r.#routeDrop = :val7",
-                  ExpressionAttributeValues: {
-                    ":val1": "false",
-                    ":val2": false,
-                    ":val3": "false",
-                    ":val4": false,
-                    ":val5": false,
-                    ":val6": false,
-                    ":val7": false,
-                  },
-                  ExpressionAttributeNames: {
-                    "#r": "request_state_vars",
-                    "#i": "isAccepted",
-                    "#inRoute": "inRouteToPickup",
-                    "#complDrp": "completedDropoff",
-                    "#routeToPCash": "inRouteToPickupCash",
-                    "#didPCash": "didPickupCash",
-                    "#routeDrop": "inRouteToDropoff",
-                  },
-                }
-              : //SHOPPING
-                {
-                  table_name: "requests_central",
-                  _idKey: tripData._id,
-                  UpdateExpression:
-                    "set shopper_id = :val1, #r.#i = :val2, car_fingerprint = :val3, #r.#routeToPCash = :val4, #r.#didPCash = :val5, #r.#routeTShop = :val6, #r.#routeTDelivery = :val7",
-                  ExpressionAttributeValues: {
-                    ":val1": "false",
-                    ":val2": false,
-                    ":val3": "false",
-                    ":val4": false,
-                    ":val5": false,
-                    ":val6": false,
-                    ":val7": false,
-                  },
-                  ExpressionAttributeNames: {
-                    "#r": "request_state_vars",
-                    "#i": "isAccepted",
-                    "#routeToPCash": "inRouteToPickupCash",
-                    "#didPCash": "didPickupCash",
-                    "#routeTShop": "inRouteToShop",
-                    "#routeTDelivery": "inRouteToDelivery",
-                  },
-                };
+                        // if (diff >= 15) {
+                        //!The driver held the request for at least 15min - can cancel
+                        //Can cancel
+                        //The driver requesting for the cancellation is the one who's currently associated to the request - proceed to the cancellation
+                        //Save the cancellation event
+                        new Promise((res) => {
+                            dynamo_insert('global_events', {
+                                event_name: 'driver_cancelling_request',
+                                request_fp: bundleWorkingData.request_fp,
+                                request_type: bundleWorkingData.requestType,
+                                driver_fingerprint:
+                                    bundleWorkingData.driver_fingerprint,
+                                date: new Date(chaineDateUTC).toISOString(),
+                            })
+                                .then((result) => res(result))
+                                .catch((error) => logger.error(error));
+                        }).then(
+                            () => {},
+                            () => {}
+                        );
+                        //Update the true request
+                        //? Dynamically generaten the update expression
+                        let dynamicUpdateExpression = /RIDE/i.test(
+                            bundleWorkingData.requestType
+                        )
+                            ? {
+                                  table_name: 'requests_central',
+                                  _idKey: tripData._id,
+                                  UpdateExpression:
+                                      'set shopper_id = :val1, #r.#i = :val2, car_fingerprint = :val3, #r.#inRoute = :val4',
+                                  ExpressionAttributeValues: {
+                                      ':val1': 'false',
+                                      ':val2': false,
+                                      ':val3': 'false',
+                                      ':val4': false,
+                                  },
+                                  ExpressionAttributeNames: {
+                                      '#r': 'request_state_vars',
+                                      '#i': 'isAccepted',
+                                      '#inRoute': 'inRouteToPickup',
+                                  },
+                              }
+                            : /DELIVERY/i.test(bundleWorkingData.requestType)
+                            ? {
+                                  table_name: 'requests_central',
+                                  _idKey: tripData._id,
+                                  UpdateExpression:
+                                      'set shopper_id = :val1, #r.#i = :val2, car_fingerprint = :val3, #r.#complDrp = :val4, #r.#routeToPCash = :val5, #r.#didPCash = :val6, #r.#routeDrop = :val7',
+                                  ExpressionAttributeValues: {
+                                      ':val1': 'false',
+                                      ':val2': false,
+                                      ':val3': 'false',
+                                      ':val4': false,
+                                      ':val5': false,
+                                      ':val6': false,
+                                      ':val7': false,
+                                  },
+                                  ExpressionAttributeNames: {
+                                      '#r': 'request_state_vars',
+                                      '#i': 'isAccepted',
+                                      '#inRoute': 'inRouteToPickup',
+                                      '#complDrp': 'completedDropoff',
+                                      '#routeToPCash': 'inRouteToPickupCash',
+                                      '#didPCash': 'didPickupCash',
+                                      '#routeDrop': 'inRouteToDropoff',
+                                  },
+                              }
+                            : //SHOPPING
+                              {
+                                  table_name: 'requests_central',
+                                  _idKey: tripData._id,
+                                  UpdateExpression:
+                                      'set shopper_id = :val1, #r.#i = :val2, car_fingerprint = :val3, #r.#routeToPCash = :val4, #r.#didPCash = :val5, #r.#routeTShop = :val6, #r.#routeTDelivery = :val7',
+                                  ExpressionAttributeValues: {
+                                      ':val1': 'false',
+                                      ':val2': false,
+                                      ':val3': 'false',
+                                      ':val4': false,
+                                      ':val5': false,
+                                      ':val6': false,
+                                      ':val7': false,
+                                  },
+                                  ExpressionAttributeNames: {
+                                      '#r': 'request_state_vars',
+                                      '#i': 'isAccepted',
+                                      '#routeToPCash': 'inRouteToPickupCash',
+                                      '#didPCash': 'didPickupCash',
+                                      '#routeTShop': 'inRouteToShop',
+                                      '#routeTDelivery': 'inRouteToDelivery',
+                                  },
+                              };
 
-            dynamo_update(dynamicUpdateExpression)
-              .then((result) => {
-                if (result === false) {
-                  resolve({ response: "unable_to_cancel_request_error" });
-                }
+                        dynamo_update(dynamicUpdateExpression)
+                            .then((result) => {
+                                if (result === false) {
+                                    resolve({
+                                        response:
+                                            'unable_to_cancel_request_error',
+                                    });
+                                }
 
-                //Send the push notifications - FOR ALL DRIVERS except the canceller
-                // new Promise((resNotify) => {
-                //   //! Get all the drivers
-                //   let driverFilter = {
-                //     "operational_state.status": { $in: ["online"] },
-                //     "operational_state.default_selected_car.vehicle_type":
-                //       result[0].carTypeSelected,
-                //   };
-                //   //..
-                //   collectionDrivers_profiles
-                //     .find(driverFilter)
-                //     .toArray(function (err, driversProfiles) {
-                //       //...Register the drivers fp so that thei can see tne requests
-                //       let driversPushNotif_token = driversProfiles.map(
-                //         (data) => {
-                //           logger.error(data.operational_state.status);
-                //           logger.error(
-                //             data.driver_fingerprint.trim() !==
-                //               bundleWorkingData.driver_fingerprint.trim()
-                //           );
-                //           if (
-                //             /online/i.test(data.operational_state.status) &&
-                //             data.driver_fingerprint.trim() !==
-                //               bundleWorkingData.driver_fingerprint.trim()
-                //           ) {
-                //             let driverData = data;
-                //             let snapshotTripInfos = {
-                //               isIntercity_trip:
-                //                 tripData.isIntercity_trip !== undefined &&
-                //                 tripData.isIntercity_trip !== null
-                //                   ? tripData.isIntercity_trip
-                //                   : false,
-                //               region: tripData.pickup_location_infos.state
-                //                 .replace(/ Region/i, "")
-                //                 .trim()
-                //                 .toUpperCase(),
-                //               city: tripData.pickup_location_infos.city
-                //                 .trim()
-                //                 .toUpperCase(),
-                //               destination_infos: tripData.destinationData,
-                //             };
-                //             logger.info(snapshotTripInfos);
-                //             //....
-                //             if (
-                //               snapshotTripInfos.isIntercity_trip === true ||
-                //               snapshotTripInfos.isIntercity_trip === "true"
-                //             ) {
-                //               //? Intercity trip
-                //               //? Check that the region and the city is within the driver's regional clearances.
-                //               logger.info("Intercity trip detected");
-                //               let driverRegionalClearances =
-                //                 driverData.regional_clearances !== undefined &&
-                //                 driverData.regional_clearances !== null
-                //                   ? driverData.regional_clearances
-                //                   : false;
-                //               //...
-                //               let driverCity =
-                //                 driverData.operational_state.last_location !==
-                //                   null &&
-                //                 driverData.operational_state.last_location !==
-                //                   undefined &&
-                //                 driverData.operational_state.last_location
-                //                   .city !== undefined &&
-                //                 driverData.operational_state.last_location
-                //                   .city != null
-                //                   ? driverData.operational_state.last_location
-                //                       .city
-                //                   : false;
-                //               //...
-                //               if (
-                //                 driverRegionalClearances !== false &&
-                //                 driverCity !== false
-                //               ) {
-                //                 //Has a regional clearance
-                //                 // logger.info(trip.origin_destination_infos.destination_infos);
-                //                 if (
-                //                   driverRegionalClearances[
-                //                     snapshotTripInfos.region
-                //                   ] !== undefined &&
-                //                   driverRegionalClearances[
-                //                     snapshotTripInfos.region
-                //                   ] !== null
-                //                 ) {
-                //                   //! Sort the clearances array
-                //                   driverRegionalClearances[
-                //                     snapshotTripInfos.region
-                //                   ].sort();
+                                //Send the push notifications - FOR ALL DRIVERS except the canceller
+                                // new Promise((resNotify) => {
+                                //   //! Get all the drivers
+                                //   let driverFilter = {
+                                //     "operational_state.status": { $in: ["online"] },
+                                //     "operational_state.default_selected_car.vehicle_type":
+                                //       result[0].carTypeSelected,
+                                //   };
+                                //   //..
+                                //   collectionDrivers_profiles
+                                //     .find(driverFilter)
+                                //     .toArray(function (err, driversProfiles) {
+                                //       //...Register the drivers fp so that thei can see tne requests
+                                //       let driversPushNotif_token = driversProfiles.map(
+                                //         (data) => {
+                                //           logger.error(data.operational_state.status);
+                                //           logger.error(
+                                //             data.driver_fingerprint.trim() !==
+                                //               bundleWorkingData.driver_fingerprint.trim()
+                                //           );
+                                //           if (
+                                //             /online/i.test(data.operational_state.status) &&
+                                //             data.driver_fingerprint.trim() !==
+                                //               bundleWorkingData.driver_fingerprint.trim()
+                                //           ) {
+                                //             let driverData = data;
+                                //             let snapshotTripInfos = {
+                                //               isIntercity_trip:
+                                //                 tripData.isIntercity_trip !== undefined &&
+                                //                 tripData.isIntercity_trip !== null
+                                //                   ? tripData.isIntercity_trip
+                                //                   : false,
+                                //               region: tripData.pickup_location_infos.state
+                                //                 .replace(/ Region/i, "")
+                                //                 .trim()
+                                //                 .toUpperCase(),
+                                //               city: tripData.pickup_location_infos.city
+                                //                 .trim()
+                                //                 .toUpperCase(),
+                                //               destination_infos: tripData.destinationData,
+                                //             };
+                                //             logger.info(snapshotTripInfos);
+                                //             //....
+                                //             if (
+                                //               snapshotTripInfos.isIntercity_trip === true ||
+                                //               snapshotTripInfos.isIntercity_trip === "true"
+                                //             ) {
+                                //               //? Intercity trip
+                                //               //? Check that the region and the city is within the driver's regional clearances.
+                                //               logger.info("Intercity trip detected");
+                                //               let driverRegionalClearances =
+                                //                 driverData.regional_clearances !== undefined &&
+                                //                 driverData.regional_clearances !== null
+                                //                   ? driverData.regional_clearances
+                                //                   : false;
+                                //               //...
+                                //               let driverCity =
+                                //                 driverData.operational_state.last_location !==
+                                //                   null &&
+                                //                 driverData.operational_state.last_location !==
+                                //                   undefined &&
+                                //                 driverData.operational_state.last_location
+                                //                   .city !== undefined &&
+                                //                 driverData.operational_state.last_location
+                                //                   .city != null
+                                //                   ? driverData.operational_state.last_location
+                                //                       .city
+                                //                   : false;
+                                //               //...
+                                //               if (
+                                //                 driverRegionalClearances !== false &&
+                                //                 driverCity !== false
+                                //               ) {
+                                //                 //Has a regional clearance
+                                //                 // logger.info(trip.origin_destination_infos.destination_infos);
+                                //                 if (
+                                //                   driverRegionalClearances[
+                                //                     snapshotTripInfos.region
+                                //                   ] !== undefined &&
+                                //                   driverRegionalClearances[
+                                //                     snapshotTripInfos.region
+                                //                   ] !== null
+                                //                 ) {
+                                //                   //! Sort the clearances array
+                                //                   driverRegionalClearances[
+                                //                     snapshotTripInfos.region
+                                //                   ].sort();
 
-                //                   //? Found a valid clearance rule
-                //                   //? 1. Check if the pickup AND destination towns is included in the clearances
-                //                   let tripTowns_summary = [
-                //                     snapshotTripInfos.city,
-                //                     ...snapshotTripInfos.destination_infos.map(
-                //                       (dest) => dest.city
-                //                     ),
-                //                   ];
-                //                   // Normalize
-                //                   tripTowns_summary = tripTowns_summary.map(
-                //                     (el) => el.trim().toUpperCase()
-                //                   );
-                //                   // Sort
-                //                   tripTowns_summary.sort();
-                //                   if (
-                //                     arrayEquals(
-                //                       tripTowns_summary,
-                //                       driverRegionalClearances[
-                //                         snapshotTripInfos.region
-                //                       ]
-                //                     )
-                //                   ) {
-                //                     //TOWNS WITHIN THE CLEARANCES
-                //                     //? 2. Check that the driver's current location (city) as equal to one of the towns allowed by his regional credentials.
-                //                     driverCity = driverCity
-                //                       .trim()
-                //                       .toUpperCase();
-                //                     //...
-                //                     if (
-                //                       driverRegionalClearances[
-                //                         snapshotTripInfos.region
-                //                       ].includes(driverCity)
-                //                     ) {
-                //                       //? Driver's current location is within the regional clearances
-                //                       logger.info(
-                //                         `Intercity trip allowed for driver's interaction -> ${driverData.driver_fingerprint.substring(
-                //                           0,
-                //                           15
-                //                         )}`
-                //                       );
-                //                       return data.operational_state
-                //                         .push_notification_token !== null &&
-                //                         data.operational_state
-                //                           .push_notification_token !== undefined
-                //                         ? data.operational_state
-                //                             .push_notification_token.userId
-                //                         : null;
-                //                     } //! The driver's current location is not within the regional clearances
-                //                     else {
-                //                       logger.warn(
-                //                         `The driver's current location is not within the regional clearances`
-                //                       );
-                //                       return null;
-                //                     }
-                //                   } //Towns for the trip not fitting in the driver's regional clearances
-                //                   else {
-                //                     logger.warn(
-                //                       `Towns for the trip not fitting in the driver's regional clearances`
-                //                     );
-                //                     return null;
-                //                   }
-                //                 } //No valid rule found
-                //                 else {
-                //                   logger.warn(
-                //                     "No valid regional clearance rule found."
-                //                   );
-                //                   return null;
-                //                 }
-                //               } //?No regional clearances
-                //               else {
-                //                 logger.warn(
-                //                   "No regional clearances found for this driver."
-                //                 );
-                //                 return null;
-                //               }
-                //             } //? Not intercity trip - filter based on the drivers location
-                //             else {
-                //               logger.info("Normal innercity trip detected");
-                //               let driverCity =
-                //                 driverData.operational_state.last_location !==
-                //                   null &&
-                //                 driverData.operational_state.last_location !==
-                //                   undefined &&
-                //                 driverData.operational_state.last_location
-                //                   .city !== undefined &&
-                //                 driverData.operational_state.last_location
-                //                   .city != null
-                //                   ? driverData.operational_state.last_location
-                //                       .city
-                //                   : "MISSING";
-                //               //...
-                //               if (
-                //                 snapshotTripInfos.city.trim().toUpperCase() ===
-                //                 driverCity.trim().toUpperCase()
-                //               ) {
-                //                 return data.operational_state
-                //                   .push_notification_token !== null &&
-                //                   data.operational_state
-                //                     .push_notification_token !== undefined
-                //                   ? data.operational_state
-                //                       .push_notification_token.userId
-                //                   : null;
-                //               } //not elligible driver
-                //               else {
-                //                 return null;
-                //               }
-                //             }
-                //           } else {
-                //             return null; //Only notify the drivers that are online.
-                //           }
-                //         }
-                //       ); //Push notification token
-                //       //....
-                //       let message = {
-                //         app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
-                //         android_channel_id: /RIDE/i.test(result[0].ride_mode)
-                //           ? process.env
-                //               .DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION
-                //           : process.env
-                //               .DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
-                //         priority: 10,
-                //         contents: /RIDE/i.test(result[0].ride_mode)
-                //           ? {
-                //               en:
-                //                 "You have a new ride request " +
-                //                 (result[0].pickup_location_infos.suburb !==
-                //                 false
-                //                   ? "from " +
-                //                       result[0].pickup_location_infos.suburb !==
-                //                       undefined &&
-                //                     result[0].pickup_location_infos.suburb !==
-                //                       false &&
-                //                     result[0].pickup_location_infos.suburb !==
-                //                       null
-                //                     ? result[0].pickup_location_infos.suburb.toUpperCase()
-                //                     : "near your location" +
-                //                         " to " +
-                //                         result[0].pickup_location_infos
-                //                           .suburb !==
-                //                         undefined &&
-                //                       result[0].pickup_location_infos.suburb !==
-                //                         false &&
-                //                       result[0].pickup_location_infos.suburb !==
-                //                         null
-                //                     ? result[0].pickup_location_infos.suburb.toUpperCase()
-                //                     : "near your location" +
-                //                       ". Click here for more details."
-                //                   : "near your location, click here for more details."),
-                //             }
-                //           : {
-                //               en:
-                //                 "You have a new delivery request " +
-                //                 (result[0].pickup_location_infos.suburb !==
-                //                 false
-                //                   ? "from " +
-                //                       result[0].pickup_location_infos.suburb !==
-                //                       undefined &&
-                //                     result[0].pickup_location_infos.suburb !==
-                //                       false &&
-                //                     result[0].pickup_location_infos.suburb !==
-                //                       null
-                //                     ? result[0].pickup_location_infos.suburb.toUpperCase()
-                //                     : "near your location" +
-                //                         " to " +
-                //                         result[0].pickup_location_infos
-                //                           .suburb !==
-                //                         undefined &&
-                //                       result[0].pickup_location_infos.suburb !==
-                //                         false &&
-                //                       result[0].pickup_location_infos.suburb !==
-                //                         null
-                //                     ? result[0].pickup_location_infos.suburb.toUpperCase()
-                //                     : "near your location" +
-                //                       ". Click here for more details."
-                //                   : "near your location, click here for more details."),
-                //             },
-                //         headings: /RIDE/i.test(result[0].ride_mode)
-                //           ? { en: "New ride request, N$" + result[0].fare }
-                //           : {
-                //               en: "New delivery request, N$" + result[0].fare,
-                //             },
-                //         content_available: true,
-                //         include_player_ids: driversPushNotif_token,
-                //       };
-                //       //Send
-                //       sendPushUPNotification(message);
-                //       resNotify(true);
-                //     });
-                // })
-                //   .then()
-                //   .catch();
+                                //                   //? Found a valid clearance rule
+                                //                   //? 1. Check if the pickup AND destination towns is included in the clearances
+                                //                   let tripTowns_summary = [
+                                //                     snapshotTripInfos.city,
+                                //                     ...snapshotTripInfos.destination_infos.map(
+                                //                       (dest) => dest.city
+                                //                     ),
+                                //                   ];
+                                //                   // Normalize
+                                //                   tripTowns_summary = tripTowns_summary.map(
+                                //                     (el) => el.trim().toUpperCase()
+                                //                   );
+                                //                   // Sort
+                                //                   tripTowns_summary.sort();
+                                //                   if (
+                                //                     arrayEquals(
+                                //                       tripTowns_summary,
+                                //                       driverRegionalClearances[
+                                //                         snapshotTripInfos.region
+                                //                       ]
+                                //                     )
+                                //                   ) {
+                                //                     //TOWNS WITHIN THE CLEARANCES
+                                //                     //? 2. Check that the driver's current location (city) as equal to one of the towns allowed by his regional credentials.
+                                //                     driverCity = driverCity
+                                //                       .trim()
+                                //                       .toUpperCase();
+                                //                     //...
+                                //                     if (
+                                //                       driverRegionalClearances[
+                                //                         snapshotTripInfos.region
+                                //                       ].includes(driverCity)
+                                //                     ) {
+                                //                       //? Driver's current location is within the regional clearances
+                                //                       logger.info(
+                                //                         `Intercity trip allowed for driver's interaction -> ${driverData.driver_fingerprint.substring(
+                                //                           0,
+                                //                           15
+                                //                         )}`
+                                //                       );
+                                //                       return data.operational_state
+                                //                         .push_notification_token !== null &&
+                                //                         data.operational_state
+                                //                           .push_notification_token !== undefined
+                                //                         ? data.operational_state
+                                //                             .push_notification_token.userId
+                                //                         : null;
+                                //                     } //! The driver's current location is not within the regional clearances
+                                //                     else {
+                                //                       logger.warn(
+                                //                         `The driver's current location is not within the regional clearances`
+                                //                       );
+                                //                       return null;
+                                //                     }
+                                //                   } //Towns for the trip not fitting in the driver's regional clearances
+                                //                   else {
+                                //                     logger.warn(
+                                //                       `Towns for the trip not fitting in the driver's regional clearances`
+                                //                     );
+                                //                     return null;
+                                //                   }
+                                //                 } //No valid rule found
+                                //                 else {
+                                //                   logger.warn(
+                                //                     "No valid regional clearance rule found."
+                                //                   );
+                                //                   return null;
+                                //                 }
+                                //               } //?No regional clearances
+                                //               else {
+                                //                 logger.warn(
+                                //                   "No regional clearances found for this driver."
+                                //                 );
+                                //                 return null;
+                                //               }
+                                //             } //? Not intercity trip - filter based on the drivers location
+                                //             else {
+                                //               logger.info("Normal innercity trip detected");
+                                //               let driverCity =
+                                //                 driverData.operational_state.last_location !==
+                                //                   null &&
+                                //                 driverData.operational_state.last_location !==
+                                //                   undefined &&
+                                //                 driverData.operational_state.last_location
+                                //                   .city !== undefined &&
+                                //                 driverData.operational_state.last_location
+                                //                   .city != null
+                                //                   ? driverData.operational_state.last_location
+                                //                       .city
+                                //                   : "MISSING";
+                                //               //...
+                                //               if (
+                                //                 snapshotTripInfos.city.trim().toUpperCase() ===
+                                //                 driverCity.trim().toUpperCase()
+                                //               ) {
+                                //                 return data.operational_state
+                                //                   .push_notification_token !== null &&
+                                //                   data.operational_state
+                                //                     .push_notification_token !== undefined
+                                //                   ? data.operational_state
+                                //                       .push_notification_token.userId
+                                //                   : null;
+                                //               } //not elligible driver
+                                //               else {
+                                //                 return null;
+                                //               }
+                                //             }
+                                //           } else {
+                                //             return null; //Only notify the drivers that are online.
+                                //           }
+                                //         }
+                                //       ); //Push notification token
+                                //       //....
+                                //       let message = {
+                                //         app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
+                                //         android_channel_id: /RIDE/i.test(result[0].ride_mode)
+                                //           ? process.env
+                                //               .DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION
+                                //           : process.env
+                                //               .DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
+                                //         priority: 10,
+                                //         contents: /RIDE/i.test(result[0].ride_mode)
+                                //           ? {
+                                //               en:
+                                //                 "You have a new ride request " +
+                                //                 (result[0].pickup_location_infos.suburb !==
+                                //                 false
+                                //                   ? "from " +
+                                //                       result[0].pickup_location_infos.suburb !==
+                                //                       undefined &&
+                                //                     result[0].pickup_location_infos.suburb !==
+                                //                       false &&
+                                //                     result[0].pickup_location_infos.suburb !==
+                                //                       null
+                                //                     ? result[0].pickup_location_infos.suburb.toUpperCase()
+                                //                     : "near your location" +
+                                //                         " to " +
+                                //                         result[0].pickup_location_infos
+                                //                           .suburb !==
+                                //                         undefined &&
+                                //                       result[0].pickup_location_infos.suburb !==
+                                //                         false &&
+                                //                       result[0].pickup_location_infos.suburb !==
+                                //                         null
+                                //                     ? result[0].pickup_location_infos.suburb.toUpperCase()
+                                //                     : "near your location" +
+                                //                       ". Click here for more details."
+                                //                   : "near your location, click here for more details."),
+                                //             }
+                                //           : {
+                                //               en:
+                                //                 "You have a new delivery request " +
+                                //                 (result[0].pickup_location_infos.suburb !==
+                                //                 false
+                                //                   ? "from " +
+                                //                       result[0].pickup_location_infos.suburb !==
+                                //                       undefined &&
+                                //                     result[0].pickup_location_infos.suburb !==
+                                //                       false &&
+                                //                     result[0].pickup_location_infos.suburb !==
+                                //                       null
+                                //                     ? result[0].pickup_location_infos.suburb.toUpperCase()
+                                //                     : "near your location" +
+                                //                         " to " +
+                                //                         result[0].pickup_location_infos
+                                //                           .suburb !==
+                                //                         undefined &&
+                                //                       result[0].pickup_location_infos.suburb !==
+                                //                         false &&
+                                //                       result[0].pickup_location_infos.suburb !==
+                                //                         null
+                                //                     ? result[0].pickup_location_infos.suburb.toUpperCase()
+                                //                     : "near your location" +
+                                //                       ". Click here for more details."
+                                //                   : "near your location, click here for more details."),
+                                //             },
+                                //         headings: /RIDE/i.test(result[0].ride_mode)
+                                //           ? { en: "New ride request, N$" + result[0].fare }
+                                //           : {
+                                //               en: "New delivery request, N$" + result[0].fare,
+                                //             },
+                                //         content_available: true,
+                                //         include_player_ids: driversPushNotif_token,
+                                //       };
+                                //       //Send
+                                //       sendPushUPNotification(message);
+                                //       resNotify(true);
+                                //     });
+                                // })
+                                //   .then()
+                                //   .catch();
 
-                //! Clear the request cached list for all the drivers in the same city
-                new Promise((resClearRedis) => {
-                  clearCityDriversCacheLists({
-                    city: tripData.locations.pickup.city,
-                    requestType: tripData.ride_mode,
-                    resolve: resClearRedis,
-                  });
+                                //! Clear the request cached list for all the drivers in the same city
+                                new Promise((resClearRedis) => {
+                                    clearCityDriversCacheLists({
+                                        city: tripData.locations.pickup.city,
+                                        requestType: tripData.ride_mode,
+                                        resolve: resClearRedis,
+                                    });
+                                })
+                                    .then()
+                                    .catch((error) => logger.error(error));
+
+                                //! Clear the cached daily amount for THIS driver
+                                new Promise((resClearDaily) => {
+                                    clearDailyRequestAmountCached(
+                                        bundleWorkingData.driver_fingerprint,
+                                        resClearDaily
+                                    );
+                                })
+                                    .then()
+                                    .catch((error) => logger.error(error));
+
+                                //! Clear the cached global numbers for THIS driver
+                                new Promise((resClearDaily) => {
+                                    clearDriversGlobalAccountNumbersCache({
+                                        driver_fingerprint:
+                                            bundleWorkingData.driver_fingerprint,
+                                        resolve: resClearDaily,
+                                    });
+                                })
+                                    .then()
+                                    .catch((error) => logger.error(error));
+
+                                //DONE
+                                resolve({
+                                    response: 'successfully_cancelled',
+                                    rider_fp: tripData.client_id,
+                                });
+                            })
+                            .catch((error) => {
+                                logger.error(error);
+                                resolve({
+                                    response: 'unable_to_cancel_request_error',
+                                });
+                            });
+                        // } //The driver did not held the request for at least 15min - put cancellation lock
+                        // else {
+                        //   resolve({ response: "unable_to_cancel_request_error" });
+                        // }
+                    } //!Has exceeded the daily cancellation limit
+                    else {
+                        resolve({
+                            response:
+                                'unable_to_cancel_request_error_daily_cancellation_limit_exceeded',
+                            limit: process.env
+                                .MAXIMUM_CANCELLATION_DRIVER_REQUESTS_LIMIT,
+                        });
+                    }
                 })
-                  .then()
-                  .catch((error) => logger.error(error));
-
-                //! Clear the cached daily amount for THIS driver
-                new Promise((resClearDaily) => {
-                  clearDailyRequestAmountCached(
-                    bundleWorkingData.driver_fingerprint,
-                    resClearDaily
-                  );
-                })
-                  .then()
-                  .catch((error) => logger.error(error));
-
-                //! Clear the cached global numbers for THIS driver
-                new Promise((resClearDaily) => {
-                  clearDriversGlobalAccountNumbersCache({
-                    driver_fingerprint: bundleWorkingData.driver_fingerprint,
-                    resolve: resClearDaily,
-                  });
-                })
-                  .then()
-                  .catch((error) => logger.error(error));
-
-                //DONE
-                resolve({
-                  response: "successfully_cancelled",
-                  rider_fp: tripData.client_id,
+                .catch((error) => {
+                    logger.error(error);
+                    resolve({ response: 'unable_to_cancel_request_error' });
                 });
-              })
-              .catch((error) => {
-                logger.error(error);
-                resolve({ response: "unable_to_cancel_request_error" });
-              });
-            // } //The driver did not held the request for at least 15min - put cancellation lock
-            // else {
-            //   resolve({ response: "unable_to_cancel_request_error" });
-            // }
-          } //!Has exceeded the daily cancellation limit
-          else {
-            resolve({
-              response:
-                "unable_to_cancel_request_error_daily_cancellation_limit_exceeded",
-              limit: process.env.MAXIMUM_CANCELLATION_DRIVER_REQUESTS_LIMIT,
-            });
-          }
-        })
-        .catch((error) => {
-          logger.error(error);
-          resolve({ response: "unable_to_cancel_request_error" });
-        });
-    } //abort the cancelling
-    else {
-      resolve({ response: "unable_to_cancel_request_not_owned" });
-    }
-  });
+        } //abort the cancelling
+        else {
+            resolve({ response: 'unable_to_cancel_request_not_owned' });
+        }
+    });
 }
 
 /**
@@ -4090,180 +4669,191 @@ function cancelRequest_driver(bundleWorkingData, resolve) {
  * @param resolve
  */
 function confirmPickupRequest_driver(bundleWorkingData, resolve) {
-  //? Resolve the requestType situation
-  bundleWorkingData["requestType"] =
-    bundleWorkingData.requestType !== undefined &&
-    bundleWorkingData.requestType !== null
-      ? bundleWorkingData.requestType
-      : "RIDE";
+    //? Resolve the requestType situation
+    bundleWorkingData['requestType'] =
+        bundleWorkingData.requestType !== undefined &&
+        bundleWorkingData.requestType !== null
+            ? bundleWorkingData.requestType
+            : 'RIDE';
 
-  resolveDate();
+    resolveDate();
 
-  // let dynRequestFetcher =
-  //   bundleWorkingData.driver_fingerprint !== undefined &&
-  //   bundleWorkingData.driver_fingerprint !== null
-  //     ? {
-  //         request_fp: bundleWorkingData.request_fp,
-  //         taxi_id: bundleWorkingData.driver_fingerprint,
-  //       }
-  //     : {
-  //         request_fp: bundleWorkingData.request_fp,
-  //         client_id: bundleWorkingData.rider_fingerprint,
-  //       };
-  //Only confirm pickup if not yet accepted by the driver
-  dynamo_find_query({
-    table_name: "requests_central",
-    IndexName: "shopper_id",
-    KeyConditionExpression: "shopper_id = :val1",
-    FilterExpression: "request_fp = :val2",
-    ExpressionAttributeValues: {
-      ":val1": bundleWorkingData.driver_fingerprint,
-      ":val2": bundleWorkingData.request_fp,
-    },
-  })
-    .then((requestGlobalData) => {
-      if (requestGlobalData !== undefined && requestGlobalData.length > 0) {
-        requestGlobalData = requestGlobalData[0];
-        //The driver requesting for the confirm pickup is the one who's currently associated to the request - proceed to the pickup confirmation.
-        //Save the pickup confirmation event
-        new Promise((res) => {
-          dynamo_insert("global_events", {
-            event_name: "driver_confirm_pickup_request",
-            request_fp: requestGlobalData.request_fp,
-            driver_fingerprint: requestGlobalData.taxi_id,
-            rider_fingerprint: requestGlobalData.client_id,
-            date: new Date(chaineDateUTC).toISOString(),
-          })
-            .then()
-            .catch((error) => logger.error(error));
-          //...
-          res(true);
-        }).then(
-          () => {},
-          () => {}
-        );
-        //Update the true request
-        //? Dynamically generate the update expression
-        let dynamicUpdateExpression = /RIDE/i.test(
-          bundleWorkingData.requestType
-        )
-          ? {
-              table_name: "requests_central",
-              _idKey: requestGlobalData._id,
-              UpdateExpression:
-                "set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#in = :val4",
-              ExpressionAttributeValues: {
-                ":val1": requestGlobalData.shopper_id,
-                ":val2": new Date(chaineDateUTC).toISOString(),
-                ":val3": true,
-                ":val4": true,
-              },
-              ExpressionAttributeNames: {
-                "#r": "request_state_vars",
-                "#i": "isAccepted",
-                "#in": "inRouteToDropoff",
-              },
-            }
-          : /DELIVERY/i.test(bundleWorkingData.requestType)
-          ? {
-              table_name: "requests_central",
-              _idKey: requestGlobalData._id,
-              UpdateExpression:
-                "set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#in = :val4, #r.#didPCash = :val5",
-              ExpressionAttributeValues: {
-                ":val1": requestGlobalData.shopper_id,
-                ":val2": new Date(chaineDateUTC).toISOString(),
-                ":val3": true,
-                ":val4": true,
-                ":val5": true,
-              },
-              ExpressionAttributeNames: {
-                "#r": "request_state_vars",
-                "#i": "isAccepted",
-                "#in": "inRouteToDropoff",
-                "#didPCash": "didPickupCash",
-              },
-            }
-          : //SHOPPING
-            {
-              table_name: "requests_central",
-              _idKey: requestGlobalData._id,
-              UpdateExpression:
-                "set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#inShop = :val4, #r.#didPCash = :val5, #r.#inRPicCash = :val6, date_routeToShop = :val7, date_pickedupCash = :val8",
-              ExpressionAttributeValues: {
-                ":val1": requestGlobalData.shopper_id,
-                ":val2": new Date(chaineDateUTC).toISOString(),
-                ":val3": true,
-                ":val4": true,
-                ":val5": true,
-                ":val6": true,
-                ":val7": new Date(chaineDateUTC).toISOString(),
-                ":val8": new Date(chaineDateUTC).toISOString(),
-              },
-              ExpressionAttributeNames: {
-                "#r": "request_state_vars",
-                "#i": "isAccepted",
-                "#inShop": "inRouteToShop",
-                "#didPCash": "didPickupCash",
-                "#inRPicCash": "inRouteToPickupCash",
-              },
-            };
-        dynamo_update(dynamicUpdateExpression)
-          .then((result) => {
-            if (result === false) {
-              resolve({ response: "unable_to_confirm_pickup_request_error" });
-            }
-
-            //! Clear the request cached list for all the drivers in the same city
-            new Promise((resClearRedis) => {
-              clearCityDriversCacheLists({
-                city: requestGlobalData.locations.pickup.city,
-                requestType: requestGlobalData.ride_mode,
-                resolve: resClearRedis,
-              });
-            })
-              .then()
-              .catch((error) => logger.error(error));
-
-            //! Clear the cached daily amount for THIS driver
-            new Promise((resClearDaily) => {
-              clearDailyRequestAmountCached(
-                bundleWorkingData.driver_fingerprint,
-                resClearDaily
-              );
-            })
-              .then()
-              .catch((error) => logger.error(error));
-
-            //! Clear the cached global numbers for THIS driver
-            new Promise((resClearDaily) => {
-              clearDriversGlobalAccountNumbersCache({
-                driver_fingerprint: bundleWorkingData.driver_fingerprint,
-                resolve: resClearDaily,
-              });
-            })
-              .then()
-              .catch((error) => logger.error(error));
-
-            //DONE
-            resolve({
-              response: "successfully_confirmed_pickup",
-              rider_fp: requestGlobalData.client_id,
-            });
-          })
-          .catch((error) => {
-            logger.error(error);
-            resolve({ response: "unable_to_confirm_pickup_request_error" });
-          });
-      } //abort the pickup confirmation
-      else {
-        resolve({ response: "unable_to_confirm_pickup_request_not_owned" });
-      }
+    // let dynRequestFetcher =
+    //   bundleWorkingData.driver_fingerprint !== undefined &&
+    //   bundleWorkingData.driver_fingerprint !== null
+    //     ? {
+    //         request_fp: bundleWorkingData.request_fp,
+    //         taxi_id: bundleWorkingData.driver_fingerprint,
+    //       }
+    //     : {
+    //         request_fp: bundleWorkingData.request_fp,
+    //         client_id: bundleWorkingData.rider_fingerprint,
+    //       };
+    //Only confirm pickup if not yet accepted by the driver
+    dynamo_find_query({
+        table_name: 'requests_central',
+        IndexName: 'shopper_id',
+        KeyConditionExpression: 'shopper_id = :val1',
+        FilterExpression: 'request_fp = :val2',
+        ExpressionAttributeValues: {
+            ':val1': bundleWorkingData.driver_fingerprint,
+            ':val2': bundleWorkingData.request_fp,
+        },
     })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: "unable_to_confirm_pickup_request_not_owned" });
-    });
+        .then((requestGlobalData) => {
+            if (
+                requestGlobalData !== undefined &&
+                requestGlobalData.length > 0
+            ) {
+                requestGlobalData = requestGlobalData[0];
+                //The driver requesting for the confirm pickup is the one who's currently associated to the request - proceed to the pickup confirmation.
+                //Save the pickup confirmation event
+                new Promise((res) => {
+                    dynamo_insert('global_events', {
+                        event_name: 'driver_confirm_pickup_request',
+                        request_fp: requestGlobalData.request_fp,
+                        driver_fingerprint: requestGlobalData.taxi_id,
+                        rider_fingerprint: requestGlobalData.client_id,
+                        date: new Date(chaineDateUTC).toISOString(),
+                    })
+                        .then()
+                        .catch((error) => logger.error(error));
+                    //...
+                    res(true);
+                }).then(
+                    () => {},
+                    () => {}
+                );
+                //Update the true request
+                //? Dynamically generate the update expression
+                let dynamicUpdateExpression = /RIDE/i.test(
+                    bundleWorkingData.requestType
+                )
+                    ? {
+                          table_name: 'requests_central',
+                          _idKey: requestGlobalData._id,
+                          UpdateExpression:
+                              'set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#in = :val4',
+                          ExpressionAttributeValues: {
+                              ':val1': requestGlobalData.shopper_id,
+                              ':val2': new Date(chaineDateUTC).toISOString(),
+                              ':val3': true,
+                              ':val4': true,
+                          },
+                          ExpressionAttributeNames: {
+                              '#r': 'request_state_vars',
+                              '#i': 'isAccepted',
+                              '#in': 'inRouteToDropoff',
+                          },
+                      }
+                    : /DELIVERY/i.test(bundleWorkingData.requestType)
+                    ? {
+                          table_name: 'requests_central',
+                          _idKey: requestGlobalData._id,
+                          UpdateExpression:
+                              'set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#in = :val4, #r.#didPCash = :val5',
+                          ExpressionAttributeValues: {
+                              ':val1': requestGlobalData.shopper_id,
+                              ':val2': new Date(chaineDateUTC).toISOString(),
+                              ':val3': true,
+                              ':val4': true,
+                              ':val5': true,
+                          },
+                          ExpressionAttributeNames: {
+                              '#r': 'request_state_vars',
+                              '#i': 'isAccepted',
+                              '#in': 'inRouteToDropoff',
+                              '#didPCash': 'didPickupCash',
+                          },
+                      }
+                    : //SHOPPING
+                      {
+                          table_name: 'requests_central',
+                          _idKey: requestGlobalData._id,
+                          UpdateExpression:
+                              'set shopper_id = :val1, date_pickedup = :val2, #r.#i = :val3, #r.#inShop = :val4, #r.#didPCash = :val5, #r.#inRPicCash = :val6, date_routeToShop = :val7, date_pickedupCash = :val8',
+                          ExpressionAttributeValues: {
+                              ':val1': requestGlobalData.shopper_id,
+                              ':val2': new Date(chaineDateUTC).toISOString(),
+                              ':val3': true,
+                              ':val4': true,
+                              ':val5': true,
+                              ':val6': true,
+                              ':val7': new Date(chaineDateUTC).toISOString(),
+                              ':val8': new Date(chaineDateUTC).toISOString(),
+                          },
+                          ExpressionAttributeNames: {
+                              '#r': 'request_state_vars',
+                              '#i': 'isAccepted',
+                              '#inShop': 'inRouteToShop',
+                              '#didPCash': 'didPickupCash',
+                              '#inRPicCash': 'inRouteToPickupCash',
+                          },
+                      };
+                dynamo_update(dynamicUpdateExpression)
+                    .then((result) => {
+                        if (result === false) {
+                            resolve({
+                                response:
+                                    'unable_to_confirm_pickup_request_error',
+                            });
+                        }
+
+                        //! Clear the request cached list for all the drivers in the same city
+                        new Promise((resClearRedis) => {
+                            clearCityDriversCacheLists({
+                                city: requestGlobalData.locations.pickup.city,
+                                requestType: requestGlobalData.ride_mode,
+                                resolve: resClearRedis,
+                            });
+                        })
+                            .then()
+                            .catch((error) => logger.error(error));
+
+                        //! Clear the cached daily amount for THIS driver
+                        new Promise((resClearDaily) => {
+                            clearDailyRequestAmountCached(
+                                bundleWorkingData.driver_fingerprint,
+                                resClearDaily
+                            );
+                        })
+                            .then()
+                            .catch((error) => logger.error(error));
+
+                        //! Clear the cached global numbers for THIS driver
+                        new Promise((resClearDaily) => {
+                            clearDriversGlobalAccountNumbersCache({
+                                driver_fingerprint:
+                                    bundleWorkingData.driver_fingerprint,
+                                resolve: resClearDaily,
+                            });
+                        })
+                            .then()
+                            .catch((error) => logger.error(error));
+
+                        //DONE
+                        resolve({
+                            response: 'successfully_confirmed_pickup',
+                            rider_fp: requestGlobalData.client_id,
+                        });
+                    })
+                    .catch((error) => {
+                        logger.error(error);
+                        resolve({
+                            response: 'unable_to_confirm_pickup_request_error',
+                        });
+                    });
+            } //abort the pickup confirmation
+            else {
+                resolve({
+                    response: 'unable_to_confirm_pickup_request_not_owned',
+                });
+            }
+        })
+        .catch((error) => {
+            logger.error(error);
+            resolve({ response: 'unable_to_confirm_pickup_request_not_owned' });
+        });
 }
 
 /**
@@ -4273,123 +4863,133 @@ function confirmPickupRequest_driver(bundleWorkingData, resolve) {
  * @param resolve
  */
 function confirmDoneShoppingRequest_driver(bundleWorkingData, resolve) {
-  // logger.error(bundleWorkingData);
-  //? Resolve the requestType situation
-  bundleWorkingData["requestType"] =
-    bundleWorkingData.requestType !== undefined &&
-    bundleWorkingData.requestType !== null
-      ? bundleWorkingData.requestType
-      : "RIDE";
+    // logger.error(bundleWorkingData);
+    //? Resolve the requestType situation
+    bundleWorkingData['requestType'] =
+        bundleWorkingData.requestType !== undefined &&
+        bundleWorkingData.requestType !== null
+            ? bundleWorkingData.requestType
+            : 'RIDE';
 
-  resolveDate();
+    resolveDate();
 
-  //Only confirm pickup if not yet accepted by the driver
-  dynamo_find_query({
-    table_name: "requests_central",
-    IndexName: "shopper_id",
-    KeyConditionExpression: "shopper_id = :val1",
-    FilterExpression: "request_fp = :val2",
-    ExpressionAttributeValues: {
-      ":val1": bundleWorkingData.driver_fingerprint,
-      ":val2": bundleWorkingData.request_fp,
-    },
-  })
-    .then((requestGlobalData) => {
-      if (requestGlobalData !== undefined && requestGlobalData.length > 0) {
-        requestGlobalData = requestGlobalData[0];
-        //The driver requesting for the confirm pickup is the one who's currently associated to the request - proceed to the pickup confirmation.
-        //Save the pickup confirmation event
-        new Promise((res) => {
-          dynamo_insert("global_events", {
-            event_name: "driver_confirm_pickup_request",
-            request_fp: requestGlobalData.request_fp,
-            driver_fingerprint: requestGlobalData.taxi_id,
-            rider_fingerprint: requestGlobalData.client_id,
-            date: new Date(chaineDateUTC).toISOString(),
-          })
-            .then()
-            .catch((error) => logger.error(error));
-          //...
-          res(true);
-        }).then(
-          () => {},
-          () => {}
-        );
-        //Update the true request
-        dynamo_update({
-          table_name: "requests_central",
-          _idKey: requestGlobalData._id,
-          UpdateExpression:
-            "set shopper_id = :val1, date_routeToDelivery = :val2, #r.#routeDel = :val3",
-          ExpressionAttributeValues: {
-            ":val1": requestGlobalData.shopper_id,
-            ":val2": new Date(chaineDateUTC).toISOString(),
-            ":val3": true,
-          },
-          ExpressionAttributeNames: {
-            "#r": "request_state_vars",
-            "#routeDel": "inRouteToDelivery",
-          },
-        })
-          .then((result) => {
-            if (result === false) {
-              resolve({
-                response: "unable_to_confirm_doneShopping_request_error",
-              });
+    //Only confirm pickup if not yet accepted by the driver
+    dynamo_find_query({
+        table_name: 'requests_central',
+        IndexName: 'shopper_id',
+        KeyConditionExpression: 'shopper_id = :val1',
+        FilterExpression: 'request_fp = :val2',
+        ExpressionAttributeValues: {
+            ':val1': bundleWorkingData.driver_fingerprint,
+            ':val2': bundleWorkingData.request_fp,
+        },
+    })
+        .then((requestGlobalData) => {
+            if (
+                requestGlobalData !== undefined &&
+                requestGlobalData.length > 0
+            ) {
+                requestGlobalData = requestGlobalData[0];
+                //The driver requesting for the confirm pickup is the one who's currently associated to the request - proceed to the pickup confirmation.
+                //Save the pickup confirmation event
+                new Promise((res) => {
+                    dynamo_insert('global_events', {
+                        event_name: 'driver_confirm_pickup_request',
+                        request_fp: requestGlobalData.request_fp,
+                        driver_fingerprint: requestGlobalData.taxi_id,
+                        rider_fingerprint: requestGlobalData.client_id,
+                        date: new Date(chaineDateUTC).toISOString(),
+                    })
+                        .then()
+                        .catch((error) => logger.error(error));
+                    //...
+                    res(true);
+                }).then(
+                    () => {},
+                    () => {}
+                );
+                //Update the true request
+                dynamo_update({
+                    table_name: 'requests_central',
+                    _idKey: requestGlobalData._id,
+                    UpdateExpression:
+                        'set shopper_id = :val1, date_routeToDelivery = :val2, #r.#routeDel = :val3',
+                    ExpressionAttributeValues: {
+                        ':val1': requestGlobalData.shopper_id,
+                        ':val2': new Date(chaineDateUTC).toISOString(),
+                        ':val3': true,
+                    },
+                    ExpressionAttributeNames: {
+                        '#r': 'request_state_vars',
+                        '#routeDel': 'inRouteToDelivery',
+                    },
+                })
+                    .then((result) => {
+                        if (result === false) {
+                            resolve({
+                                response:
+                                    'unable_to_confirm_doneShopping_request_error',
+                            });
+                        }
+
+                        //! Clear the request cached list for all the drivers in the same city
+                        new Promise((resClearRedis) => {
+                            clearCityDriversCacheLists({
+                                city: requestGlobalData.locations.pickup.city,
+                                requestType: requestGlobalData.ride_mode,
+                                resolve: resClearRedis,
+                            });
+                        })
+                            .then()
+                            .catch((error) => logger.error(error));
+
+                        //! Clear the cached daily amount for THIS driver
+                        new Promise((resClearDaily) => {
+                            clearDailyRequestAmountCached(
+                                bundleWorkingData.driver_fingerprint,
+                                resClearDaily
+                            );
+                        })
+                            .then()
+                            .catch((error) => logger.error(error));
+
+                        //! Clear the cached global numbers for THIS driver
+                        new Promise((resClearDaily) => {
+                            clearDriversGlobalAccountNumbersCache({
+                                driver_fingerprint:
+                                    bundleWorkingData.driver_fingerprint,
+                                resolve: resClearDaily,
+                            });
+                        })
+                            .then()
+                            .catch((error) => logger.error(error));
+
+                        //DONE
+                        resolve({
+                            response: 'successfully_confirmed_doneShopping',
+                            rider_fp: requestGlobalData.client_id,
+                        });
+                    })
+                    .catch((error) => {
+                        logger.error(error);
+                        resolve({
+                            response:
+                                'unable_to_confirm_doneShopping_request_error',
+                        });
+                    });
+            } //abort the pickup confirmation
+            else {
+                resolve({
+                    response: 'unable_to_confirm_doneShopping_request_error',
+                });
             }
-
-            //! Clear the request cached list for all the drivers in the same city
-            new Promise((resClearRedis) => {
-              clearCityDriversCacheLists({
-                city: requestGlobalData.locations.pickup.city,
-                requestType: requestGlobalData.ride_mode,
-                resolve: resClearRedis,
-              });
-            })
-              .then()
-              .catch((error) => logger.error(error));
-
-            //! Clear the cached daily amount for THIS driver
-            new Promise((resClearDaily) => {
-              clearDailyRequestAmountCached(
-                bundleWorkingData.driver_fingerprint,
-                resClearDaily
-              );
-            })
-              .then()
-              .catch((error) => logger.error(error));
-
-            //! Clear the cached global numbers for THIS driver
-            new Promise((resClearDaily) => {
-              clearDriversGlobalAccountNumbersCache({
-                driver_fingerprint: bundleWorkingData.driver_fingerprint,
-                resolve: resClearDaily,
-              });
-            })
-              .then()
-              .catch((error) => logger.error(error));
-
-            //DONE
-            resolve({
-              response: "successfully_confirmed_doneShopping",
-              rider_fp: requestGlobalData.client_id,
-            });
-          })
-          .catch((error) => {
+        })
+        .catch((error) => {
             logger.error(error);
             resolve({
-              response: "unable_to_confirm_doneShopping_request_error",
+                response: 'unable_to_confirm_doneShopping_request_error',
             });
-          });
-      } //abort the pickup confirmation
-      else {
-        resolve({ response: "unable_to_confirm_doneShopping_request_error" });
-      }
-    })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: "unable_to_confirm_doneShopping_request_error" });
-    });
+        });
 }
 
 /**
@@ -4399,13 +4999,13 @@ function confirmDoneShoppingRequest_driver(bundleWorkingData, resolve) {
  * @param resolve
  */
 function clearDriversGlobalAccountNumbersCache({
-  driver_fingerprint,
-  resolve,
+    driver_fingerprint,
+    resolve,
 }) {
-  let redisKey = `${driver_fingerprint}-globalAccountNumbers`;
-  redisCluster.del(redisKey, function () {
-    resolve(true);
-  });
+    let redisKey = `${driver_fingerprint}-globalAccountNumbers`;
+    redisCluster.del(redisKey, function () {
+        resolve(true);
+    });
 }
 
 /**
@@ -4416,215 +5016,233 @@ function clearDriversGlobalAccountNumbersCache({
  * ! For the delivery this is only used to confirm the drop off of packages, not the overall delivery drop off state.
  */
 function confirmDropoffRequest_driver(bundleWorkingData, resolve) {
-  //? Resolve the requestType situation
-  bundleWorkingData["requestType"] =
-    bundleWorkingData.requestType !== undefined &&
-    bundleWorkingData.requestType !== null
-      ? bundleWorkingData.requestType
-      : "NONE";
-  //? Resolve the selected package index if any
-  bundleWorkingData["selectedPackageIndex"] =
-    bundleWorkingData.selectedPackageIndex !== undefined &&
-    bundleWorkingData.selectedPackageIndex !== null
-      ? parseInt(bundleWorkingData.selectedPackageIndex)
-      : 0;
+    //? Resolve the requestType situation
+    bundleWorkingData['requestType'] =
+        bundleWorkingData.requestType !== undefined &&
+        bundleWorkingData.requestType !== null
+            ? bundleWorkingData.requestType
+            : 'NONE';
+    //? Resolve the selected package index if any
+    bundleWorkingData['selectedPackageIndex'] =
+        bundleWorkingData.selectedPackageIndex !== undefined &&
+        bundleWorkingData.selectedPackageIndex !== null
+            ? parseInt(bundleWorkingData.selectedPackageIndex)
+            : 0;
 
-  //? Resolve the scope - only applies to DELIVERY and SHOPPING (final or ignore else)
-  bundleWorkingData["scope"] =
-    bundleWorkingData.scope !== undefined && bundleWorkingData.scope !== null
-      ? bundleWorkingData.scope
-      : "none";
+    //? Resolve the scope - only applies to DELIVERY and SHOPPING (final or ignore else)
+    bundleWorkingData['scope'] =
+        bundleWorkingData.scope !== undefined &&
+        bundleWorkingData.scope !== null
+            ? bundleWorkingData.scope
+            : 'none';
 
-  resolveDate();
-  //Only confirm pickup if not yet accepted by the driver
-  dynamo_find_query({
-    table_name: "requests_central",
-    IndexName: "shopper_id",
-    KeyConditionExpression: "shopper_id = :val1",
-    FilterExpression: "request_fp = :val2",
-    ExpressionAttributeValues: {
-      ":val1": bundleWorkingData.driver_fingerprint,
-      ":val2": bundleWorkingData.request_fp,
-    },
-  })
-    .then((result) => {
-      if (result !== undefined && result.length > 0) {
-        let requestData = result[0];
-        //The driver requesting for the confirm dropoff is the one who's currently associated to the request - proceed to the dropoff confirmation.
-        //Save the dropoff confirmation event
-        new Promise((res) => {
-          dynamo_insert("global_events", {
-            event_name: "driver_confirm_dropoff_request",
-            request_fp: bundleWorkingData.request_fp,
-            driver_fingerprint: bundleWorkingData.driver_fingerprint,
-            date: new Date(chaineDateUTC).toISOString(),
-          })
-            .then()
-            .catch((error) => logger.error(error));
-          //...
-          res(true);
-        })
-          .then(() => {})
-          .catch();
-        //Update the true request
-        //! Update the drop off locations if delivery
-        let refreshedDropoff = /SHOPPING/i.test(bundleWorkingData.requestType)
-          ? requestData["shopping_list"]
-          : requestData["locations"]["dropoff"];
-        //Update
-        refreshedDropoff[bundleWorkingData.selectedPackageIndex][
-          /DELIVERY/i.test(bundleWorkingData.requestType)
-            ? "isDroped"
-            : "isShoped"
-        ] = true;
-        //Add the date
-        refreshedDropoff[bundleWorkingData.selectedPackageIndex][
-          /DELIVERY/i.test(bundleWorkingData.requestType)
-            ? "date_dropoff"
-            : "date_shoped"
-        ] = new Date(chaineDateUTC).toISOString();
-
-        //? Dynamically generate the update expression
-        let dynamicUpdateExpression = /RIDE/i.test(
-          bundleWorkingData.requestType
-        )
-          ? {
-              table_name: "requests_central",
-              _idKey: requestData._id,
-              UpdateExpression:
-                "set shopper_id = :val1, date_completedDropoff = :val2, #r.#i = :val3, #r.#in = :val4, #r.#is = :val5",
-              ExpressionAttributeValues: {
-                ":val1": bundleWorkingData.driver_fingerprint,
-                ":val2": new Date(chaineDateUTC).toISOString(),
-                ":val3": true,
-                ":val4": true,
-                ":val5": true,
-              },
-              ExpressionAttributeNames: {
-                "#r": "request_state_vars",
-                "#i": "isAccepted",
-                "#in": "inRouteToDropoff",
-                "#is": "completedDropoff",
-              },
-            }
-          : /DELIVERY/i.test(bundleWorkingData.requestType)
-          ? //Last drop off confirmation
-            /final/i.test(bundleWorkingData.scope)
-            ? {
-                table_name: "requests_central",
-                _idKey: requestData._id,
-                UpdateExpression:
-                  "set shopper_id = :val1, #r.#copleted = :val2, date_completedDropoff = :val3",
-                ExpressionAttributeValues: {
-                  ":val1": bundleWorkingData.driver_fingerprint,
-                  ":val2": true,
-                  ":val3": new Date(chaineDateUTC).toISOString(),
-                },
-                ExpressionAttributeNames: {
-                  "#r": "request_state_vars",
-                  "#copleted": "completedDropoff",
-                },
-              }
-            : //Product confirmation
-              {
-                table_name: "requests_central",
-                _idKey: requestData._id,
-                UpdateExpression: "set shopper_id = :val1, #locs.#drop = :val2",
-                ExpressionAttributeValues: {
-                  ":val1": bundleWorkingData.driver_fingerprint,
-                  ":val2": refreshedDropoff, //! The update locations
-                },
-                ExpressionAttributeNames: {
-                  "#locs": "locations",
-                  "#drop": "dropoff",
-                },
-              }
-          : //SHOPPING
-          //Final drop off confirmation
-          /final/i.test(bundleWorkingData.scope)
-          ? {
-              table_name: "requests_central",
-              _idKey: requestData._id,
-              UpdateExpression:
-                "set shopper_id = :val1, #r.#copletedSh = :val2, date_completedShopping = :val3",
-              ExpressionAttributeValues: {
-                ":val1": bundleWorkingData.driver_fingerprint,
-                ":val2": true,
-                ":val3": new Date(chaineDateUTC).toISOString(),
-              },
-              ExpressionAttributeNames: {
-                "#r": "request_state_vars",
-                "#copletedSh": "completedShopping",
-              },
-            }
-          : {
-              table_name: "requests_central",
-              _idKey: requestData._id,
-              UpdateExpression: "set shopper_id = :val1, shopping_list = :val2",
-              ExpressionAttributeValues: {
-                ":val1": bundleWorkingData.driver_fingerprint,
-                ":val2": refreshedDropoff, //! The update locations
-              },
-            };
-
-        logger.error(dynamicUpdateExpression);
-
-        dynamo_update(dynamicUpdateExpression)
-          .then((result) => {
-            if (result === false) {
-              resolve({ response: "unable_to_confirm_dropoff_request_error" });
-            }
-
-            //! Clear the request cached list for all the drivers in the same city
-            new Promise((resClearRedis) => {
-              clearCityDriversCacheLists({
-                city: requestData.locations.pickup.city,
-                requestType: requestData.ride_mode,
-                resolve: resClearRedis,
-              });
-            })
-              .then()
-              .catch((error) => logger.error(error));
-
-            //! Clear the cached daily amount for THIS driver
-            new Promise((resClearDaily) => {
-              clearDailyRequestAmountCached(
-                bundleWorkingData.driver_fingerprint,
-                resClearDaily
-              );
-            })
-              .then()
-              .catch((error) => logger.error(error));
-
-            //! Clear the cached global numbers for THIS driver
-            new Promise((resClearDaily) => {
-              clearDriversGlobalAccountNumbersCache({
-                driver_fingerprint: bundleWorkingData.driver_fingerprint,
-                resolve: resClearDaily,
-              });
-            })
-              .then()
-              .catch((error) => logger.error(error));
-
-            //DONE
-            resolve({
-              response: "successfully_confirmed_dropoff",
-              rider_fp: requestData.client_id,
-            });
-          })
-          .catch((error) => {
-            logger.error(error);
-            resolve({ response: "unable_to_confirm_dropoff_request_error" });
-          });
-      } //abort the pickup confirmation
-      else {
-        resolve({ response: "unable_to_confirm_dropoff_request_not_owned" });
-      }
+    resolveDate();
+    //Only confirm pickup if not yet accepted by the driver
+    dynamo_find_query({
+        table_name: 'requests_central',
+        IndexName: 'shopper_id',
+        KeyConditionExpression: 'shopper_id = :val1',
+        FilterExpression: 'request_fp = :val2',
+        ExpressionAttributeValues: {
+            ':val1': bundleWorkingData.driver_fingerprint,
+            ':val2': bundleWorkingData.request_fp,
+        },
     })
-    .catch((error) => {
-      logger.error(error);
-      resolve({ response: "unable_to_confirm_dropoff_request_not_owned" });
-    });
+        .then((result) => {
+            if (result !== undefined && result.length > 0) {
+                let requestData = result[0];
+                //The driver requesting for the confirm dropoff is the one who's currently associated to the request - proceed to the dropoff confirmation.
+                //Save the dropoff confirmation event
+                new Promise((res) => {
+                    dynamo_insert('global_events', {
+                        event_name: 'driver_confirm_dropoff_request',
+                        request_fp: bundleWorkingData.request_fp,
+                        driver_fingerprint:
+                            bundleWorkingData.driver_fingerprint,
+                        date: new Date(chaineDateUTC).toISOString(),
+                    })
+                        .then()
+                        .catch((error) => logger.error(error));
+                    //...
+                    res(true);
+                })
+                    .then(() => {})
+                    .catch();
+                //Update the true request
+                //! Update the drop off locations if delivery
+                let refreshedDropoff = /SHOPPING/i.test(
+                    bundleWorkingData.requestType
+                )
+                    ? requestData['shopping_list']
+                    : requestData['locations']['dropoff'];
+                //Update
+                refreshedDropoff[bundleWorkingData.selectedPackageIndex][
+                    /DELIVERY/i.test(bundleWorkingData.requestType)
+                        ? 'isDroped'
+                        : 'isShoped'
+                ] = true;
+                //Add the date
+                refreshedDropoff[bundleWorkingData.selectedPackageIndex][
+                    /DELIVERY/i.test(bundleWorkingData.requestType)
+                        ? 'date_dropoff'
+                        : 'date_shoped'
+                ] = new Date(chaineDateUTC).toISOString();
+
+                //? Dynamically generate the update expression
+                let dynamicUpdateExpression = /RIDE/i.test(
+                    bundleWorkingData.requestType
+                )
+                    ? {
+                          table_name: 'requests_central',
+                          _idKey: requestData._id,
+                          UpdateExpression:
+                              'set shopper_id = :val1, date_completedDropoff = :val2, #r.#i = :val3, #r.#in = :val4, #r.#is = :val5',
+                          ExpressionAttributeValues: {
+                              ':val1': bundleWorkingData.driver_fingerprint,
+                              ':val2': new Date(chaineDateUTC).toISOString(),
+                              ':val3': true,
+                              ':val4': true,
+                              ':val5': true,
+                          },
+                          ExpressionAttributeNames: {
+                              '#r': 'request_state_vars',
+                              '#i': 'isAccepted',
+                              '#in': 'inRouteToDropoff',
+                              '#is': 'completedDropoff',
+                          },
+                      }
+                    : /DELIVERY/i.test(bundleWorkingData.requestType)
+                    ? //Last drop off confirmation
+                      /final/i.test(bundleWorkingData.scope)
+                        ? {
+                              table_name: 'requests_central',
+                              _idKey: requestData._id,
+                              UpdateExpression:
+                                  'set shopper_id = :val1, #r.#copleted = :val2, date_completedDropoff = :val3',
+                              ExpressionAttributeValues: {
+                                  ':val1': bundleWorkingData.driver_fingerprint,
+                                  ':val2': true,
+                                  ':val3': new Date(
+                                      chaineDateUTC
+                                  ).toISOString(),
+                              },
+                              ExpressionAttributeNames: {
+                                  '#r': 'request_state_vars',
+                                  '#copleted': 'completedDropoff',
+                              },
+                          }
+                        : //Product confirmation
+                          {
+                              table_name: 'requests_central',
+                              _idKey: requestData._id,
+                              UpdateExpression:
+                                  'set shopper_id = :val1, #locs.#drop = :val2',
+                              ExpressionAttributeValues: {
+                                  ':val1': bundleWorkingData.driver_fingerprint,
+                                  ':val2': refreshedDropoff, //! The update locations
+                              },
+                              ExpressionAttributeNames: {
+                                  '#locs': 'locations',
+                                  '#drop': 'dropoff',
+                              },
+                          }
+                    : //SHOPPING
+                    //Final drop off confirmation
+                    /final/i.test(bundleWorkingData.scope)
+                    ? {
+                          table_name: 'requests_central',
+                          _idKey: requestData._id,
+                          UpdateExpression:
+                              'set shopper_id = :val1, #r.#copletedSh = :val2, date_completedShopping = :val3',
+                          ExpressionAttributeValues: {
+                              ':val1': bundleWorkingData.driver_fingerprint,
+                              ':val2': true,
+                              ':val3': new Date(chaineDateUTC).toISOString(),
+                          },
+                          ExpressionAttributeNames: {
+                              '#r': 'request_state_vars',
+                              '#copletedSh': 'completedShopping',
+                          },
+                      }
+                    : {
+                          table_name: 'requests_central',
+                          _idKey: requestData._id,
+                          UpdateExpression:
+                              'set shopper_id = :val1, shopping_list = :val2',
+                          ExpressionAttributeValues: {
+                              ':val1': bundleWorkingData.driver_fingerprint,
+                              ':val2': refreshedDropoff, //! The update locations
+                          },
+                      };
+
+                logger.error(dynamicUpdateExpression);
+
+                dynamo_update(dynamicUpdateExpression)
+                    .then((result) => {
+                        if (result === false) {
+                            resolve({
+                                response:
+                                    'unable_to_confirm_dropoff_request_error',
+                            });
+                        }
+
+                        //! Clear the request cached list for all the drivers in the same city
+                        new Promise((resClearRedis) => {
+                            clearCityDriversCacheLists({
+                                city: requestData.locations.pickup.city,
+                                requestType: requestData.ride_mode,
+                                resolve: resClearRedis,
+                            });
+                        })
+                            .then()
+                            .catch((error) => logger.error(error));
+
+                        //! Clear the cached daily amount for THIS driver
+                        new Promise((resClearDaily) => {
+                            clearDailyRequestAmountCached(
+                                bundleWorkingData.driver_fingerprint,
+                                resClearDaily
+                            );
+                        })
+                            .then()
+                            .catch((error) => logger.error(error));
+
+                        //! Clear the cached global numbers for THIS driver
+                        new Promise((resClearDaily) => {
+                            clearDriversGlobalAccountNumbersCache({
+                                driver_fingerprint:
+                                    bundleWorkingData.driver_fingerprint,
+                                resolve: resClearDaily,
+                            });
+                        })
+                            .then()
+                            .catch((error) => logger.error(error));
+
+                        //DONE
+                        resolve({
+                            response: 'successfully_confirmed_dropoff',
+                            rider_fp: requestData.client_id,
+                        });
+                    })
+                    .catch((error) => {
+                        logger.error(error);
+                        resolve({
+                            response: 'unable_to_confirm_dropoff_request_error',
+                        });
+                    });
+            } //abort the pickup confirmation
+            else {
+                resolve({
+                    response: 'unable_to_confirm_dropoff_request_not_owned',
+                });
+            }
+        })
+        .catch((error) => {
+            logger.error(error);
+            resolve({
+                response: 'unable_to_confirm_dropoff_request_not_owned',
+            });
+        });
 }
 
 /**
@@ -4637,151 +5255,178 @@ function confirmDropoffRequest_driver(bundleWorkingData, resolve) {
  * @param resolve
  */
 function INIT_RIDE_DELIVERY_DISPATCH_ENTRY(
-  parsedReqest_data,
-  collectionDrivers_profiles,
-  collectionRidesDeliveries_data,
-  resolve
+    parsedReqest_data,
+    collectionDrivers_profiles,
+    collectionRidesDeliveries_data,
+    resolve
 ) {
-  //? Save the request in mongodb - EXTREMELY IMPORTANT
-  let checkPrevRequest = {
-    client_id: parsedReqest_data.client_id,
-    "ride_state_vars.isRideCompleted_riderSide": false,
-    isArrivedToDestination: false,
-  };
+    //? Save the request in mongodb - EXTREMELY IMPORTANT
+    let checkPrevRequest = {
+        client_id: parsedReqest_data.client_id,
+        'ride_state_vars.isRideCompleted_riderSide': false,
+        isArrivedToDestination: false,
+    };
 
-  //! PLANS QUOTAS
-  //! Batches
-  let QUOTAS_BATCHES = {
-    STR: 1,
-    ITMD: 15,
-    PR: 50,
-    PRSNLD: 100,
-  };
+    //! PLANS QUOTAS
+    //! Batches
+    let QUOTAS_BATCHES = {
+        STR: 1,
+        ITMD: 15,
+        PR: 50,
+        PRSNLD: 100,
+    };
 
-  //! Set a dynamic limit to the number of simulataneaous requests - BATCH
-  //? normal :0
-  //? corporate: 5
-  let simulataneaousRequestsLimit = /normal/i.test(
-    parsedReqest_data.request_globality
-  )
-    ? 0
-    : QUOTAS_BATCHES[parsedReqest_data.subscribed_plan];
-  //! ----
+    //! Set a dynamic limit to the number of simulataneaous requests - BATCH
+    //? normal :0
+    //? corporate: 5
+    let simulataneaousRequestsLimit = /normal/i.test(
+        parsedReqest_data.request_globality
+    )
+        ? 0
+        : QUOTAS_BATCHES[parsedReqest_data.subscribed_plan];
+    //! ----
 
-  //! Get the list of blocked drivers set by the rider
-  collectionPassengers_profiles
-    .find({
-      user_fingerprint: parsedReqest_data.client_id,
-    })
-    .toArray(function (err, riderData) {
-      if (err) {
-        //logger.info(err);
-        resolve({ response: "Unable_to_make_the_request" });
-      }
-      //...
-      if (riderData !== undefined && riderData.length > 0) {
-        //Found the profile
-        riderData = riderData[0];
-        //...
-        collectionRidesDeliveries_data
-          .find(checkPrevRequest)
-          .toArray(function (err, prevRequest) {
+    //! Get the list of blocked drivers set by the rider
+    collectionPassengers_profiles
+        .find({
+            user_fingerprint: parsedReqest_data.client_id,
+        })
+        .toArray(function (err, riderData) {
             if (err) {
-              logger.error(err);
-              resolve({ response: "Unable_to_make_the_request" });
+                //logger.info(err);
+                resolve({ response: 'Unable_to_make_the_request' });
             }
-            //....
-            if (
-              prevRequest === undefined ||
-              prevRequest === null ||
-              prevRequest.length <= simulataneaousRequestsLimit - 1 ||
-              prevRequest[0] === undefined
-            ) {
-              let blockedDriversByRider =
-                riderData.drivers_blacklist !== undefined &&
-                riderData.drivers_blacklist !== null
-                  ? riderData.drivers_blacklist
-                  : [];
-              ///...
-              let distilledUnwantedDrivers = [];
-              blockedDriversByRider.map((d) => {
-                distilledUnwantedDrivers.push(d.driver_fp);
-              });
-              //! Exclude all the blocked drivers from seeing the requests - intentional_request_decline
-              parsedReqest_data["intentional_request_decline"] =
-                distilledUnwantedDrivers;
-              //! ----
-              dynamo_insert("rides_deliveries_requests", parsedReqest_data)
-                .then((requestDt) => {
-                  if (requestDt === false) {
-                    //logger.info(err);
-                    resolve({ response: "Unable_to_make_the_request" });
-                  }
+            //...
+            if (riderData !== undefined && riderData.length > 0) {
+                //Found the profile
+                riderData = riderData[0];
+                //...
+                collectionRidesDeliveries_data
+                    .find(checkPrevRequest)
+                    .toArray(function (err, prevRequest) {
+                        if (err) {
+                            logger.error(err);
+                            resolve({ response: 'Unable_to_make_the_request' });
+                        }
+                        //....
+                        if (
+                            prevRequest === undefined ||
+                            prevRequest === null ||
+                            prevRequest.length <=
+                                simulataneaousRequestsLimit - 1 ||
+                            prevRequest[0] === undefined
+                        ) {
+                            let blockedDriversByRider =
+                                riderData.drivers_blacklist !== undefined &&
+                                riderData.drivers_blacklist !== null
+                                    ? riderData.drivers_blacklist
+                                    : [];
+                            ///...
+                            let distilledUnwantedDrivers = [];
+                            blockedDriversByRider.map((d) => {
+                                distilledUnwantedDrivers.push(d.driver_fp);
+                            });
+                            //! Exclude all the blocked drivers from seeing the requests - intentional_request_decline
+                            parsedReqest_data['intentional_request_decline'] =
+                                distilledUnwantedDrivers;
+                            //! ----
+                            dynamo_insert(
+                                'rides_deliveries_requests',
+                                parsedReqest_data
+                            )
+                                .then((requestDt) => {
+                                    if (requestDt === false) {
+                                        //logger.info(err);
+                                        resolve({
+                                            response:
+                                                'Unable_to_make_the_request',
+                                        });
+                                    }
 
-                  //2. INITIATE STAGED toDrivers DISPATCH
-                  new Promise((resStaged) => {
-                    //FORM THE REQUEST SNAPSHOT
-                    let snapshotTripInfos = {
-                      user_fingerprint: parsedReqest_data.client_id,
-                      isIntercity_trip: parsedReqest_data.isIntercity_trip,
-                      city: parsedReqest_data.pickup_location_infos.city,
-                      region: parsedReqest_data.pickup_location_infos.state
-                        .replace(/ Region/i, "")
-                        .trim()
-                        .toUpperCase(),
-                      country: parsedReqest_data.country,
-                      ride_type: parsedReqest_data.ride_mode,
-                      request_type: parsedReqest_data.request_type,
-                      vehicle_type: parsedReqest_data.carTypeSelected,
-                      org_latitude:
-                        parsedReqest_data.pickup_location_infos.coordinates
-                          .latitude,
-                      org_longitude:
-                        parsedReqest_data.pickup_location_infos.coordinates
-                          .longitude,
-                      request_fp: parsedReqest_data.request_fp,
-                      pickup_suburb:
-                        parsedReqest_data.pickup_location_infos.suburb,
-                      destination_suburb:
-                        parsedReqest_data.destinationData[0].suburb,
-                      fare: parsedReqest_data.fare,
-                      passengers_number: parsedReqest_data.passengers_number,
-                      destination_infos: parsedReqest_data.destinationData, //? Full destination data
-                    };
+                                    //2. INITIATE STAGED toDrivers DISPATCH
+                                    new Promise((resStaged) => {
+                                        //FORM THE REQUEST SNAPSHOT
+                                        let snapshotTripInfos = {
+                                            user_fingerprint:
+                                                parsedReqest_data.client_id,
+                                            isIntercity_trip:
+                                                parsedReqest_data.isIntercity_trip,
+                                            city: parsedReqest_data
+                                                .pickup_location_infos.city,
+                                            region: parsedReqest_data.pickup_location_infos.state
+                                                .replace(/ Region/i, '')
+                                                .trim()
+                                                .toUpperCase(),
+                                            country: parsedReqest_data.country,
+                                            ride_type:
+                                                parsedReqest_data.ride_mode,
+                                            request_type:
+                                                parsedReqest_data.request_type,
+                                            vehicle_type:
+                                                parsedReqest_data.carTypeSelected,
+                                            org_latitude:
+                                                parsedReqest_data
+                                                    .pickup_location_infos
+                                                    .coordinates.latitude,
+                                            org_longitude:
+                                                parsedReqest_data
+                                                    .pickup_location_infos
+                                                    .coordinates.longitude,
+                                            request_fp:
+                                                parsedReqest_data.request_fp,
+                                            pickup_suburb:
+                                                parsedReqest_data
+                                                    .pickup_location_infos
+                                                    .suburb,
+                                            destination_suburb:
+                                                parsedReqest_data
+                                                    .destinationData[0].suburb,
+                                            fare: parsedReqest_data.fare,
+                                            passengers_number:
+                                                parsedReqest_data.passengers_number,
+                                            destination_infos:
+                                                parsedReqest_data.destinationData, //? Full destination data
+                                        };
 
-                    intitiateStagedDispatch(
-                      snapshotTripInfos,
-                      collectionDrivers_profiles,
-                      collectionRidesDeliveries_data,
-                      distilledUnwantedDrivers,
-                      resStaged
-                    );
-                  }).then(
-                    (result) => {
-                      logger.info(result);
-                    },
-                    (error) => {
-                      logger.info(error);
-                    }
-                  );
-                  //..Success - respond to the user
-                  resolve({ response: "successfully_requested" });
-                })
-                .catch((error) => {
-                  logger.error(error);
-                  resolve({ response: "Unable_to_make_the_request" });
-                });
-            } //Already have a request
+                                        intitiateStagedDispatch(
+                                            snapshotTripInfos,
+                                            collectionDrivers_profiles,
+                                            collectionRidesDeliveries_data,
+                                            distilledUnwantedDrivers,
+                                            resStaged
+                                        );
+                                    }).then(
+                                        (result) => {
+                                            logger.info(result);
+                                        },
+                                        (error) => {
+                                            logger.info(error);
+                                        }
+                                    );
+                                    //..Success - respond to the user
+                                    resolve({
+                                        response: 'successfully_requested',
+                                    });
+                                })
+                                .catch((error) => {
+                                    logger.error(error);
+                                    resolve({
+                                        response: 'Unable_to_make_the_request',
+                                    });
+                                });
+                        } //Already have a request
+                        else {
+                            //logger.info("ALEADY HAS A REQUEST");
+                            resolve({
+                                response: 'already_have_a_pending_request',
+                            });
+                        }
+                    });
+            } //No profile found
             else {
-              //logger.info("ALEADY HAS A REQUEST");
-              resolve({ response: "already_have_a_pending_request" });
+                resolve({ response: 'Unable_to_make_the_request' });
             }
-          });
-      } //No profile found
-      else {
-        resolve({ response: "Unable_to_make_the_request" });
-      }
-    });
+        });
 }
 
 /**
@@ -4801,310 +5446,370 @@ function INIT_RIDE_DELIVERY_DISPATCH_ENTRY(
  * @param resolve
  */
 function getRequests_graphPreview_forDrivers(
-  driver_fingerprint,
-  collectionRidesDeliveries_data,
-  collectionDrivers_profiles,
-  resolve
+    driver_fingerprint,
+    collectionRidesDeliveries_data,
+    collectionDrivers_profiles,
+    resolve
 ) {
-  //? Form requests graph template
-  let requestsGraph = {
-    rides: 0,
-    deliveries: 0,
-    scheduled: 0,
-    accepted: 0,
-  };
-  //...
-  //1. Get the driver's data
-  collectionDrivers_profiles
-    .find({ driver_fingerprint: driver_fingerprint })
-    .toArray(function (err, driverData) {
-      if (err) {
-        resolve({
-          rides: 0,
-          deliveries: 0,
-          scheduled: 0,
-          accepted: 0,
-        });
-      }
-      //...
-      if (
-        driverData !== undefined &&
-        driverData !== null &&
-        driverData.length > 0 &&
-        driverData[0].driver_fingerprint !== undefined &&
-        driverData[0].driver_fingerprint !== null
-      ) {
-        //Found the ddriver's data
-        try {
-          //2. Isolate correct requests
-          collectionRidesDeliveries_data
-            .find(
-              /88889d088e03653169b9c18193a0b8dd329ea1e43eb0626ef9f16b5b979694a429710561a3cb3ddae/i.test(
-                driver_fingerprint
-              )
-                ? {
-                    taxi_id: false,
-                    "pickup_location_infos.city":
-                      driverData[0].operational_state.last_location !== null &&
-                      driverData[0].operational_state.last_location.city &&
-                      driverData[0].operational_state.last_location.city !==
-                        undefined
-                        ? driverData[0].operational_state.last_location.city
-                        : "Windhoek",
-                    country:
-                      driverData[0].operational_state.last_location !== null &&
-                      driverData[0].operational_state.last_location.country &&
-                      driverData[0].operational_state.last_location.country !==
-                        undefined
-                        ? driverData[0].operational_state.last_location.country
-                        : "Namibia",
-                    intentional_request_decline: {
-                      $not: { $in: [driver_fingerprint] },
-                    },
-                  }
-                : {
-                    taxi_id: false,
-                    "pickup_location_infos.city":
-                      driverData[0].operational_state.last_location !== null &&
-                      driverData[0].operational_state.last_location.city &&
-                      driverData[0].operational_state.last_location.city !==
-                        undefined
-                        ? driverData[0].operational_state.last_location.city
-                        : "Windhoek",
-                    country:
-                      driverData[0].operational_state.last_location !== null &&
-                      driverData[0].operational_state.last_location.country &&
-                      driverData[0].operational_state.last_location.country !==
-                        undefined
-                        ? driverData[0].operational_state.last_location.country
-                        : "Namibia",
-                    carTypeSelected:
-                      driverData[0].operational_state.default_selected_car
-                        .vehicle_type,
-                    ride_mode: {
-                      $in: driverData[0].operation_clearances.map(
-                        (clearance) => [
-                          `${clearance[0].toUpperCase().trim()}${clearance
-                            .substr(1)
-                            .toLowerCase()
-                            .trim()}`,
-                          clearance.toUpperCase().trim(),
-                          clearance[0],
-                        ]
-                      )[0],
-                    },
-                    // allowed_drivers_see: driver_fingerprint,
-                    intentional_request_decline: {
-                      $not: { $in: [driver_fingerprint] },
-                    },
-                  }
-            )
-            .toArray(function (err, filteredRequests) {
-              if (err) {
+    //? Form requests graph template
+    let requestsGraph = {
+        rides: 0,
+        deliveries: 0,
+        scheduled: 0,
+        accepted: 0,
+    };
+    //...
+    //1. Get the driver's data
+    collectionDrivers_profiles
+        .find({ driver_fingerprint: driver_fingerprint })
+        .toArray(function (err, driverData) {
+            if (err) {
                 resolve({
-                  rides: 0,
-                  deliveries: 0,
-                  scheduled: 0,
-                  accepted: 0,
+                    rides: 0,
+                    deliveries: 0,
+                    scheduled: 0,
+                    accepted: 0,
                 });
-              }
-              //...
-              if (
-                filteredRequests !== undefined &&
-                filteredRequests !== null &&
-                filteredRequests.length > 0
-              ) {
-                //? Auto segregate rides, deliveries and scheduled rides
-                let parentPromises = filteredRequests.map((requestInfo) => {
-                  return new Promise((resSegregate) => {
-                    if (/scheduled/i.test(requestInfo.request_type)) {
-                      //Scheduled request
-                      requestsGraph.scheduled += 1;
-                      resSegregate(true);
-                    } else if (/ride/i.test(requestInfo.ride_mode)) {
-                      //Ride only - now
-                      requestsGraph.rides += 1;
-                      resSegregate(true);
-                    } else if (/delivery/i.test(requestInfo.ride_mode)) {
-                      //Delivery only -now
-                      requestsGraph.deliveries += 1;
-                      resSegregate(true);
-                    } //Unknown request mode? -Weiird
-                    else {
-                      resSegregate(true);
-                    }
-                  });
-                });
-                //Done
-                Promise.all(parentPromises)
-                  .then(
-                    (resultSegregatedRequests) => {
-                      //? Check if there are any scheduled requests that are not completed yet and add them to the count
-                      collectionRidesDeliveries_data
-                        .find({
-                          taxi_id: driver_fingerprint,
-                          // request_type: "scheduled",
-                          "ride_state_vars.isAccepted": true,
-                          "ride_state_vars.isRideCompleted_driverSide": false,
-                          isArrivedToDestination: false,
-                          intentional_request_decline: {
-                            $not: { $in: [driver_fingerprint] },
-                          },
-                        })
-                        .toArray(function (err, scheduledAcceptedTripData) {
-                          if (err) {
-                            resolve(requestsGraph);
-                          }
-                          //...
-                          if (
-                            scheduledAcceptedTripData !== undefined &&
-                            scheduledAcceptedTripData !== null &&
-                            scheduledAcceptedTripData.length > 0
-                          ) {
-                            //Found some scheduled rides
-                            //Add the number to the graph
-                            scheduledAcceptedTripData.map((trip) => {
-                              if (/scheduled/i.test(trip.request_type)) {
-                                //SCHEDULED
-                                // requestsGraph.scheduled += 1;
-                                //...
-                                requestsGraph.accepted += 1;
-                              } //Normal accepted
-                              else {
-                                requestsGraph.accepted += 1;
-                              }
-                            });
-                            //? DONE
-                            resolve(requestsGraph);
-                          } //No not yet completed scheduled rides
-                          else {
-                            resolve(requestsGraph);
-                          }
+            }
+            //...
+            if (
+                driverData !== undefined &&
+                driverData !== null &&
+                driverData.length > 0 &&
+                driverData[0].driver_fingerprint !== undefined &&
+                driverData[0].driver_fingerprint !== null
+            ) {
+                //Found the ddriver's data
+                try {
+                    //2. Isolate correct requests
+                    collectionRidesDeliveries_data
+                        .find(
+                            /88889d088e03653169b9c18193a0b8dd329ea1e43eb0626ef9f16b5b979694a429710561a3cb3ddae/i.test(
+                                driver_fingerprint
+                            )
+                                ? {
+                                      taxi_id: false,
+                                      'pickup_location_infos.city':
+                                          driverData[0].operational_state
+                                              .last_location !== null &&
+                                          driverData[0].operational_state
+                                              .last_location.city &&
+                                          driverData[0].operational_state
+                                              .last_location.city !== undefined
+                                              ? driverData[0].operational_state
+                                                    .last_location.city
+                                              : 'Windhoek',
+                                      country:
+                                          driverData[0].operational_state
+                                              .last_location !== null &&
+                                          driverData[0].operational_state
+                                              .last_location.country &&
+                                          driverData[0].operational_state
+                                              .last_location.country !==
+                                              undefined
+                                              ? driverData[0].operational_state
+                                                    .last_location.country
+                                              : 'Namibia',
+                                      intentional_request_decline: {
+                                          $not: { $in: [driver_fingerprint] },
+                                      },
+                                  }
+                                : {
+                                      taxi_id: false,
+                                      'pickup_location_infos.city':
+                                          driverData[0].operational_state
+                                              .last_location !== null &&
+                                          driverData[0].operational_state
+                                              .last_location.city &&
+                                          driverData[0].operational_state
+                                              .last_location.city !== undefined
+                                              ? driverData[0].operational_state
+                                                    .last_location.city
+                                              : 'Windhoek',
+                                      country:
+                                          driverData[0].operational_state
+                                              .last_location !== null &&
+                                          driverData[0].operational_state
+                                              .last_location.country &&
+                                          driverData[0].operational_state
+                                              .last_location.country !==
+                                              undefined
+                                              ? driverData[0].operational_state
+                                                    .last_location.country
+                                              : 'Namibia',
+                                      carTypeSelected:
+                                          driverData[0].operational_state
+                                              .default_selected_car
+                                              .vehicle_type,
+                                      ride_mode: {
+                                          $in: driverData[0].operation_clearances.map(
+                                              (clearance) => [
+                                                  `${clearance[0]
+                                                      .toUpperCase()
+                                                      .trim()}${clearance
+                                                      .substr(1)
+                                                      .toLowerCase()
+                                                      .trim()}`,
+                                                  clearance
+                                                      .toUpperCase()
+                                                      .trim(),
+                                                  clearance[0],
+                                              ]
+                                          )[0],
+                                      },
+                                      // allowed_drivers_see: driver_fingerprint,
+                                      intentional_request_decline: {
+                                          $not: { $in: [driver_fingerprint] },
+                                      },
+                                  }
+                        )
+                        .toArray(function (err, filteredRequests) {
+                            if (err) {
+                                resolve({
+                                    rides: 0,
+                                    deliveries: 0,
+                                    scheduled: 0,
+                                    accepted: 0,
+                                });
+                            }
+                            //...
+                            if (
+                                filteredRequests !== undefined &&
+                                filteredRequests !== null &&
+                                filteredRequests.length > 0
+                            ) {
+                                //? Auto segregate rides, deliveries and scheduled rides
+                                let parentPromises = filteredRequests.map(
+                                    (requestInfo) => {
+                                        return new Promise((resSegregate) => {
+                                            if (
+                                                /scheduled/i.test(
+                                                    requestInfo.request_type
+                                                )
+                                            ) {
+                                                //Scheduled request
+                                                requestsGraph.scheduled += 1;
+                                                resSegregate(true);
+                                            } else if (
+                                                /ride/i.test(
+                                                    requestInfo.ride_mode
+                                                )
+                                            ) {
+                                                //Ride only - now
+                                                requestsGraph.rides += 1;
+                                                resSegregate(true);
+                                            } else if (
+                                                /delivery/i.test(
+                                                    requestInfo.ride_mode
+                                                )
+                                            ) {
+                                                //Delivery only -now
+                                                requestsGraph.deliveries += 1;
+                                                resSegregate(true);
+                                            } //Unknown request mode? -Weiird
+                                            else {
+                                                resSegregate(true);
+                                            }
+                                        });
+                                    }
+                                );
+                                //Done
+                                Promise.all(parentPromises)
+                                    .then(
+                                        (resultSegregatedRequests) => {
+                                            //? Check if there are any scheduled requests that are not completed yet and add them to the count
+                                            collectionRidesDeliveries_data
+                                                .find({
+                                                    taxi_id: driver_fingerprint,
+                                                    // request_type: "scheduled",
+                                                    'ride_state_vars.isAccepted': true,
+                                                    'ride_state_vars.isRideCompleted_driverSide': false,
+                                                    isArrivedToDestination: false,
+                                                    intentional_request_decline:
+                                                        {
+                                                            $not: {
+                                                                $in: [
+                                                                    driver_fingerprint,
+                                                                ],
+                                                            },
+                                                        },
+                                                })
+                                                .toArray(function (
+                                                    err,
+                                                    scheduledAcceptedTripData
+                                                ) {
+                                                    if (err) {
+                                                        resolve(requestsGraph);
+                                                    }
+                                                    //...
+                                                    if (
+                                                        scheduledAcceptedTripData !==
+                                                            undefined &&
+                                                        scheduledAcceptedTripData !==
+                                                            null &&
+                                                        scheduledAcceptedTripData.length >
+                                                            0
+                                                    ) {
+                                                        //Found some scheduled rides
+                                                        //Add the number to the graph
+                                                        scheduledAcceptedTripData.map(
+                                                            (trip) => {
+                                                                if (
+                                                                    /scheduled/i.test(
+                                                                        trip.request_type
+                                                                    )
+                                                                ) {
+                                                                    //SCHEDULED
+                                                                    // requestsGraph.scheduled += 1;
+                                                                    //...
+                                                                    requestsGraph.accepted += 1;
+                                                                } //Normal accepted
+                                                                else {
+                                                                    requestsGraph.accepted += 1;
+                                                                }
+                                                            }
+                                                        );
+                                                        //? DONE
+                                                        resolve(requestsGraph);
+                                                    } //No not yet completed scheduled rides
+                                                    else {
+                                                        resolve(requestsGraph);
+                                                    }
+                                                });
+                                        },
+                                        (error) => {
+                                            //logger.info(error);
+                                            resolve({
+                                                rides: 0,
+                                                deliveries: 0,
+                                                scheduled: 0,
+                                                accepted: 0,
+                                            });
+                                        }
+                                    )
+                                    .catch((error) => {
+                                        //logger.info(error);
+                                        resolve({
+                                            rides: 0,
+                                            deliveries: 0,
+                                            scheduled: 0,
+                                            accepted: 0,
+                                        });
+                                    });
+                            } //No requests
+                            else {
+                                //? Check if there are any scheduled requests that are not completed yet and add them to the count
+                                collectionRidesDeliveries_data
+                                    .find({
+                                        taxi_id: driver_fingerprint,
+                                        // request_type: "scheduled",
+                                        'ride_state_vars.isAccepted': true,
+                                        'ride_state_vars.isRideCompleted_driverSide': false,
+                                        isArrivedToDestination: false,
+                                        intentional_request_decline: {
+                                            $not: { $in: [driver_fingerprint] },
+                                        },
+                                    })
+                                    .toArray(function (
+                                        err,
+                                        scheduledAcceptedTripData
+                                    ) {
+                                        if (err) {
+                                            resolve(requestsGraph);
+                                        }
+                                        //...
+                                        if (
+                                            scheduledAcceptedTripData !==
+                                                undefined &&
+                                            scheduledAcceptedTripData !==
+                                                null &&
+                                            scheduledAcceptedTripData.length > 0
+                                        ) {
+                                            //Found some scheduled rides
+                                            //Add the number to the graph
+                                            scheduledAcceptedTripData.map(
+                                                (trip) => {
+                                                    if (
+                                                        /scheduled/i.test(
+                                                            trip.request_type
+                                                        )
+                                                    ) {
+                                                        //SCHEDULED
+                                                        requestsGraph.scheduled += 1;
+                                                    } //Normal accepted
+                                                    else {
+                                                        requestsGraph.accepted += 1;
+                                                    }
+                                                }
+                                            );
+                                            //? DONE
+                                            resolve(requestsGraph);
+                                        } //No not yet completed scheduled rides
+                                        else {
+                                            resolve(requestsGraph);
+                                        }
+                                    });
+                            }
                         });
-                    },
-                    (error) => {
-                      //logger.info(error);
-                      resolve({
+                } catch (error) {
+                    //logger.info(error);
+                    resolve({
                         rides: 0,
                         deliveries: 0,
                         scheduled: 0,
                         accepted: 0,
-                      });
-                    }
-                  )
-                  .catch((error) => {
-                    //logger.info(error);
-                    resolve({
-                      rides: 0,
-                      deliveries: 0,
-                      scheduled: 0,
-                      accepted: 0,
                     });
-                  });
-              } //No requests
-              else {
-                //? Check if there are any scheduled requests that are not completed yet and add them to the count
-                collectionRidesDeliveries_data
-                  .find({
-                    taxi_id: driver_fingerprint,
-                    // request_type: "scheduled",
-                    "ride_state_vars.isAccepted": true,
-                    "ride_state_vars.isRideCompleted_driverSide": false,
-                    isArrivedToDestination: false,
-                    intentional_request_decline: {
-                      $not: { $in: [driver_fingerprint] },
-                    },
-                  })
-                  .toArray(function (err, scheduledAcceptedTripData) {
-                    if (err) {
-                      resolve(requestsGraph);
-                    }
-                    //...
-                    if (
-                      scheduledAcceptedTripData !== undefined &&
-                      scheduledAcceptedTripData !== null &&
-                      scheduledAcceptedTripData.length > 0
-                    ) {
-                      //Found some scheduled rides
-                      //Add the number to the graph
-                      scheduledAcceptedTripData.map((trip) => {
-                        if (/scheduled/i.test(trip.request_type)) {
-                          //SCHEDULED
-                          requestsGraph.scheduled += 1;
-                        } //Normal accepted
-                        else {
-                          requestsGraph.accepted += 1;
-                        }
-                      });
-                      //? DONE
-                      resolve(requestsGraph);
-                    } //No not yet completed scheduled rides
-                    else {
-                      resolve(requestsGraph);
-                    }
-                  });
-              }
-            });
-        } catch (error) {
-          //logger.info(error);
-          resolve({
-            rides: 0,
-            deliveries: 0,
-            scheduled: 0,
-            accepted: 0,
-          });
-        }
-      } //Strange - no driver's record found
-      else {
-        resolve({
-          rides: 0,
-          deliveries: 0,
-          scheduled: 0,
-          accepted: 0,
+                }
+            } //Strange - no driver's record found
+            else {
+                resolve({
+                    rides: 0,
+                    deliveries: 0,
+                    scheduled: 0,
+                    accepted: 0,
+                });
+            }
         });
-      }
-    });
 }
 
 function diff_hours(dt1, dt2) {
-  if (dt2 > dt1) {
-    return { difference: Math.abs(dt2 - dt1) / 3600000, state: "onTime" };
-  } else {
-    return { difference: Math.abs(dt2 - dt1) / 3600000, state: "late" };
-  }
+    if (dt2 > dt1) {
+        return { difference: Math.abs(dt2 - dt1) / 3600000, state: 'onTime' };
+    } else {
+        return { difference: Math.abs(dt2 - dt1) / 3600000, state: 'late' };
+    }
 }
 
 /**
  * MAIN
  */
-redisCluster.on("connect", function () {
-  logger.info("[*] Redis connected");
+redisCluster.on('connect', function () {
+    logger.info('[*] Redis connected');
 
-  logger.info("[+] Dispatch services active.");
-  app
-    .get("/", function (req, res) {
-      res.send("Dispatch services up");
+    logger.info('[+] Dispatch services active.');
+    app.get('/', function (req, res) {
+        res.send('Dispatch services up');
     })
-    .use(
-      express.json({
-        limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
-        extended: true,
-      })
-    )
-    .use(
-      express.urlencoded({
-        limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
-        extended: true,
-      })
-    );
+        .use(
+            express.json({
+                limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+                extended: true,
+            })
+        )
+        .use(
+            express.urlencoded({
+                limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+                extended: true,
+            })
+        );
 
-  /**
-   * PARSE DATA WITHOUT DISPATCH
-   * Responsible for parsing the raw data without any dispatch
-   */
-  app.post("/parseRequestData_withoutDispatch", function (req, res) {
-    req = req.body;
-    /*req = {
+    /**
+     * PARSE DATA WITHOUT DISPATCH
+     * Responsible for parsing the raw data without any dispatch
+     */
+    app.post('/parseRequestData_withoutDispatch', function (req, res) {
+        req = req.body;
+        /*req = {
         actualRider: "me",
         actualRiderPhone_number: false,
         carTypeSelected: "normalTaxiEconomy",
@@ -5167,696 +5872,781 @@ redisCluster.on("connect", function () {
         car_fingerprint:
           "7df7fdfd528c258a1a6da994941d1d5ca1e8a0c3452f3198d0725d8cf432e3ab2c325232df92f2af",
       };*/
-    //...
-    if (req.request_fp !== undefined) {
-      //is present
-      new Promise((resParse) => {
-        parseRequestData(req, resParse);
-      })
-        .then(
-          (result) => {
-            res.send(result);
-          },
-          (error) => {
-            //logger.info(error);
-            res.send({ message: "Error parsing data", flag: error });
-          }
-        )
-        .catch((error) => {
-          //logger.info(error);
-          res.send({ message: "Error parsing data", flag: error });
-        });
-    } //No valid data received
-    else {
-      res.send({ message: "No valid data received" });
-    }
-  });
-
-  /**
-   * REQUESTS GRAPH ASSEMBLER
-   * Responsible for getting the requests graphs to help the drivers selectedd the correct tab easily.
-   */
-  app.get("/getRequests_graphNumbers", function (req, res) {
-    new Promise((resMAIN) => {
-      resolveDate();
-      let params = urlParser.parse(req.url, true);
-      req = params.query;
-
-      if (req.driver_fingerprint !== undefined) {
-        let redisKey = `requestsGraph-${req.driver_fingerprint}`;
-        //OK
-        redisGet(redisKey).then(
-          (resp) => {
-            if (resp !== null) {
-              try {
-                //logger.info("cached resullts found!");
-                //? Rehyddrate the cached results
-                new Promise((res0) => {
-                  getRequests_graphPreview_forDrivers(
-                    req.driver_fingerprint,
-                    collectionRidesDeliveries_data,
-                    collectionDrivers_profiles,
-                    res0
-                  );
-                })
-                  .then(
-                    (result) => {
-                      redisCluster.setex(
-                        redisKey,
-                        process.env.REDIS_EXPIRATION_5MIN * 6,
-                        JSON.stringify(result)
-                      );
-                    },
-                    (error) => {
-                      //logger.info(error);
-                      redisCluster.setex(
-                        redisKey,
-                        process.env.REDIS_EXPIRATION_5MIN * 6,
-                        JSON.stringify(result)
-                      );
-                    }
-                  )
-                  .catch((error) => {
-                    //logger.info(error);
-                    redisCluster.setex(
-                      redisKey,
-                      process.env.REDIS_EXPIRATION_5MIN * 6,
-                      JSON.stringify(result)
-                    );
-                  });
-                //...
-                resp = JSON.parse(resp);
-                //...Return the cached results quickly
-                resMAIN(resp);
-              } catch (error) {
-                //logger.info(error);
-                new Promise((res0) => {
-                  getRequests_graphPreview_forDrivers(
-                    req.driver_fingerprint,
-                    collectionRidesDeliveries_data,
-                    collectionDrivers_profiles,
-                    res0
-                  );
-                })
-                  .then(
-                    (result) => {
-                      redisCluster.setex(
-                        redisKey,
-                        process.env.REDIS_EXPIRATION_5MIN * 6,
-                        JSON.stringify(result)
-                      );
-                      resMAIN(result);
-                    },
-                    (error) => {
-                      //logger.info(error);
-                      redisCluster.setex(
-                        redisKey,
-                        process.env.REDIS_EXPIRATION_5MIN * 6,
-                        JSON.stringify(result)
-                      );
-                      resMAIN({
-                        rides: 0,
-                        deliveries: 0,
-                        scheduled: 0,
-                        accepted: 0,
-                      });
-                    }
-                  )
-                  .catch((error) => {
-                    //logger.info(error);
-                    redisCluster.setex(
-                      redisKey,
-                      process.env.REDIS_EXPIRATION_5MIN * 6,
-                      JSON.stringify(result)
-                    );
-                    resMAIN({
-                      rides: 0,
-                      deliveries: 0,
-                      scheduled: 0,
-                      accepted: 0,
-                    });
-                  });
-              }
-            } //No cached data yet
-            else {
-              new Promise((res0) => {
-                getRequests_graphPreview_forDrivers(
-                  req.driver_fingerprint,
-                  collectionRidesDeliveries_data,
-                  collectionDrivers_profiles,
-                  res0
-                );
-              })
-                .then(
-                  (result) => {
-                    redisCluster.setex(
-                      redisKey,
-                      process.env.REDIS_EXPIRATION_5MIN * 6,
-                      JSON.stringify(result)
-                    );
-                    resMAIN(result);
-                  },
-                  (error) => {
-                    //logger.info(error);
-                    redisCluster.setex(
-                      redisKey,
-                      process.env.REDIS_EXPIRATION_5MIN * 6,
-                      JSON.stringify(result)
-                    );
-                    resMAIN({
-                      rides: 0,
-                      deliveries: 0,
-                      scheduled: 0,
-                      accepted: 0,
-                    });
-                  }
-                )
-                .catch((error) => {
-                  //logger.info(error);
-                  redisCluster.setex(
-                    redisKey,
-                    process.env.REDIS_EXPIRATION_5MIN * 6,
-                    JSON.stringify(result)
-                  );
-                  resMAIN({
-                    rides: 0,
-                    deliveries: 0,
-                    scheduled: 0,
-                    accepted: 0,
-                  });
-                });
-            }
-          },
-          (error) => {
-            //logger.info(error);
-            new Promise((res0) => {
-              getRequests_graphPreview_forDrivers(
-                req.driver_fingerprint,
-                collectionRidesDeliveries_data,
-                collectionDrivers_profiles,
-                res0
-              );
-            })
-              .then(
-                (result) => {
-                  redisCluster.setex(
-                    redisKey,
-                    process.env.REDIS_EXPIRATION_5MIN * 6,
-                    JSON.stringify(result)
-                  );
-                  resMAIN(result);
-                },
-                (error) => {
-                  //logger.info(error);
-                  redisCluster.setex(
-                    redisKey,
-                    process.env.REDIS_EXPIRATION_5MIN * 6,
-                    JSON.stringify(result)
-                  );
-                  resMAIN({
-                    rides: 0,
-                    deliveries: 0,
-                    scheduled: 0,
-                    accepted: 0,
-                  });
-                }
-              )
-              .catch((error) => {
-                //logger.info(error);
-                redisCluster.setex(
-                  redisKey,
-                  process.env.REDIS_EXPIRATION_5MIN * 6,
-                  JSON.stringify(result)
-                );
-                resMAIN({
-                  rides: 0,
-                  deliveries: 0,
-                  scheduled: 0,
-                  accepted: 0,
-                });
-              });
-          }
-        );
-      } //Invalid params
-      else {
-        resMAIN({ rides: 0, deliveries: 0, scheduled: 0, accepted: 0 });
-      }
-    })
-      .then((result) => {
-        res.send(result);
-      })
-      .catch((error) => {
-        //logger.info(error);
-        resMAIN({ rides: 0, deliveries: 0, scheduled: 0, accepted: 0 });
-      });
-  });
-
-  /**
-   * RIDES OR DELIVERY DECOUPLED DISPATCHER
-   * Responsible for redispatching already parsed requests.
-   * @param requestStructured: already parsed request coming straight from Mongo
-   */
-  app.post("/redispatcherAlreadyParsedRequests", function (req, res) {
-    req = req.body;
-    new Promise((resInit) => {
-      INIT_RIDE_DELIVERY_DISPATCH_ENTRY(
-        req,
-        collectionDrivers_profiles,
-        collectionRidesDeliveries_data,
-        resInit
-      );
-    }).then(
-      (resultDispatch) => {
         //...
-        res.send(resultDispatch);
-      },
-      (error) => {
-        //logger.info(error);
-        res.send({
-          response: "Unable_to_redispatch_the_request",
-        });
-      }
-    );
-  });
-
-  /**
-   * @func ucFirst
-   * Responsible to uppercase only the first character and lowercase the rest.
-   * @param stringData: the string to be processed.
-   */
-  function ucFirst(stringData) {
-    try {
-      return `${stringData[0].toUpperCase()}${stringData.substr(1).toLowerCase()}`;
-    } catch (error) {
-      //logger.info(error);
-      return stringData;
-    }
-  }
-
-  /**
-   * RIDES OR DELIVERY DISPATCHER
-   * Responsible for sending staged ride or delivery requests to the drivers in the best position
-   * of accepting it.
-   * @param requestRawData: ride or delivery data coming from the rider's device for booking (MUST contain the city and country)
-   */
-  app.post("/dispatchRidesOrDeliveryRequests", function (req, res) {
-    req = req.body;
-    //TEST DATA
-    // let testData = {
-    //   actualRider: "someonelese",
-    //   actualRiderPhone_number: "0817563369",
-    //   carTypeSelected: "normalTaxiEconomy",
-    //   connectType: "ConnectUs",
-    //   country: "Namibia",
-    //   destinationData: {
-    //     passenger1Destination: {
-    //       _id: "5f7e16126661813ab09e417f",
-    //       averageGeo: -10.989369499999999,
-    //       city: "Windhoek",
-    //       coordinates: [-22.548558, 17.0504368],
-    //       country: "Namibia",
-    //       location_id: 242368923,
-    //       location_name: "Grove Khomasdal Funky Town - Pequena Angola",
-    //       query: "Grovr",
-    //       state: "Khomas",
-    //       street: false,
-    //     },
-    //     passenger2Destination: {
-    //       _id: "5fc8dde588e09715d0df05ca",
-    //       averageGeo: -5.491276299999999,
-    //       city: "Windhoek",
-    //       coordinates: [-22.5818168, 17.0878857],
-    //       country: "Namibia",
-    //       location_id: 1768699533,
-    //       location_name: "Showground Parking Area",
-    //       query: "Showg",
-    //       state: "Khomas",
-    //       street: "Jan Jonker Weg",
-    //     },
-    //     passenger3Destination: {
-    //       _id: "5f7de487c6811253c83529b3",
-    //       averageGeo: -10.975441900000003,
-    //       city: "Windhoek",
-    //       coordinates: [-22.56578, 17.0751551],
-    //       country: "Namibia",
-    //       location_id: 244132971,
-    //       location_name: "NUST Main St",
-    //       query: "Nust",
-    //       state: "Khomas",
-    //       street: false,
-    //     },
-    //     passenger4Destination: {
-    //       _id: "5f7de491c6811253c83529f6",
-    //       averageGeo: -11.1064516,
-    //       city: "Windhoek",
-    //       coordinates: [-22.6121691, 17.0233537],
-    //       country: "Namibia",
-    //       location_id: 6520901,
-    //       location_name: "University of Namibia (UNAM)",
-    //       query: "Unam",
-    //       state: "Khomas",
-    //       street: "Mandume Ndemufayo Avenue",
-    //     },
-    //   },
-    //   fareAmount: 80,
-    //   isAllGoingToSameDestination: false,
-    //   naturePickup: "PrivateLocation",
-    //   passengersNo: 4,
-    //   pickupData: {
-    //     city: "Windhoek",
-    //     coordinates: [-22.5705005, 17.0809437],
-    //     location_name: "Embassy of Brazil in Windhoek",
-    //     street_name: "Simeon Shixungileni Steet",
-    //   },
-    //   pickupNote: "Hello world",
-    //   receiverName_delivery: false,
-    //   receiverPhone_delivery: false,
-    //   rideType: "RIDE",
-    //   timeScheduled: "immediate",
-    //   paymentMethod: "CASH",
-    //   user_fingerprint:
-    //     "5b29bb1b9ac69d884f13fd4be2badcd22b72b98a69189bfab806dcf7c5f5541b6cbe8087cf60c791",
-    // };
-    // req = testData;
-    //...
-    if (req.user_fingerprint !== undefined && req.user_fingerprint !== null) {
-      //1. CHECK THAT THIS RIDER DOESN'T ALREADY HAVE AN ACTIVE RIDE/DELIVERY
-      //Request is considered as completed when the rider has submited a rating.
-      let checkPrevRequest = {
-        client_id: req.user_fingerprint,
-        isArrivedToDestination: false,
-      }; //?Indexed
-      collectionRidesDeliveries_data
-        .find(checkPrevRequest)
-        .toArray(function (err, prevRequest) {
-          //! PLANS QUOTAS
-          //! Batches
-          let QUOTAS_BATCHES = {
-            STR: 1,
-            ITMD: 15,
-            PR: 50,
-            PRSNLD: 100,
-          };
-
-          //! Set a dynamic limit to the number of simulataneaous requests - BATCH
-          //? normal :0
-          //? corporate: 5
-          let simulataneaousRequestsLimit = /normal/i.test(
-            req.request_globality
-          )
-            ? 0
-            : QUOTAS_BATCHES[req.subscribed_plan];
-          //! ----
-          if (
-            prevRequest === undefined ||
-            prevRequest === null ||
-            prevRequest.length <= simulataneaousRequestsLimit - 1 ||
-            prevRequest[0] === undefined
-          ) {
-            //No previous pending request - MAKE REQUEST VALID
-            //Parse the data
-            new Promise((res) => {
-              parseRequestData(req, res);
-            }).then(
-              (result) => {
-                logger.warn(result);
-                let parsedRequest = result;
-                if (result !== false) {
-                  //! IF WALLET SELECTED - CHECK THE BALANCE, it should be >= to the trip fare, else ERROR_UNSIFFICIENT_FUNDS
-                  if (/wallet/i.test(result.payment_method)) {
-                    //? WALLET PAYMENT METHOD
-                    let url = /normal/i.test(parsedRequest.request_globality)
-                      ? `
-                      ${
-                        /production/i.test(process.env.EVIRONMENT)
-                          ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                          : process.env.LOCAL_URL
-                      }:${
-                          process.env.ACCOUNTS_SERVICE_PORT
-                        }/getRiders_walletInfos?user_fingerprint=${
-                          req.user_fingerprint
-                        }&mode=total&avoidCached_data=true
-                      `
-                      : `
-                      ${
-                        /production/i.test(process.env.EVIRONMENT)
-                          ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                          : process.env.LOCAL_URL
-                      }:${
-                          process.env.ACCOUNTS_SERVICE_PORT
-                        }/getWalletSummaryForCorps?company_fp=${
-                          req.user_fingerprint
-                        }&avoidCache=true
-                      `;
-                    //!----
-                    requestAPI(url, function (error, response, body) {
-                      logger.info(body);
-                      logger.error(error);
-                      if (error === null) {
-                        try {
-                          body = JSON.parse(body);
-                          body["total"] =
-                            body.total !== undefined && body.total !== null
-                              ? body.total
-                              : body.balance; //Balance for the corporate accounts and total for the normal accounts.
-                          //...
-                          if (body.total !== undefined) {
-                            logger.info(body);
-
-                            if (
-                              parseFloat(result.fare) <= parseFloat(body.total)
-                            ) {
-                              //? HAS ENOUGH MONEY IN THE WALLET
-                              /*logger.info(
-                                      "Has enough funds in the wallet"
-                                    );*/
-                              new Promise((resInit) => {
-                                INIT_RIDE_DELIVERY_DISPATCH_ENTRY(
-                                  result,
-                                  collectionDrivers_profiles,
-                                  collectionRidesDeliveries_data,
-                                  resInit
-                                );
-                              }).then(
-                                (resultDispatch) => {
-                                  if (
-                                    /successfully_requested/i.test(
-                                      resultDispatch.response
-                                    )
-                                  ) {
-                                    //? CHECK IF IT'S A DELIVERY REQUEST TO NOTIFY THE RECEIVER
-                                    if (
-                                      /delivery/i.test(parsedRequest.ride_mode)
-                                    ) {
-                                      //Delivery
-                                      new Promise((resNotifyReceiver) => {
-                                        let receiversPhone =
-                                          parsedRequest.delivery_infos.receiverPhone_delivery.replace(
-                                            "+",
-                                            ""
-                                          );
-                                        let receiverName = ucFirst(
-                                          parsedRequest.delivery_infos.receiverName_delivery.trim()
-                                        );
-                                        let message = `Hello ${receiverName}, a package is being delivered to you via DulcetDash, you can track it by creating a DulcetDash account with your current number.\n\nThe DulcetDash teams.`;
-                                        //!Check if the receiver is a current user
-                                        collectionPassengers_profiles
-                                          .find({
-                                            phone_number:
-                                              parsedRequest.delivery_infos.receiverPhone_delivery.trim(),
-                                          })
-                                          .toArray(function (
-                                            err,
-                                            userReceiverData
-                                          ) {
-                                            if (err) {
-                                              resNotifyReceiver(false);
-                                            }
-                                            //...
-                                            if (
-                                              userReceiverData !== undefined &&
-                                              userReceiverData.length > 0
-                                            ) {
-                                              //Is a DulcetDash user, check for how long the app has not been used.
-                                              resolveDate();
-                                              if (
-                                                userReceiverData.last_updated !==
-                                                  undefined &&
-                                                userReceiverData.last_updated !==
-                                                  null
-                                              ) {
-                                                //Check the time
-                                                let lastUserUpdated = new Date(
-                                                  userReceiverData.last_updated
-                                                );
-                                                let refNowDate = new Date(
-                                                  chaineDateUTC
-                                                );
-                                                //...
-                                                if (
-                                                  diff_hours(
-                                                    refNowDate,
-                                                    lastUserUpdated
-                                                  ).difference >
-                                                  7 * 24
-                                                ) {
-                                                  //If greater than 7 days - send SMS
-                                                  SendSMSTo(
-                                                    receiversPhone,
-                                                    message
-                                                  );
-                                                  resNotifyReceiver(true);
-                                                } //Send push notification
-                                                else {
-                                                  let messageNotify = {
-                                                    app_id:
-                                                      process.env
-                                                        .RIDERS_APP_ID_ONESIGNAL,
-                                                    android_channel_id:
-                                                      process.env
-                                                        .RIDERS_ONESIGNAL_CHANNEL_ACCEPTTEDD_REQUEST, //Ride - Accepted request
-                                                    priority: 10,
-                                                    contents: {
-                                                      en: message,
-                                                    },
-                                                    headings: {
-                                                      en: "Delivery in progress",
-                                                    },
-                                                    content_available: true,
-                                                    include_player_ids: [
-                                                      userReceiverData.pushnotif_token !==
-                                                        false &&
-                                                      userReceiverData.pushnotif_token !==
-                                                        null &&
-                                                      userReceiverData.pushnotif_token !==
-                                                        "false"
-                                                        ? userReceiverData
-                                                            .pushnotif_token
-                                                            .userId
-                                                        : null,
-                                                    ],
-                                                  };
-                                                  //Send
-                                                  sendPushUPNotification(
-                                                    messageNotify
-                                                  );
-                                                  resNotifyReceiver(true);
-                                                }
-                                              } //Send an SMS, not logged in yet
-                                              else {
-                                                SendSMSTo(
-                                                  receiversPhone,
-                                                  message
-                                                );
-                                                resNotifyReceiver(true);
-                                              }
-                                            } //Not a DulcetDash user, Send an SMS
-                                            else {
-                                              SendSMSTo(
-                                                receiversPhone,
-                                                message
-                                              );
-                                              resNotifyReceiver(true);
-                                            }
-                                          });
-                                      })
-                                        .then()
-                                        .catch(() => {});
-                                    }
-                                  }
-                                  //...
-                                  res.send(resultDispatch);
-                                },
-                                (error) => {
-                                  //logger.info(error);
-                                  res.send({
-                                    response: "Unable_to_make_the_request",
-                                  });
-                                }
-                              );
-                            } //Not enough money in the wallet
-                            else {
-                              /*logger.info(
-                                      "Has NOT enough funds in the wallet"
-                                    );*/
-                              res.send({
-                                response:
-                                  "Unable_to_make_the_request_unsufficient_funds",
-                              });
-                            }
-                          } //Error getting wallet amount
-                          else {
-                            res.send({
-                              response:
-                                "Unable_to_make_the_request_error_wallet_check",
-                            });
-                          }
-                        } catch (error) {
-                          //logger.info(error);
-                          res.send({
-                            response:
-                              "Unable_to_make_the_request_error_wallet_check",
-                          });
-                        }
-                      } else {
-                        res.send({
-                          response:
-                            "Unable_to_make_the_request_error_wallet_check",
-                        });
-                      }
-                    });
-                  } //? CASH PAYMENT METHOD
-                  else {
-                    //Do as usual without a wallet balance check
-                    new Promise((resInit) => {
-                      INIT_RIDE_DELIVERY_DISPATCH_ENTRY(
-                        result,
-                        collectionDrivers_profiles,
-                        collectionRidesDeliveries_data,
-                        resInit
-                      );
-                    }).then(
-                      (resultDispatch) => {
-                        res.send(resultDispatch);
-                      },
-                      (error) => {
+        if (req.request_fp !== undefined) {
+            //is present
+            new Promise((resParse) => {
+                parseRequestData(req, resParse);
+            })
+                .then(
+                    (result) => {
+                        res.send(result);
+                    },
+                    (error) => {
                         //logger.info(error);
                         res.send({
-                          response: "Unable_to_make_the_request",
+                            message: 'Error parsing data',
+                            flag: error,
                         });
-                      }
-                    );
-                  }
-                } //Error
-                else {
-                  res.send({ response: "Unable_to_make_the_request" });
-                }
-              },
-              (error) => {
-                //logger.info(error);
-                res.send({ response: "Unable_to_make_the_request" });
-              }
-            );
-          } //Has a previous uncompleted ride
-          else {
-            res.send({ response: "already_have_a_pending_request" });
-          }
-        });
-    } //Invalid user fp
-    else {
-      res.send({ response: "Unable_to_make_the_request" });
-    }
-  });
+                    }
+                )
+                .catch((error) => {
+                    //logger.info(error);
+                    res.send({ message: 'Error parsing data', flag: error });
+                });
+        } //No valid data received
+        else {
+            res.send({ message: 'No valid data received' });
+        }
+    });
 
-  /**
-   * CONFIRM RIDER DROP OFF
-   * Responsible for handling all the processes related to the drop off confirmation of a rider.
-   */
-  app.post("/confirmRiderDropoff_requests", function (req, res) {
-    req = req.body;
-    //logger.info(req);
-    //TEST data
-    /*req = {
+    /**
+     * REQUESTS GRAPH ASSEMBLER
+     * Responsible for getting the requests graphs to help the drivers selectedd the correct tab easily.
+     */
+    app.get('/getRequests_graphNumbers', function (req, res) {
+        new Promise((resMAIN) => {
+            resolveDate();
+            let params = urlParser.parse(req.url, true);
+            req = params.query;
+
+            if (req.driver_fingerprint !== undefined) {
+                let redisKey = `requestsGraph-${req.driver_fingerprint}`;
+                //OK
+                redisGet(redisKey).then(
+                    (resp) => {
+                        if (resp !== null) {
+                            try {
+                                //logger.info("cached resullts found!");
+                                //? Rehyddrate the cached results
+                                new Promise((res0) => {
+                                    getRequests_graphPreview_forDrivers(
+                                        req.driver_fingerprint,
+                                        collectionRidesDeliveries_data,
+                                        collectionDrivers_profiles,
+                                        res0
+                                    );
+                                })
+                                    .then(
+                                        (result) => {
+                                            redisCluster.setex(
+                                                redisKey,
+                                                process.env
+                                                    .REDIS_EXPIRATION_5MIN * 6,
+                                                JSON.stringify(result)
+                                            );
+                                        },
+                                        (error) => {
+                                            //logger.info(error);
+                                            redisCluster.setex(
+                                                redisKey,
+                                                process.env
+                                                    .REDIS_EXPIRATION_5MIN * 6,
+                                                JSON.stringify(result)
+                                            );
+                                        }
+                                    )
+                                    .catch((error) => {
+                                        //logger.info(error);
+                                        redisCluster.setex(
+                                            redisKey,
+                                            process.env.REDIS_EXPIRATION_5MIN *
+                                                6,
+                                            JSON.stringify(result)
+                                        );
+                                    });
+                                //...
+                                resp = JSON.parse(resp);
+                                //...Return the cached results quickly
+                                resMAIN(resp);
+                            } catch (error) {
+                                //logger.info(error);
+                                new Promise((res0) => {
+                                    getRequests_graphPreview_forDrivers(
+                                        req.driver_fingerprint,
+                                        collectionRidesDeliveries_data,
+                                        collectionDrivers_profiles,
+                                        res0
+                                    );
+                                })
+                                    .then(
+                                        (result) => {
+                                            redisCluster.setex(
+                                                redisKey,
+                                                process.env
+                                                    .REDIS_EXPIRATION_5MIN * 6,
+                                                JSON.stringify(result)
+                                            );
+                                            resMAIN(result);
+                                        },
+                                        (error) => {
+                                            //logger.info(error);
+                                            redisCluster.setex(
+                                                redisKey,
+                                                process.env
+                                                    .REDIS_EXPIRATION_5MIN * 6,
+                                                JSON.stringify(result)
+                                            );
+                                            resMAIN({
+                                                rides: 0,
+                                                deliveries: 0,
+                                                scheduled: 0,
+                                                accepted: 0,
+                                            });
+                                        }
+                                    )
+                                    .catch((error) => {
+                                        //logger.info(error);
+                                        redisCluster.setex(
+                                            redisKey,
+                                            process.env.REDIS_EXPIRATION_5MIN *
+                                                6,
+                                            JSON.stringify(result)
+                                        );
+                                        resMAIN({
+                                            rides: 0,
+                                            deliveries: 0,
+                                            scheduled: 0,
+                                            accepted: 0,
+                                        });
+                                    });
+                            }
+                        } //No cached data yet
+                        else {
+                            new Promise((res0) => {
+                                getRequests_graphPreview_forDrivers(
+                                    req.driver_fingerprint,
+                                    collectionRidesDeliveries_data,
+                                    collectionDrivers_profiles,
+                                    res0
+                                );
+                            })
+                                .then(
+                                    (result) => {
+                                        redisCluster.setex(
+                                            redisKey,
+                                            process.env.REDIS_EXPIRATION_5MIN *
+                                                6,
+                                            JSON.stringify(result)
+                                        );
+                                        resMAIN(result);
+                                    },
+                                    (error) => {
+                                        //logger.info(error);
+                                        redisCluster.setex(
+                                            redisKey,
+                                            process.env.REDIS_EXPIRATION_5MIN *
+                                                6,
+                                            JSON.stringify(result)
+                                        );
+                                        resMAIN({
+                                            rides: 0,
+                                            deliveries: 0,
+                                            scheduled: 0,
+                                            accepted: 0,
+                                        });
+                                    }
+                                )
+                                .catch((error) => {
+                                    //logger.info(error);
+                                    redisCluster.setex(
+                                        redisKey,
+                                        process.env.REDIS_EXPIRATION_5MIN * 6,
+                                        JSON.stringify(result)
+                                    );
+                                    resMAIN({
+                                        rides: 0,
+                                        deliveries: 0,
+                                        scheduled: 0,
+                                        accepted: 0,
+                                    });
+                                });
+                        }
+                    },
+                    (error) => {
+                        //logger.info(error);
+                        new Promise((res0) => {
+                            getRequests_graphPreview_forDrivers(
+                                req.driver_fingerprint,
+                                collectionRidesDeliveries_data,
+                                collectionDrivers_profiles,
+                                res0
+                            );
+                        })
+                            .then(
+                                (result) => {
+                                    redisCluster.setex(
+                                        redisKey,
+                                        process.env.REDIS_EXPIRATION_5MIN * 6,
+                                        JSON.stringify(result)
+                                    );
+                                    resMAIN(result);
+                                },
+                                (error) => {
+                                    //logger.info(error);
+                                    redisCluster.setex(
+                                        redisKey,
+                                        process.env.REDIS_EXPIRATION_5MIN * 6,
+                                        JSON.stringify(result)
+                                    );
+                                    resMAIN({
+                                        rides: 0,
+                                        deliveries: 0,
+                                        scheduled: 0,
+                                        accepted: 0,
+                                    });
+                                }
+                            )
+                            .catch((error) => {
+                                //logger.info(error);
+                                redisCluster.setex(
+                                    redisKey,
+                                    process.env.REDIS_EXPIRATION_5MIN * 6,
+                                    JSON.stringify(result)
+                                );
+                                resMAIN({
+                                    rides: 0,
+                                    deliveries: 0,
+                                    scheduled: 0,
+                                    accepted: 0,
+                                });
+                            });
+                    }
+                );
+            } //Invalid params
+            else {
+                resMAIN({ rides: 0, deliveries: 0, scheduled: 0, accepted: 0 });
+            }
+        })
+            .then((result) => {
+                res.send(result);
+            })
+            .catch((error) => {
+                //logger.info(error);
+                resMAIN({ rides: 0, deliveries: 0, scheduled: 0, accepted: 0 });
+            });
+    });
+
+    /**
+     * RIDES OR DELIVERY DECOUPLED DISPATCHER
+     * Responsible for redispatching already parsed requests.
+     * @param requestStructured: already parsed request coming straight from Mongo
+     */
+    app.post('/redispatcherAlreadyParsedRequests', function (req, res) {
+        req = req.body;
+        new Promise((resInit) => {
+            INIT_RIDE_DELIVERY_DISPATCH_ENTRY(
+                req,
+                collectionDrivers_profiles,
+                collectionRidesDeliveries_data,
+                resInit
+            );
+        }).then(
+            (resultDispatch) => {
+                //...
+                res.send(resultDispatch);
+            },
+            (error) => {
+                //logger.info(error);
+                res.send({
+                    response: 'Unable_to_redispatch_the_request',
+                });
+            }
+        );
+    });
+
+    /**
+     * @func ucFirst
+     * Responsible to uppercase only the first character and lowercase the rest.
+     * @param stringData: the string to be processed.
+     */
+    function ucFirst(stringData) {
+        try {
+            return `${stringData[0].toUpperCase()}${stringData.substr(1).toLowerCase()}`;
+        } catch (error) {
+            //logger.info(error);
+            return stringData;
+        }
+    }
+
+    /**
+     * RIDES OR DELIVERY DISPATCHER
+     * Responsible for sending staged ride or delivery requests to the drivers in the best position
+     * of accepting it.
+     * @param requestRawData: ride or delivery data coming from the rider's device for booking (MUST contain the city and country)
+     */
+    app.post('/dispatchRidesOrDeliveryRequests', function (req, res) {
+        req = req.body;
+        //TEST DATA
+        // let testData = {
+        //   actualRider: "someonelese",
+        //   actualRiderPhone_number: "0817563369",
+        //   carTypeSelected: "normalTaxiEconomy",
+        //   connectType: "ConnectUs",
+        //   country: "Namibia",
+        //   destinationData: {
+        //     passenger1Destination: {
+        //       _id: "5f7e16126661813ab09e417f",
+        //       averageGeo: -10.989369499999999,
+        //       city: "Windhoek",
+        //       coordinates: [-22.548558, 17.0504368],
+        //       country: "Namibia",
+        //       location_id: 242368923,
+        //       location_name: "Grove Khomasdal Funky Town - Pequena Angola",
+        //       query: "Grovr",
+        //       state: "Khomas",
+        //       street: false,
+        //     },
+        //     passenger2Destination: {
+        //       _id: "5fc8dde588e09715d0df05ca",
+        //       averageGeo: -5.491276299999999,
+        //       city: "Windhoek",
+        //       coordinates: [-22.5818168, 17.0878857],
+        //       country: "Namibia",
+        //       location_id: 1768699533,
+        //       location_name: "Showground Parking Area",
+        //       query: "Showg",
+        //       state: "Khomas",
+        //       street: "Jan Jonker Weg",
+        //     },
+        //     passenger3Destination: {
+        //       _id: "5f7de487c6811253c83529b3",
+        //       averageGeo: -10.975441900000003,
+        //       city: "Windhoek",
+        //       coordinates: [-22.56578, 17.0751551],
+        //       country: "Namibia",
+        //       location_id: 244132971,
+        //       location_name: "NUST Main St",
+        //       query: "Nust",
+        //       state: "Khomas",
+        //       street: false,
+        //     },
+        //     passenger4Destination: {
+        //       _id: "5f7de491c6811253c83529f6",
+        //       averageGeo: -11.1064516,
+        //       city: "Windhoek",
+        //       coordinates: [-22.6121691, 17.0233537],
+        //       country: "Namibia",
+        //       location_id: 6520901,
+        //       location_name: "University of Namibia (UNAM)",
+        //       query: "Unam",
+        //       state: "Khomas",
+        //       street: "Mandume Ndemufayo Avenue",
+        //     },
+        //   },
+        //   fareAmount: 80,
+        //   isAllGoingToSameDestination: false,
+        //   naturePickup: "PrivateLocation",
+        //   passengersNo: 4,
+        //   pickupData: {
+        //     city: "Windhoek",
+        //     coordinates: [-22.5705005, 17.0809437],
+        //     location_name: "Embassy of Brazil in Windhoek",
+        //     street_name: "Simeon Shixungileni Steet",
+        //   },
+        //   pickupNote: "Hello world",
+        //   receiverName_delivery: false,
+        //   receiverPhone_delivery: false,
+        //   rideType: "RIDE",
+        //   timeScheduled: "immediate",
+        //   paymentMethod: "CASH",
+        //   user_fingerprint:
+        //     "5b29bb1b9ac69d884f13fd4be2badcd22b72b98a69189bfab806dcf7c5f5541b6cbe8087cf60c791",
+        // };
+        // req = testData;
+        //...
+        if (
+            req.user_fingerprint !== undefined &&
+            req.user_fingerprint !== null
+        ) {
+            //1. CHECK THAT THIS RIDER DOESN'T ALREADY HAVE AN ACTIVE RIDE/DELIVERY
+            //Request is considered as completed when the rider has submited a rating.
+            let checkPrevRequest = {
+                client_id: req.user_fingerprint,
+                isArrivedToDestination: false,
+            }; //?Indexed
+            collectionRidesDeliveries_data
+                .find(checkPrevRequest)
+                .toArray(function (err, prevRequest) {
+                    //! PLANS QUOTAS
+                    //! Batches
+                    let QUOTAS_BATCHES = {
+                        STR: 1,
+                        ITMD: 15,
+                        PR: 50,
+                        PRSNLD: 100,
+                    };
+
+                    //! Set a dynamic limit to the number of simulataneaous requests - BATCH
+                    //? normal :0
+                    //? corporate: 5
+                    let simulataneaousRequestsLimit = /normal/i.test(
+                        req.request_globality
+                    )
+                        ? 0
+                        : QUOTAS_BATCHES[req.subscribed_plan];
+                    //! ----
+                    if (
+                        prevRequest === undefined ||
+                        prevRequest === null ||
+                        prevRequest.length <= simulataneaousRequestsLimit - 1 ||
+                        prevRequest[0] === undefined
+                    ) {
+                        //No previous pending request - MAKE REQUEST VALID
+                        //Parse the data
+                        new Promise((res) => {
+                            parseRequestData(req, res);
+                        }).then(
+                            (result) => {
+                                logger.warn(result);
+                                let parsedRequest = result;
+                                if (result !== false) {
+                                    //! IF WALLET SELECTED - CHECK THE BALANCE, it should be >= to the trip fare, else ERROR_UNSIFFICIENT_FUNDS
+                                    if (/wallet/i.test(result.payment_method)) {
+                                        //? WALLET PAYMENT METHOD
+                                        let url = /normal/i.test(
+                                            parsedRequest.request_globality
+                                        )
+                                            ? `
+                      ${
+                          /production/i.test(process.env.EVIRONMENT)
+                              ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                              : process.env.LOCAL_URL
+                      }:${
+                                                  process.env
+                                                      .ACCOUNTS_SERVICE_PORT
+                                              }/getRiders_walletInfos?user_fingerprint=${
+                                                  req.user_fingerprint
+                                              }&mode=total&avoidCached_data=true
+                      `
+                                            : `
+                      ${
+                          /production/i.test(process.env.EVIRONMENT)
+                              ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                              : process.env.LOCAL_URL
+                      }:${
+                                                  process.env
+                                                      .ACCOUNTS_SERVICE_PORT
+                                              }/getWalletSummaryForCorps?company_fp=${
+                                                  req.user_fingerprint
+                                              }&avoidCache=true
+                      `;
+                                        //!----
+                                        requestAPI(
+                                            url,
+                                            function (error, response, body) {
+                                                logger.info(body);
+                                                logger.error(error);
+                                                if (error === null) {
+                                                    try {
+                                                        body = JSON.parse(body);
+                                                        body['total'] =
+                                                            body.total !==
+                                                                undefined &&
+                                                            body.total !== null
+                                                                ? body.total
+                                                                : body.balance; //Balance for the corporate accounts and total for the normal accounts.
+                                                        //...
+                                                        if (
+                                                            body.total !==
+                                                            undefined
+                                                        ) {
+                                                            logger.info(body);
+
+                                                            if (
+                                                                parseFloat(
+                                                                    result.fare
+                                                                ) <=
+                                                                parseFloat(
+                                                                    body.total
+                                                                )
+                                                            ) {
+                                                                //? HAS ENOUGH MONEY IN THE WALLET
+                                                                /*logger.info(
+                                      "Has enough funds in the wallet"
+                                    );*/
+                                                                new Promise(
+                                                                    (
+                                                                        resInit
+                                                                    ) => {
+                                                                        INIT_RIDE_DELIVERY_DISPATCH_ENTRY(
+                                                                            result,
+                                                                            collectionDrivers_profiles,
+                                                                            collectionRidesDeliveries_data,
+                                                                            resInit
+                                                                        );
+                                                                    }
+                                                                ).then(
+                                                                    (
+                                                                        resultDispatch
+                                                                    ) => {
+                                                                        if (
+                                                                            /successfully_requested/i.test(
+                                                                                resultDispatch.response
+                                                                            )
+                                                                        ) {
+                                                                            //? CHECK IF IT'S A DELIVERY REQUEST TO NOTIFY THE RECEIVER
+                                                                            if (
+                                                                                /delivery/i.test(
+                                                                                    parsedRequest.ride_mode
+                                                                                )
+                                                                            ) {
+                                                                                //Delivery
+                                                                                new Promise(
+                                                                                    (
+                                                                                        resNotifyReceiver
+                                                                                    ) => {
+                                                                                        let receiversPhone =
+                                                                                            parsedRequest.delivery_infos.receiverPhone_delivery.replace(
+                                                                                                '+',
+                                                                                                ''
+                                                                                            );
+                                                                                        let receiverName =
+                                                                                            ucFirst(
+                                                                                                parsedRequest.delivery_infos.receiverName_delivery.trim()
+                                                                                            );
+                                                                                        let message = `Hello ${receiverName}, a package is being delivered to you via DulcetDash, you can track it by creating a DulcetDash account with your current number.\n\nThe DulcetDash teams.`;
+                                                                                        //!Check if the receiver is a current user
+                                                                                        collectionPassengers_profiles
+                                                                                            .find(
+                                                                                                {
+                                                                                                    phone_number:
+                                                                                                        parsedRequest.delivery_infos.receiverPhone_delivery.trim(),
+                                                                                                }
+                                                                                            )
+                                                                                            .toArray(
+                                                                                                function (
+                                                                                                    err,
+                                                                                                    userReceiverData
+                                                                                                ) {
+                                                                                                    if (
+                                                                                                        err
+                                                                                                    ) {
+                                                                                                        resNotifyReceiver(
+                                                                                                            false
+                                                                                                        );
+                                                                                                    }
+                                                                                                    //...
+                                                                                                    if (
+                                                                                                        userReceiverData !==
+                                                                                                            undefined &&
+                                                                                                        userReceiverData.length >
+                                                                                                            0
+                                                                                                    ) {
+                                                                                                        //Is a DulcetDash user, check for how long the app has not been used.
+                                                                                                        resolveDate();
+                                                                                                        if (
+                                                                                                            userReceiverData.last_updated !==
+                                                                                                                undefined &&
+                                                                                                            userReceiverData.last_updated !==
+                                                                                                                null
+                                                                                                        ) {
+                                                                                                            //Check the time
+                                                                                                            let lastUserUpdated =
+                                                                                                                new Date(
+                                                                                                                    userReceiverData.last_updated
+                                                                                                                );
+                                                                                                            let refNowDate =
+                                                                                                                new Date(
+                                                                                                                    chaineDateUTC
+                                                                                                                );
+                                                                                                            //...
+                                                                                                            if (
+                                                                                                                diff_hours(
+                                                                                                                    refNowDate,
+                                                                                                                    lastUserUpdated
+                                                                                                                )
+                                                                                                                    .difference >
+                                                                                                                7 *
+                                                                                                                    24
+                                                                                                            ) {
+                                                                                                                //If greater than 7 days - send SMS
+                                                                                                                SendSMSTo(
+                                                                                                                    receiversPhone,
+                                                                                                                    message
+                                                                                                                );
+                                                                                                                resNotifyReceiver(
+                                                                                                                    true
+                                                                                                                );
+                                                                                                            } //Send push notification
+                                                                                                            else {
+                                                                                                                let messageNotify =
+                                                                                                                    {
+                                                                                                                        app_id: process
+                                                                                                                            .env
+                                                                                                                            .RIDERS_APP_ID_ONESIGNAL,
+                                                                                                                        android_channel_id:
+                                                                                                                            process
+                                                                                                                                .env
+                                                                                                                                .RIDERS_ONESIGNAL_CHANNEL_ACCEPTTEDD_REQUEST, //Ride - Accepted request
+                                                                                                                        priority: 10,
+                                                                                                                        contents:
+                                                                                                                            {
+                                                                                                                                en: message,
+                                                                                                                            },
+                                                                                                                        headings:
+                                                                                                                            {
+                                                                                                                                en: 'Delivery in progress',
+                                                                                                                            },
+                                                                                                                        content_available: true,
+                                                                                                                        include_player_ids:
+                                                                                                                            [
+                                                                                                                                userReceiverData.pushnotif_token !==
+                                                                                                                                    false &&
+                                                                                                                                userReceiverData.pushnotif_token !==
+                                                                                                                                    null &&
+                                                                                                                                userReceiverData.pushnotif_token !==
+                                                                                                                                    'false'
+                                                                                                                                    ? userReceiverData
+                                                                                                                                          .pushnotif_token
+                                                                                                                                          .userId
+                                                                                                                                    : null,
+                                                                                                                            ],
+                                                                                                                    };
+                                                                                                                //Send
+                                                                                                                sendPushUPNotification(
+                                                                                                                    messageNotify
+                                                                                                                );
+                                                                                                                resNotifyReceiver(
+                                                                                                                    true
+                                                                                                                );
+                                                                                                            }
+                                                                                                        } //Send an SMS, not logged in yet
+                                                                                                        else {
+                                                                                                            SendSMSTo(
+                                                                                                                receiversPhone,
+                                                                                                                message
+                                                                                                            );
+                                                                                                            resNotifyReceiver(
+                                                                                                                true
+                                                                                                            );
+                                                                                                        }
+                                                                                                    } //Not a DulcetDash user, Send an SMS
+                                                                                                    else {
+                                                                                                        SendSMSTo(
+                                                                                                            receiversPhone,
+                                                                                                            message
+                                                                                                        );
+                                                                                                        resNotifyReceiver(
+                                                                                                            true
+                                                                                                        );
+                                                                                                    }
+                                                                                                }
+                                                                                            );
+                                                                                    }
+                                                                                )
+                                                                                    .then()
+                                                                                    .catch(
+                                                                                        () => {}
+                                                                                    );
+                                                                            }
+                                                                        }
+                                                                        //...
+                                                                        res.send(
+                                                                            resultDispatch
+                                                                        );
+                                                                    },
+                                                                    (error) => {
+                                                                        //logger.info(error);
+                                                                        res.send(
+                                                                            {
+                                                                                response:
+                                                                                    'Unable_to_make_the_request',
+                                                                            }
+                                                                        );
+                                                                    }
+                                                                );
+                                                            } //Not enough money in the wallet
+                                                            else {
+                                                                /*logger.info(
+                                      "Has NOT enough funds in the wallet"
+                                    );*/
+                                                                res.send({
+                                                                    response:
+                                                                        'Unable_to_make_the_request_unsufficient_funds',
+                                                                });
+                                                            }
+                                                        } //Error getting wallet amount
+                                                        else {
+                                                            res.send({
+                                                                response:
+                                                                    'Unable_to_make_the_request_error_wallet_check',
+                                                            });
+                                                        }
+                                                    } catch (error) {
+                                                        //logger.info(error);
+                                                        res.send({
+                                                            response:
+                                                                'Unable_to_make_the_request_error_wallet_check',
+                                                        });
+                                                    }
+                                                } else {
+                                                    res.send({
+                                                        response:
+                                                            'Unable_to_make_the_request_error_wallet_check',
+                                                    });
+                                                }
+                                            }
+                                        );
+                                    } //? CASH PAYMENT METHOD
+                                    else {
+                                        //Do as usual without a wallet balance check
+                                        new Promise((resInit) => {
+                                            INIT_RIDE_DELIVERY_DISPATCH_ENTRY(
+                                                result,
+                                                collectionDrivers_profiles,
+                                                collectionRidesDeliveries_data,
+                                                resInit
+                                            );
+                                        }).then(
+                                            (resultDispatch) => {
+                                                res.send(resultDispatch);
+                                            },
+                                            (error) => {
+                                                //logger.info(error);
+                                                res.send({
+                                                    response:
+                                                        'Unable_to_make_the_request',
+                                                });
+                                            }
+                                        );
+                                    }
+                                } //Error
+                                else {
+                                    res.send({
+                                        response: 'Unable_to_make_the_request',
+                                    });
+                                }
+                            },
+                            (error) => {
+                                //logger.info(error);
+                                res.send({
+                                    response: 'Unable_to_make_the_request',
+                                });
+                            }
+                        );
+                    } //Has a previous uncompleted ride
+                    else {
+                        res.send({
+                            response: 'already_have_a_pending_request',
+                        });
+                    }
+                });
+        } //Invalid user fp
+        else {
+            res.send({ response: 'Unable_to_make_the_request' });
+        }
+    });
+
+    /**
+     * CONFIRM RIDER DROP OFF
+     * Responsible for handling all the processes related to the drop off confirmation of a rider.
+     */
+    app.post('/confirmRiderDropoff_requests', function (req, res) {
+        req = req.body;
+        //logger.info(req);
+        //TEST data
+        /*req = {
               user_fingerprint:
                 "7c57cb6c9471fd33fd265d5441f253eced2a6307c0207dea57c987035b496e6e8dfa7105b86915da",
               dropoff_compliments: {
@@ -5872,307 +6662,311 @@ redisCluster.on("connect", function () {
                 "87109d03cab8bc5032a71683e084551107f1c1bafb5136f6ee5a7c990550b81ef3ecf5c96b13f2afde2cc75e6c8187ce290c973dd1e8d137caf27fee334a68e8",
             };*/
 
-    //Do basic checking
-    if (
-      req.user_fingerprint !== undefined &&
-      req.user_fingerprint !== null &&
-      req.request_fp !== undefined &&
-      req.request_fp !== null
-    ) {
-      //Auto assign 5 stars if invalid score found
-      req.rating_score =
-        req.rating_score === undefined ||
-        req.rating_score === null ||
-        req.rating_score < 0
-          ? 5
-          : req.rating_score > 5
-          ? 2
-          : req.rating_score; //Driver's rating safety shield - give 2 stars for fraudulous dropoffs
-      //...
-      new Promise((res0) => {
-        confirmDropoff_fromRider_side(
-          req,
-          collectionRidesDeliveries_data,
-          collectionDrivers_profiles,
-          res0
-        );
-      }).then(
-        (result) => {
-          res.send(result);
-        },
-        (error) => {
-          //logger.info(error);
-          res.send({ response: "error" });
-        }
-      );
-    }
-  });
-
-  /**
-   * CANCEL RIDER REQUESTS
-   * Responsible for cancelling the rider's requests and all it's the related process
-   */
-  app.post("/cancelRiders_request", function (req, res) {
-    new Promise((resCompute) => {
-      req = req.body;
-      //logger.info(req);
-      //Do basic checking
-      if (
-        req.user_fingerprint !== undefined &&
-        req.user_fingerprint !== null &&
-        req.request_fp !== undefined &&
-        req.request_fp !== null
-      ) {
-        let RIDE_REDIS_KEY = `${req.user_fingerprint}-rideDeliveryMade-holder`;
-        //? Add a flag if provided: the flag can be used to know who cancelled the request, if not provided, - it's the rider
-        let additionalData = {
-          flag: req.flag !== undefined && req.flag !== null ? req.flag : null,
-        };
-        //...
-        new Promise((res0) => {
-          cancelRider_request(
-            req,
-            collectionRidesDeliveries_data,
-            collection_cancelledRidesDeliveryData,
-            collectionDrivers_profiles,
-            res0,
-            additionalData
-          );
-        }).then(
-          (result) => {
-            //? Remove the redis key for the ride
-            redisCluster.del(RIDE_REDIS_KEY);
+        //Do basic checking
+        if (
+            req.user_fingerprint !== undefined &&
+            req.user_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+        ) {
+            //Auto assign 5 stars if invalid score found
+            req.rating_score =
+                req.rating_score === undefined ||
+                req.rating_score === null ||
+                req.rating_score < 0
+                    ? 5
+                    : req.rating_score > 5
+                    ? 2
+                    : req.rating_score; //Driver's rating safety shield - give 2 stars for fraudulous dropoffs
             //...
-            resCompute(result);
-          },
-          (error) => {
-            logger.info(error);
-            resCompute({ response: "error_cancelling" });
-          }
-        );
-      } //Invalid parameters
-      else {
-        resCompute({ response: "error_cancelling" });
-      }
-    })
-      .then((result) => {
-        res.send(result);
-      })
-      .catch((error) => {
-        logger.warn(error);
-        res.send({ response: "error_cancelling" });
-      });
-  });
-
-  /**
-   * DECLINE REQUESTS - DRIVERS
-   * Responsible for handling the declining of requests from the drivers side.
-   */
-  app.post("/decline_request", function (req, res) {
-    req = req.body;
-    //logger.info(req);
-
-    //Do basic checking
-    if (
-      req.driver_fingerprint !== undefined &&
-      req.driver_fingerprint !== null &&
-      req.request_fp !== undefined &&
-      req.request_fp !== null
-    ) {
-      //...
-      new Promise((res0) => {
-        declineRequest_driver(req, res0);
-      }).then(
-        (result) => {
-          res.send(result);
-        },
-        (error) => {
-          //logger.info(error);
-          res.send({ response: "unable_to_decline_request_error" });
+            new Promise((res0) => {
+                confirmDropoff_fromRider_side(
+                    req,
+                    collectionRidesDeliveries_data,
+                    collectionDrivers_profiles,
+                    res0
+                );
+            }).then(
+                (result) => {
+                    res.send(result);
+                },
+                (error) => {
+                    //logger.info(error);
+                    res.send({ response: 'error' });
+                }
+            );
         }
-      );
-    }
-  });
+    });
 
-  /**
-   * ACCEPT REQUESTS - DRIVERS
-   * Responsible for handling the accepting of requests from the drivers side.
-   */
-  app.post("/accept_request", function (req, res) {
-    //...
-    req = req.body;
-    //logger.info(req);
-
-    //Do basic checking
-    if (
-      req.driver_fingerprint !== undefined &&
-      req.driver_fingerprint !== null &&
-      req.request_fp !== undefined &&
-      req.request_fp !== null
-    ) {
-      //...
-      new Promise((res0) => {
-        acceptRequest_driver(req, res0);
-      }).then(
-        (result) => {
-          //...
-          res.send(result);
-        },
-        (error) => {
-          //logger.info(error);
-          res.send({ response: "unable_to_accept_request_error" });
-        }
-      );
-    }
-  });
-
-  /**
-   * CANCEL REQUESTS - DRIVERS
-   * Responsible for handling the cancelling of requests from the drivers side.
-   */
-  app.post("/cancel_request_driver", function (req, res) {
-    //...
-    req = req.body;
-    logger.info(req);
-
-    //Do basic checking
-    if (
-      req.driver_fingerprint !== undefined &&
-      req.driver_fingerprint !== null &&
-      req.request_fp !== undefined &&
-      req.request_fp !== null
-    ) {
-      //...
-      // res.send({ response: "unable_to_cancel_request_error" });
-      new Promise((res0) => {
-        cancelRequest_driver(req, res0);
-      })
-        .then((result) => {
-          res.send(result);
+    /**
+     * CANCEL RIDER REQUESTS
+     * Responsible for cancelling the rider's requests and all it's the related process
+     */
+    app.post('/cancelRiders_request', function (req, res) {
+        new Promise((resCompute) => {
+            req = req.body;
+            //logger.info(req);
+            //Do basic checking
+            if (
+                req.user_fingerprint !== undefined &&
+                req.user_fingerprint !== null &&
+                req.request_fp !== undefined &&
+                req.request_fp !== null
+            ) {
+                let RIDE_REDIS_KEY = `${req.user_fingerprint}-rideDeliveryMade-holder`;
+                //? Add a flag if provided: the flag can be used to know who cancelled the request, if not provided, - it's the rider
+                let additionalData = {
+                    flag:
+                        req.flag !== undefined && req.flag !== null
+                            ? req.flag
+                            : null,
+                };
+                //...
+                new Promise((res0) => {
+                    cancelRider_request(
+                        req,
+                        collectionRidesDeliveries_data,
+                        collection_cancelledRidesDeliveryData,
+                        collectionDrivers_profiles,
+                        res0,
+                        additionalData
+                    );
+                }).then(
+                    (result) => {
+                        //? Remove the redis key for the ride
+                        redisCluster.del(RIDE_REDIS_KEY);
+                        //...
+                        resCompute(result);
+                    },
+                    (error) => {
+                        logger.info(error);
+                        resCompute({ response: 'error_cancelling' });
+                    }
+                );
+            } //Invalid parameters
+            else {
+                resCompute({ response: 'error_cancelling' });
+            }
         })
-        .catch((error) => {
-          logger.error(error);
-          res.send({ response: "unable_to_cancel_request_error" });
-        });
-    }
-  });
+            .then((result) => {
+                res.send(result);
+            })
+            .catch((error) => {
+                logger.warn(error);
+                res.send({ response: 'error_cancelling' });
+            });
+    });
 
-  /**
-   * CONFIRM PICKUP REQUESTS - DRIVERS (CAN ALSO BE USED FOR RIDERS NEWER VERSION)
-   * Responsible for handling the pickup confirmation of requests from the drivers side.
-   */
-  app.post("/confirm_pickup_request_driver", function (req, res) {
-    //DEBUG
-    /*req.body = {
+    /**
+     * DECLINE REQUESTS - DRIVERS
+     * Responsible for handling the declining of requests from the drivers side.
+     */
+    app.post('/decline_request', function (req, res) {
+        req = req.body;
+        //logger.info(req);
+
+        //Do basic checking
+        if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+        ) {
+            //...
+            new Promise((res0) => {
+                declineRequest_driver(req, res0);
+            }).then(
+                (result) => {
+                    res.send(result);
+                },
+                (error) => {
+                    //logger.info(error);
+                    res.send({ response: 'unable_to_decline_request_error' });
+                }
+            );
+        }
+    });
+
+    /**
+     * ACCEPT REQUESTS - DRIVERS
+     * Responsible for handling the accepting of requests from the drivers side.
+     */
+    app.post('/accept_request', function (req, res) {
+        //...
+        req = req.body;
+        //logger.info(req);
+
+        //Do basic checking
+        if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+        ) {
+            //...
+            new Promise((res0) => {
+                acceptRequest_driver(req, res0);
+            }).then(
+                (result) => {
+                    //...
+                    res.send(result);
+                },
+                (error) => {
+                    //logger.info(error);
+                    res.send({ response: 'unable_to_accept_request_error' });
+                }
+            );
+        }
+    });
+
+    /**
+     * CANCEL REQUESTS - DRIVERS
+     * Responsible for handling the cancelling of requests from the drivers side.
+     */
+    app.post('/cancel_request_driver', function (req, res) {
+        //...
+        req = req.body;
+        logger.info(req);
+
+        //Do basic checking
+        if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+        ) {
+            //...
+            // res.send({ response: "unable_to_cancel_request_error" });
+            new Promise((res0) => {
+                cancelRequest_driver(req, res0);
+            })
+                .then((result) => {
+                    res.send(result);
+                })
+                .catch((error) => {
+                    logger.error(error);
+                    res.send({ response: 'unable_to_cancel_request_error' });
+                });
+        }
+    });
+
+    /**
+     * CONFIRM PICKUP REQUESTS - DRIVERS (CAN ALSO BE USED FOR RIDERS NEWER VERSION)
+     * Responsible for handling the pickup confirmation of requests from the drivers side.
+     */
+    app.post('/confirm_pickup_request_driver', function (req, res) {
+        //DEBUG
+        /*req.body = {
               driver_fingerprint:
                 "23c9d088e03653169b9c18193a0b8dd329ea1e43eb0626ef9f16b5b979694a429710561a3cb3ddae",
               request_fp:
                 "999999f5c51c380ef9dee9680872a6538cc9708ef079a8e42de4d762bfa7d49efdcde41c6009cbdd9cdf6f0ae0544f74cb52caa84439cbcda40ce264f90825e8",
             };*/
-    //...
-    req = req.body;
-    //logger.info(req);
+        //...
+        req = req.body;
+        //logger.info(req);
 
-    //Do basic checking
-    if (
-      // req.driver_fingerprint !== undefined &&
-      // req.driver_fingerprint !== null &&
-      req.request_fp !== undefined &&
-      req.request_fp !== null
-    ) {
-      //...
-      new Promise((res0) => {
-        confirmPickupRequest_driver(req, res0);
-      })
-        .then((result) => {
-          res.send(result);
-        })
-        .catch((error) => {
-          logger.error(error);
-          res.send({
-            response: "unable_to_confirm_pickup_request_error",
-          });
-        });
-    }
-  });
+        //Do basic checking
+        if (
+            // req.driver_fingerprint !== undefined &&
+            // req.driver_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+        ) {
+            //...
+            new Promise((res0) => {
+                confirmPickupRequest_driver(req, res0);
+            })
+                .then((result) => {
+                    res.send(result);
+                })
+                .catch((error) => {
+                    logger.error(error);
+                    res.send({
+                        response: 'unable_to_confirm_pickup_request_error',
+                    });
+                });
+        }
+    });
 
-  /**
-   * CONFIRM DONE SHOPPING REQUESTS - SHOPPERS
-   * Responsible for confirming that the shopping is done
-   */
-  app.post("/confirm_doneShopping_request_driver", function (req, res) {
-    //DEBUG
-    /*req.body = {
+    /**
+     * CONFIRM DONE SHOPPING REQUESTS - SHOPPERS
+     * Responsible for confirming that the shopping is done
+     */
+    app.post('/confirm_doneShopping_request_driver', function (req, res) {
+        //DEBUG
+        /*req.body = {
               driver_fingerprint:
                 "23c9d088e03653169b9c18193a0b8dd329ea1e43eb0626ef9f16b5b979694a429710561a3cb3ddae",
               request_fp:
                 "999999f5c51c380ef9dee9680872a6538cc9708ef079a8e42de4d762bfa7d49efdcde41c6009cbdd9cdf6f0ae0544f74cb52caa84439cbcda40ce264f90825e8",
             };*/
-    //...
-    req = req.body;
-    //logger.info(req);
+        //...
+        req = req.body;
+        //logger.info(req);
 
-    //Do basic checking
-    if (
-      // req.driver_fingerprint !== undefined &&
-      // req.driver_fingerprint !== null &&
-      req.request_fp !== undefined &&
-      req.request_fp !== null
-    ) {
-      //...
-      new Promise((res0) => {
-        confirmDoneShoppingRequest_driver(req, res0);
-      })
-        .then((result) => {
-          res.send(result);
-        })
-        .catch((error) => {
-          logger.error(error);
-          res.send({
-            response: "unable_to_confirm_doneShopping_request_error",
-          });
-        });
-    }
-  });
+        //Do basic checking
+        if (
+            // req.driver_fingerprint !== undefined &&
+            // req.driver_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+        ) {
+            //...
+            new Promise((res0) => {
+                confirmDoneShoppingRequest_driver(req, res0);
+            })
+                .then((result) => {
+                    res.send(result);
+                })
+                .catch((error) => {
+                    logger.error(error);
+                    res.send({
+                        response:
+                            'unable_to_confirm_doneShopping_request_error',
+                    });
+                });
+        }
+    });
 
-  /**
-   * CONFIRM DROPOFF REQUESTS - DRIVERS
-   * Responsible for handling the dropoff confirmation of requests from the drivers side.
-   */
-  app.post("/confirm_dropoff_request_driver", function (req, res) {
-    //DEBUG
-    /*req.body = {
+    /**
+     * CONFIRM DROPOFF REQUESTS - DRIVERS
+     * Responsible for handling the dropoff confirmation of requests from the drivers side.
+     */
+    app.post('/confirm_dropoff_request_driver', function (req, res) {
+        //DEBUG
+        /*req.body = {
         driver_fingerprint:
           "23c9d088e03653169b9c18193a0b8dd329ea1e43eb0626ef9f16b5b979694a429710561a3cb3ddae",
         request_fp:
           "999999f5c51c380ef9dee9680872a6538cc9708ef079a8e42de4d762bfa7d49efdcde41c6009cbdd9cdf6f0ae0544f74cb52caa84439cbcda40ce264f90825e8",
       };*/
-    //...
-    req = req.body;
-    //logger.info(req);
+        //...
+        req = req.body;
+        //logger.info(req);
 
-    //Do basic checking
-    if (
-      req.driver_fingerprint !== undefined &&
-      req.driver_fingerprint !== null &&
-      req.request_fp !== undefined &&
-      req.request_fp !== null
-    ) {
-      //...
-      new Promise((res0) => {
-        confirmDropoffRequest_driver(req, res0);
-      })
-        .then((result) => {
-          res.send(result);
-        })
-        .catch((error) => {
-          logger.error(error);
-          res.send({
-            response: "unable_to_confirm_dropoff_request_error",
-          });
-        });
-    }
-  });
+        //Do basic checking
+        if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+        ) {
+            //...
+            new Promise((res0) => {
+                confirmDropoffRequest_driver(req, res0);
+            })
+                .then((result) => {
+                    res.send(result);
+                })
+                .catch((error) => {
+                    logger.error(error);
+                    res.send({
+                        response: 'unable_to_confirm_dropoff_request_error',
+                    });
+                });
+        }
+    });
 });
 
 server.listen(process.env.DISPATCH_SERVICE_PORT);

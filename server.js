@@ -296,10 +296,9 @@ const getStores = async () => {
  * @param resolve
  */
 const getCatalogueFor = async (body) => {
-    let redisKey = `${JSON.stringify(body)}-catalogue`;
+    const redisKey = `${JSON.stringify(body)}-catalogue`;
 
     let cachedData = await Redis.get(redisKey);
-    // let cachedData = false;
 
     if (cachedData) {
         cachedData = JSON.parse(cachedData);
@@ -315,26 +314,6 @@ const getCatalogueFor = async (body) => {
 
     const storeData = shop;
 
-    // let reformulateQuery = CatalogueModel.query('shop_fp').eq(storeFp).all();
-
-    // //Level 1
-    // if (category) {
-    //     reformulateQuery = reformulateQuery
-    //         .filter('category')
-    //         .eq(category.toUpperCase().trim());
-    // }
-
-    // //Level 2 - Add subcategory
-    // if (subcategory) {
-    //     reformulateQuery = reformulateQuery
-    //         .filter('subcategory')
-    //         .eq(subcategory.toUpperCase().trim());
-    // }
-
-    // const catalogue =
-    //     cachedData.length > 0 ? cachedData : await reformulateQuery.exec();
-    // const productsData = catalogue;
-
     const productsData =
         cachedData.length > 0
             ? cachedData
@@ -343,14 +322,11 @@ const getCatalogueFor = async (body) => {
                   body.store
               );
 
-    // logger.warn(allItems);
-
     if (cachedData.length <= 0) {
-        Redis.set(redisKey, JSON.stringify(productsData), 'EX', 3600);
+        Redis.set(redisKey, JSON.stringify(productsData), 'EX', 3600 * 3);
     }
 
     if (productsData?.count > 0 || productsData?.length > 0) {
-        //Has data
         //Reformat the data
         const reformattedData = shuffle(
             productsData.map((product, index) => {
@@ -369,43 +345,15 @@ const getCatalogueFor = async (body) => {
                         structured: storeData.structured_shopping,
                     },
                 };
-                //...
+
                 return tmpData;
             })
         );
-        //...
-        //! Reorganize based on if the data is structured
-        // if (structured) {
-        //     let structured = {};
-        //     reformattedData.map((p) => {
-        //         if (
-        //             structured[p.meta.category] !== undefined &&
-        //             structured[p.meta.category] !== null
-        //         ) {
-        //             //Already set
-        //             structured[p.meta.category].push(p);
-        //             //! Shuffle
-        //             structured[p.meta.category] = shuffle(
-        //                 structured[p.meta.category]
-        //             );
-        //             //! Always limit to 3
-        //             structured[p.meta.category] = structured[
-        //                 p.meta.category
-        //             ].slice(0, 3);
-        //         } //Not yet set
-        //         else {
-        //             structured[p.meta.category] = [];
-        //             structured[p.meta.category].push(p);
-        //         }
-        //         return true;
-        //     });
-        //     //....
-        //     return { response: structured, store: storeFp };
-        // } //Unstructured data
 
         return { response: reformattedData, store: storeFp };
-    } //No products
+    }
 
+    //No products
     return { response: {}, store: storeFp };
 };
 

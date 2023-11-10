@@ -263,8 +263,6 @@ exports.sendSMS = async (message, phone_number) => {
             }
         );
 
-        console.log(response.data);
-
         if (response.status === 200) return true;
         return false;
     } catch (error) {
