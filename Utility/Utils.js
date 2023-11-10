@@ -79,9 +79,12 @@ exports.searchProducts = async (index, criteria) => {
 
     let boolArray = [
         {
-            match_phrase_prefix: {
+            fuzzy: {
                 product_name: {
-                    query: product_name,
+                    value: product_name,
+                    fuzziness: '2', // This can be a number like 1, 2, or 'AUTO' to auto-determine fuzziness level
+                    prefix_length: 0, // Optional: number of characters at the start of the term which will not be “fuzzified”
+                    max_expansions: 50, // Optional: the maximum number of terms that the fuzzy query will expand to
                 },
             },
         },
@@ -94,29 +97,9 @@ exports.searchProducts = async (index, criteria) => {
         },
     ];
 
-    if (category) {
-        boolArray.push({
-            match_phrase_prefix: {
-                category: {
-                    query: category,
-                },
-            },
-        });
-    }
-
-    if (subcategory) {
-        boolArray.push({
-            match_phrase_prefix: {
-                subcategory: {
-                    query: subcategory,
-                },
-            },
-        });
-    }
-
     try {
         const response = await ESClient.search({
-            size: 10000,
+            size: 2500,
             index: index,
             body: {
                 query: {
