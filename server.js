@@ -20,6 +20,7 @@ const {
     parseRequestsForShopperAppView,
     getAllItemsByShopFp,
     shuffle,
+    getItemsByShop,
 } = require('./Utility/Utils');
 const AWS = require('aws-sdk');
 const _ = require('lodash');
@@ -307,6 +308,7 @@ const getCatalogueFor = async (body) => {
     let cachedData = await Redis.get(redisKey);
 
     if (cachedData) {
+        logger.info('Got cached data');
         cachedData = JSON.parse(cachedData);
     } else {
         cachedData = [];
@@ -333,6 +335,9 @@ const getCatalogueFor = async (body) => {
     }
 
     if (productsData?.count > 0 || productsData?.length > 0) {
+        //?Limit all the results to 400 products
+        // productsData = productsData.slice(0, 100);
+
         //Reformat the data
         const reformattedData = shuffle(
             productsData.map((product, index) => {

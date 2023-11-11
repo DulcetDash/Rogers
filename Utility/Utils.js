@@ -121,7 +121,37 @@ exports.searchProducts = async (index, criteria) => {
         return results;
     } catch (error) {
         console.error('Error searching in Elasticsearch:', error);
-        throw error;
+        // throw error;
+        return [];
+    }
+};
+
+exports.getItemsByShop = async (index, shopFpValue) => {
+    try {
+        const response = await ESClient.search({
+            size: 500,
+            index: index,
+            body: {
+                query: {
+                    match: {
+                        shop_fp: shopFpValue,
+                    },
+                },
+            },
+        });
+
+        let results = response?.hits?.hits ?? [];
+
+        if (results.length > 0) {
+            results = results
+                .map((result) => result?._source ?? null)
+                .filter((result) => result);
+        }
+
+        return results;
+    } catch (error) {
+        console.error(error);
+        return [];
     }
 };
 
