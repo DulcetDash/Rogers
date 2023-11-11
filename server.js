@@ -523,8 +523,8 @@ const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
 
     if (!user) {
         logger.warn(message);
-        const didSentSMS = true;
-        // const didSentSMS = await sendSMS(message, phone_number);
+        // const didSentSMS = true;
+        const didSentSMS = await sendSMS(message, phone_number);
 
         if (!didSentSMS) return false;
 
@@ -549,8 +549,8 @@ const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
 
     if (otpData.count <= DAILY_THRESHOLD) {
         //Can still send the SMS
-        const didSentSMS = true;
-        // const didSentSMS = await sendSMS(message, phone_number);
+        // const didSentSMS = true;
+        const didSentSMS = await sendSMS(message, phone_number);
 
         if (!didSentSMS) return false;
 
@@ -581,6 +581,7 @@ const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
     }
 
     //!Exceeded the daily SMS request
+    console.log('SMS LIMIT EXCEEDED for ', phone_number);
     return false;
 };
 
