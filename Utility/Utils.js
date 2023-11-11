@@ -248,9 +248,13 @@ exports.sendSMS = async (message, phone_number) => {
         );
 
         console.log(response.data);
-
-        if (response.status === 200) return true;
-        return false;
+        const { data } = response;
+        console.log(data?.[0]?.status?.type);
+        if (data?.[0]?.status?.type === 'ACCEPTED') {
+            return true;
+        } else {
+            return false;
+        }
     } catch (error) {
         logger.error(error);
         return false;
