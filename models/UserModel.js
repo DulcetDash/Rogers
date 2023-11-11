@@ -62,6 +62,17 @@ const userSchema = new dynamoose.Schema(
             type: Date,
             default: Date.now(),
         },
+        //Only updates on login/signup once
+        permaToken: {
+            type: String,
+            default: null,
+            index: {
+                global: true,
+                name: 'permatoken-index',
+                project: true,
+                throughput: 'ON_DEMAND',
+            },
+        },
     },
     {
         timestamps: true,

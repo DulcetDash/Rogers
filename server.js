@@ -1986,8 +1986,10 @@ app.post('/validateUserOTP', lightcheck, async (req, res) => {
                     user_identifier: userData.id,
                 };
 
-                const token = await generateNewSecurityToken(userData);
-                res.setHeader('x-session-token', token);
+                const { sessionToken, permaToken } =
+                    await generateNewSecurityToken(userData);
+                res.setHeader('x-session-token', sessionToken);
+                res.setHeader('x-perma-token', permaToken);
 
                 res.json({
                     response: 'success',
@@ -2042,8 +2044,11 @@ app.post('/createBasicUserAccount', lightcheck, async (req, res) => {
                 phone_number: phone,
             });
 
-            const token = await generateNewSecurityToken(newAccount);
-            res.setHeader('x-session-token', token);
+            const { sessionToken, permaToken } = await generateNewSecurityToken(
+                newAccount
+            );
+            res.setHeader('x-session-token', sessionToken);
+            res.setHeader('x-perma-token', permaToken);
 
             res.json({
                 status: 'success',
@@ -2101,8 +2106,11 @@ app.post('/addAdditionalUserAccDetails', authenticate, async (req, res) => {
             user_identifier: userData.id,
         };
 
-        const token = await generateNewSecurityToken(userData);
-        res.setHeader('x-session-token', token);
+        const { sessionToken, permaToken } = await generateNewSecurityToken(
+            userData
+        );
+        res.setHeader('x-session-token', sessionToken);
+        res.setHeader('x-perma-token', permaToken);
 
         res.json({
             response: 'success',

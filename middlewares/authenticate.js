@@ -4,6 +4,16 @@ const bcrypt = require('bcrypt');
 const UserModel = require('../models/UserModel');
 const { logger } = require('../LogService');
 
+const decodedPermaToken = (permaToken) => {
+    let decoded;
+    try {
+        decoded = jwt.verify(permaToken, process.env.JWT_PERMATOKEN_SECRET);
+        return decoded?.user_id;
+    } catch (error) {
+        return null;
+    }
+};
+
 const authenticate = async (req, res, next) => {
     try {
         const { browser, version, os, source } = req.useragent;
@@ -12,21 +22,44 @@ const authenticate = async (req, res, next) => {
         if (check !== process.env.AUTH_MOBILE_STRING)
             return res.status(401).send('Unauthorized');
 
+        const permaToken = req.headers['x-perma-token'];
         const authHeader = req.headers.authorization;
         const token = authHeader && authHeader.split(' ')[1];
 
-        if (!token) return res.status(401).send('Unauthorized');
+        if (!permaToken || !token) return res.status(401).send('Unauthorized');
+
+        const permaTokenData = decodedPermaToken(permaToken);
+
+        if (!permaTokenData) return res.status(401).send('Unauthorized');
+
+        let areBothTokensValid = false;
 
         let decoded;
         try {
             decoded = jwt.verify(token, process.env.JWT_SECRET);
+            areBothTokensValid = true;
         } catch (error) {
-            return res.status(401).send('Unauthorized');
+            if (error instanceof jwt.TokenExpiredError) {
+                // Token is valid but expired
+                areBothTokensValid = true;
+            } else {
+                // Token is invalid for other reasons
+                return res.status(401).send('Unauthorized');
+            }
         }
 
-        if (!decoded.user_id) return res.status(401).send('Unauthorized');
+        //! If both tokens were decoded, the user must match
+        if (decoded && decoded?.user_id !== permaTokenData)
+            return res.status(401).send('Unauthorized');
 
-        const user = await UserModel.get(decoded.user_id);
+        if (!decoded?.user_id || !areBothTokensValid)
+            return res.status(401).send('Unauthorized');
+
+        const user = await UserModel.get(
+            areBothTokensValid && decoded?.user_id
+                ? decoded?.user_id
+                : permaTokenData
+        );
 
         if (!user) return res.status(401).send('Unauthorized');
 
@@ -39,7 +72,7 @@ const authenticate = async (req, res, next) => {
         );
         const timeLeft = decoded.exp - currentTimestamp;
 
-        if (timeLeft <= 600 * 3) {
+        if (timeLeft <= 600 * 3 || !decoded?.user_id) {
             // 600 seconds = 10 minutes
             const newToken = jwt.sign(
                 { user_id: decoded.user_id },
