@@ -2011,8 +2011,10 @@ app.post('/validateUserOTP', lightcheck, async (req, res) => {
             const checkOTP = await OTPModel.query('phone_number')
                 .eq(phone)
                 .filter('otp')
-                .eq(parseInt(otp))
+                .eq(parseInt(otp, 10))
                 .exec();
+
+            console.log(checkOTP);
 
             if (checkOTP.count > 0) {
                 //Valid
