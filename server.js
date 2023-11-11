@@ -526,14 +526,18 @@ const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
         // const didSentSMS = true;
         const didSentSMS = await sendSMS(message, phone_number);
 
-        if (!didSentSMS) return false;
+        if (!didSentSMS) {
+            console.log('didSentSMS', didSentSMS);
+            return false;
+        }
 
         //New user
-        await OTPModel.create({
+        const newUserOTP = await OTPModel.create({
             id: uuidv4(),
             phone_number: phone_number,
             otp: parseInt(otp, 10),
         });
+        console.log(newUserOTP);
         return true;
     } //Existing user
 
@@ -1943,12 +1947,12 @@ app.post('/checkPhoneAndSendOTP_status', lightcheck, async (req, res) => {
 
         const user = await UserModel.query('phone_number').eq(phone).exec();
 
-        const sendSMS = await shouldSendNewSMS(user[0], phone);
+        const sentSMS = await shouldSendNewSMS(user[0], phone);
 
         res.json({
             status: 'success',
             response: {
-                didSendOTP: sendSMS,
+                didSendOTP: sentSMS,
                 hasAccount: user.count > 0, //!Has account
                 user_identifier: user[0]?.id,
             },
