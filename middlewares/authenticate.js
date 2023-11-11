@@ -27,6 +27,7 @@ const authenticate = async (req, res, next) => {
         if (!decoded.user_id) return res.status(401).send('Unauthorized');
 
         const user = await UserModel.get(decoded.user_id);
+
         if (!user) return res.status(401).send('Unauthorized');
 
         const validSession = await bcrypt.compare(token, user.sessionToken);
