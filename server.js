@@ -1884,10 +1884,7 @@ app.post('/getGenericUserData', authenticate, async (req, res) => {
         if (cachedProfilePicture) {
             cachedProfilePicture = JSON.parse(cachedProfilePicture);
 
-            if (
-                user?.updatedAt.toISOString() ===
-                `${cachedProfilePicture?.updatedAt}`
-            ) {
+            if (cachedProfilePicture?.bare === user?.profile_picture) {
                 userProfilePicture = cachedProfilePicture.presigned;
             } else {
                 cachedProfilePicture = null;
@@ -1903,10 +1900,9 @@ app.post('/getGenericUserData', authenticate, async (req, res) => {
                 JSON.stringify({
                     bare: user?.profile_picture,
                     presigned: freshPresigning,
-                    updatedAt: user.updatedAt,
                 }),
                 'EX',
-                30 * 60
+                72 * 3600
             );
         }
 
