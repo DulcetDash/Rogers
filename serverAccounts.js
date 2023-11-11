@@ -7047,7 +7047,7 @@ exports.processCourierDrivers_application = async (req) => {
         //Confirm by SMS
         let message = `Hi ${personal_details.name},\nThanks for applying at DulcetDash for deliveries/shopping you will hear from us pretty soon.\nDulcetDash support`;
 
-        // await sendSMS(message, phone);
+        await sendSMS(message, phone);
         logger.warn('Sending confirmation SMS');
 
         return { response: 'successful_application' };
