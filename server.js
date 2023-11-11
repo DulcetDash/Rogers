@@ -2014,6 +2014,7 @@ app.post('/validateUserOTP', lightcheck, async (req, res) => {
                 .eq(parseInt(otp, 10))
                 .exec();
 
+            console.log(phone, parseInt(otp, 10));
             console.log(checkOTP);
 
             if (checkOTP.count > 0) {
