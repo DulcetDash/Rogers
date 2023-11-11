@@ -233,7 +233,6 @@ exports.uploadBase64ToS3 = async (
 
 exports.sendSMS = async (message, phone_number) => {
     try {
-        console.log(message, phone_number);
         const response = await axios.post(
             process.env.BULKSMS_ENDPOINT,
             {
@@ -252,9 +251,9 @@ exports.sendSMS = async (message, phone_number) => {
         console.log(data?.[0]?.status?.type);
         if (data?.[0]?.status?.type === 'ACCEPTED') {
             return true;
-        } else {
-            return false;
         }
+
+        return false;
     } catch (error) {
         logger.error(error);
         return false;

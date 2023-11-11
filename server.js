@@ -523,21 +523,16 @@ const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
 
     if (!user) {
         logger.warn(message);
-        // const didSentSMS = true;
-        const didSentSMS = await sendSMS(message, phone_number);
 
-        if (!didSentSMS) {
-            console.log('didSentSMS', didSentSMS);
-            return false;
-        }
+        await sendSMS(message, phone_number);
 
         //New user
-        const newUserOTP = await OTPModel.create({
+        await OTPModel.create({
             id: uuidv4(),
             phone_number: phone_number,
             otp: parseInt(otp, 10),
         });
-        console.log(newUserOTP);
+
         return true;
     } //Existing user
 
@@ -553,10 +548,7 @@ const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
 
     if (otpData.count <= DAILY_THRESHOLD) {
         //Can still send the SMS
-        // const didSentSMS = true;
-        const didSentSMS = await sendSMS(message, phone_number);
-
-        if (!didSentSMS) return false;
+        await sendSMS(message, phone_number);
 
         await OTPModel.create({
             id: uuidv4(),
