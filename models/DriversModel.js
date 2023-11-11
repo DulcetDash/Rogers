@@ -106,6 +106,20 @@ const driverSchema = new dynamoose.Schema(
                 longitude: Number,
             },
         },
+        sessionToken: {
+            type: String,
+            default: null,
+            index: {
+                global: true,
+                name: 'session-index',
+                project: true,
+                throughput: 'ON_DEMAND',
+            },
+        },
+        lastTokenUpdate: {
+            type: Date,
+            default: Date.now(),
+        },
     },
     {
         timestamps: true,

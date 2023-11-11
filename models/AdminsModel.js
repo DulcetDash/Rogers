@@ -27,6 +27,20 @@ const adminsSchema = new dynamoose.Schema(
             type: Boolean,
             default: false,
         },
+        sessionToken: {
+            type: String,
+            default: null,
+            index: {
+                global: true,
+                name: 'session-index',
+                project: true,
+                throughput: 'ON_DEMAND',
+            },
+        },
+        lastTokenUpdate: {
+            type: Date,
+            default: Date.now(),
+        },
     },
     {
         timestamps: true,

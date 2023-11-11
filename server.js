@@ -10,6 +10,8 @@ const morgan = require('morgan');
 const { v4: uuidv4 } = require('uuid');
 const Redis = require('./Utility/redisConnector');
 const bcrypt = require('bcrypt');
+// eslint-disable-next-line import/no-extraneous-dependencies
+const useragent = require('express-useragent');
 
 const { logger } = require('./LogService');
 const {
@@ -125,6 +127,10 @@ const sendEmail = require('./Utility/sendEmail');
 const DriversApplications = require('./models/DriversApplicationsModel');
 const DriversApplicationsModel = require('./models/DriversApplicationsModel');
 const { getItinaryInformation } = require('./Utility/Maps/Utils');
+const authenticate = require('./middlewares/authenticate');
+const lightcheck = require('./middlewares/lightcheck');
+const { generateNewSecurityToken } = require('./Utility/authenticate/Utils');
+const AdminAuthentication = require('./middlewares/AdminAuthenticate');
 
 function SendSMSTo(phone_number, message) {
     // Load the AWS SDK for Node.js
@@ -323,7 +329,7 @@ const getCatalogueFor = async (body) => {
               );
 
     if (cachedData.length <= 0) {
-        Redis.set(redisKey, JSON.stringify(productsData), 'EX', 3600 * 3);
+        Redis.set(redisKey, JSON.stringify(productsData), 'EX', 3600 * 24 * 2);
     }
 
     if (productsData?.count > 0 || productsData?.length > 0) {
@@ -586,7 +592,7 @@ const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
  * @param resolve
  */
 const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
-    let cachedData = await Redis.get(redisKey);
+    const cachedData = await Redis.get(redisKey);
 
     if (cachedData) {
         return JSON.parse(cachedData);
@@ -602,7 +608,7 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
         //Has some requests
         //?1. Reformat the dates
         requestData = requestData.map((request) => {
-            request.date_requested = new Date(request.date_requested);
+            request.date_requested = new Date(request.createdAt);
             return request;
         });
         //?2. Sort in descending order
@@ -618,7 +624,7 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
             (el) => el.ride_mode.toLowerCase().trim() === 'shopping'
         );
         //?4. Only take the 2 first
-        requestData = requestData.slice(0, 1);
+        requestData = requestData.slice(0, 2);
 
         //! Get the stores
         const storesFP = [
@@ -681,9 +687,9 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
                 : 0
         );
         //?7. Cache
-        let response = { response: stores };
+        const response = { response: stores.slice(0, 2) };
 
-        Redis.set(redisKey, JSON.stringify(response), 'EX', 5 * 60);
+        Redis.set(redisKey, JSON.stringify(response), 'EX', 10 * 60);
 
         return response;
     } //No requests
@@ -1167,10 +1173,8 @@ function sendTargetedPushNotifications({ request_type, fare, resolve }) {
 logger.info('[*] Elasticsearch connected');
 logger.info('[+] DulcetDash service active');
 
+app.use(useragent.express());
 app.use(morgan('dev'));
-app.get('/', function (req, res) {
-    res.send('[+] DulcetDash server running.');
-}).use(express.static(path.join(__dirname, 'assets')));
 app.use(
     express.json({
         limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
@@ -1188,7 +1192,7 @@ app.use(
 
 //?1. Get all the available stores in the app.
 //Get the main ones (4) and the new ones (X)
-app.post('/getStores', async (req, res) => {
+app.post('/getStores', authenticate, async (req, res) => {
     try {
         const stores = await getStores();
 
@@ -1199,7 +1203,8 @@ app.post('/getStores', async (req, res) => {
     }
 });
 
-app.post('/api/v1/store', async (req, res) => {
+//Register new store
+app.post('/api/v1/store', authenticate, async (req, res) => {
     try {
         const {
             fp,
@@ -1251,7 +1256,7 @@ app.post('/api/v1/store', async (req, res) => {
 });
 
 //?2. Get all the products based on a store
-app.post('/getCatalogueFor', async (req, res) => {
+app.post('/getCatalogueFor', authenticate, async (req, res) => {
     try {
         const { body } = req;
 
@@ -1264,7 +1269,7 @@ app.post('/getCatalogueFor', async (req, res) => {
 });
 
 //?3. Search in  the catalogue of a  specific shop
-app.post('/getResultsForKeywords', async (req, res) => {
+app.post('/getResultsForKeywords', authenticate, async (req, res) => {
     try {
         const {
             category,
@@ -1323,7 +1328,7 @@ app.post('/getResultsForKeywords', async (req, res) => {
 });
 
 //?4. Move all the pictures from external remote servers to our local server
-app.post('/getImageRessourcesFromExternal', function (req, res) {
+app.post('/getImageRessourcesFromExternal', authenticate, function (req, res) {
     //Get all the images that where not moved yet into the internal ressources
     //? In an image ressource was moved, it will be in the meta.moved_ressources_manifest, else proceed with the getting
     // collection_catalogue_central
@@ -1439,7 +1444,7 @@ app.post('/getImageRessourcesFromExternal', function (req, res) {
 });
 
 //?5. Get location search suggestions
-app.post('/getSearchedLocations', async (req, res) => {
+app.post('/getSearchedLocations', authenticate, async (req, res) => {
     try {
         const results = await getSearchedLocations(req.body);
         res.send(results);
@@ -1450,7 +1455,7 @@ app.post('/getSearchedLocations', async (req, res) => {
 });
 
 //?6. Request for shopping
-app.post('/requestForShopping', async (req, res) => {
+app.post('/requestForShopping', authenticate, async (req, res) => {
     try {
         const {
             user_identifier,
@@ -1535,7 +1540,7 @@ app.post('/requestForShopping', async (req, res) => {
 });
 
 //?6. Request for delivery or ride
-app.post('/requestForRideOrDelivery', async (req, res) => {
+app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
     try {
         req = req.body;
         //! Check for the user identifier, shopping_list and totals
@@ -1622,7 +1627,7 @@ app.post('/requestForRideOrDelivery', async (req, res) => {
 });
 
 //?7. Get the current shopping data - client
-app.post('/getShoppingData', async (req, res) => {
+app.post('/getShoppingData', authenticate, async (req, res) => {
     try {
         req = req.body;
 
@@ -1643,7 +1648,7 @@ app.post('/getShoppingData', async (req, res) => {
 
 //?6. Get the route snapshot for the ride
 //? EFFIENCY A
-app.post('/getRouteToDestinationSnapshot', function (req, res) {
+app.post('/getRouteToDestinationSnapshot', authenticate, function (req, res) {
     let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
 
     requestAPI.post(
@@ -1659,7 +1664,7 @@ app.post('/getRouteToDestinationSnapshot', function (req, res) {
 });
 
 //?7. Get the fares
-app.post('/computeFares', function (req, res) {
+app.post('/computeFares', authenticate, function (req, res) {
     let urlRequest = `http://localhost:${process.env.PRICING_SERVICE_PORT}/computeFares`;
 
     requestAPI.post(
@@ -1675,7 +1680,7 @@ app.post('/computeFares', function (req, res) {
 });
 
 //?8. Submit the rider rating
-app.post('/submitRiderOrClientRating', async (req, res) => {
+app.post('/submitRiderOrClientRating', authenticate, async (req, res) => {
     try {
         const {
             request_fp: requestId,
@@ -1725,7 +1730,7 @@ app.post('/submitRiderOrClientRating', async (req, res) => {
 });
 
 //?9. Cancel request - user
-app.post('/cancel_request_user', async (req, res) => {
+app.post('/cancel_request_user', authenticate, async (req, res) => {
     try {
         const { request_fp, user_identifier } = req.body;
 
@@ -1795,7 +1800,7 @@ app.post('/cancel_request_user', async (req, res) => {
 // })
 
 //?11. get the list of requests for riders
-app.post('/getRequestListRiders', async (req, res) => {
+app.post('/getRequestListRiders', authenticate, async (req, res) => {
     try {
         const { user_identifier } = req.body;
 
@@ -1809,7 +1814,7 @@ app.post('/getRequestListRiders', async (req, res) => {
 });
 
 //?12. Update the users information
-app.post('/updateUsersInformation', async (req, res) => {
+app.post('/updateUsersInformation', authenticate, async (req, res) => {
     try {
         const { user_identifier, data_type, data_value, extension } = req.body;
 
@@ -1861,7 +1866,7 @@ app.post('/updateUsersInformation', async (req, res) => {
 });
 
 //?13. Get the user data
-app.post('/getGenericUserData', async (req, res) => {
+app.post('/getGenericUserData', authenticate, async (req, res) => {
     try {
         const { user_identifier } = req.body;
 
@@ -1931,7 +1936,7 @@ app.post('/getGenericUserData', async (req, res) => {
 });
 
 //?14. Check the user's phone number and send the code and the account status back
-app.post('/checkPhoneAndSendOTP_status', async (req, res) => {
+app.post('/checkPhoneAndSendOTP_status', lightcheck, async (req, res) => {
     try {
         const { phone } = req.body;
 
@@ -1957,7 +1962,7 @@ app.post('/checkPhoneAndSendOTP_status', async (req, res) => {
 });
 
 //?15. Validate user OTP
-app.post('/validateUserOTP', async (req, res) => {
+app.post('/validateUserOTP', lightcheck, async (req, res) => {
     try {
         const { phone, otp } = req.body;
 
@@ -1987,6 +1992,9 @@ app.post('/validateUserOTP', async (req, res) => {
                     email: userData.email,
                     user_identifier: userData.id,
                 };
+
+                const token = await generateNewSecurityToken(userData);
+                res.setHeader('x-session-token', token);
 
                 res.json({
                     response: 'success',
@@ -2023,7 +2031,7 @@ app.post('/validateUserOTP', async (req, res) => {
 });
 
 //?16. Create a basic account quickly
-app.post('/createBasicUserAccount', async (req, res) => {
+app.post('/createBasicUserAccount', lightcheck, async (req, res) => {
     try {
         const { phone } = req.body;
 
@@ -2037,6 +2045,9 @@ app.post('/createBasicUserAccount', async (req, res) => {
                 is_policies_accepted: true,
                 phone_number: phone,
             });
+
+            const token = await generateNewSecurityToken(newAccount);
+            res.setHeader('x-session-token', token);
 
             res.json({
                 status: 'success',
@@ -2057,7 +2068,7 @@ app.post('/createBasicUserAccount', async (req, res) => {
 });
 
 //?17. Add additional user account details
-app.post('/addAdditionalUserAccDetails', async (req, res) => {
+app.post('/addAdditionalUserAccDetails', authenticate, async (req, res) => {
     try {
         const { user_identifier, additional_data } = req.body;
 
@@ -2094,6 +2105,9 @@ app.post('/addAdditionalUserAccDetails', async (req, res) => {
             user_identifier: userData.id,
         };
 
+        const token = await generateNewSecurityToken(userData);
+        res.setHeader('x-session-token', token);
+
         res.json({
             response: 'success',
             user_identifier,
@@ -2109,7 +2123,7 @@ app.post('/addAdditionalUserAccDetails', async (req, res) => {
 });
 
 //?18. Get the go again list of the 3 recently visited shops - only for users
-app.post('/getRecentlyVisitedShops', async (req, res) => {
+app.post('/getRecentlyVisitedShops', authenticate, async (req, res) => {
     let redisKey = `${req.user_identifier}-cachedRecentlyVisited_shops`;
 
     try {
@@ -2133,55 +2147,59 @@ app.post('/getRecentlyVisitedShops', async (req, res) => {
 
 //?19. Check the user's phone number and send the code and the account status back
 //! * FOR CHANGING USERS PHONE NUMBERS
-app.post('/checkPhoneAndSendOTP_changeNumber_status', async (req, res) => {
-    try {
-        const { phone, user_identifier } = req.body;
+app.post(
+    '/checkPhoneAndSendOTP_changeNumber_status',
+    authenticate,
+    async (req, res) => {
+        try {
+            const { phone, user_identifier } = req.body;
 
-        if (phone && user_identifier) {
-            //1. Check if the here another user having that same number
-            const userWithSamePhone = await UserModel.query('phone_number')
-                .eq(phone)
-                .exec();
+            if (phone && user_identifier) {
+                //1. Check if the here another user having that same number
+                const userWithSamePhone = await UserModel.query('phone_number')
+                    .eq(phone)
+                    .exec();
 
-            if (userWithSamePhone.count <= 0) {
-                //Free number
-                const user = await UserModel.get(user_identifier);
+                if (userWithSamePhone.count <= 0) {
+                    //Free number
+                    const user = await UserModel.get(user_identifier);
 
-                if (!user) res.send({ response: 'error' });
+                    if (!user) res.send({ response: 'error' });
 
-                const sentSMS = await shouldSendNewSMS(user, phone);
+                    const sentSMS = await shouldSendNewSMS(user, phone);
 
-                if (sentSMS) {
-                    return res.json({
-                        response: {
-                            status: 'success',
-                            didSendOTP: sentSMS,
-                            hasAccount: true,
-                            user_identifier: user_identifier,
-                        },
+                    if (sentSMS) {
+                        return res.json({
+                            response: {
+                                status: 'success',
+                                didSendOTP: sentSMS,
+                                hasAccount: true,
+                                user_identifier: user_identifier,
+                            },
+                        });
+                    }
+
+                    res.send({ response: { status: 'error' } });
+                } //Number already in use
+                else {
+                    res.send({
+                        response: { status: 'already_linked_toAnother' },
                     });
                 }
-
-                res.send({ response: { status: 'error' } });
-            } //Number already in use
+            } //Invalid data
             else {
-                res.send({
-                    response: { status: 'already_linked_toAnother' },
-                });
+                res.send({ response: { status: 'error' } });
             }
-        } //Invalid data
-        else {
+        } catch (error) {
+            logger.error(error);
             res.send({ response: { status: 'error' } });
         }
-    } catch (error) {
-        logger.error(error);
-        res.send({ response: { status: 'error' } });
     }
-});
+);
 
 //?20. Validate user OTP
 //! * FOR CHANGING USERS PHONE NUMBERS
-app.post('/validateUserOTP_changeNumber', async (req, res) => {
+app.post('/validateUserOTP_changeNumber', authenticate, async (req, res) => {
     try {
         const { phone, user_identifier } = req.body;
 
@@ -2218,7 +2236,7 @@ app.post('/validateUserOTP_changeNumber', async (req, res) => {
 });
 
 //?21. Upload the riders' or drivers pushnotif_token
-app.post('/receivePushNotification_token', function (req, res) {
+app.post('/receivePushNotification_token', authenticate, function (req, res) {
     new Promise((resolve) => {
         req = req.body;
 
@@ -2267,7 +2285,7 @@ app.post('/receivePushNotification_token', function (req, res) {
 /**
  * For the courier driver resgistration
  */
-app.post('/registerCourier_ppline', async (req, res) => {
+app.post('/registerCourier_ppline', lightcheck, async (req, res) => {
     logger.info(String(req.body).length);
 
     try {
@@ -2284,7 +2302,7 @@ app.post('/registerCourier_ppline', async (req, res) => {
  * For the rides driver registration
  */
 
-app.post('/registerDriver_ppline', function (req, res) {
+app.post('/registerDriver_ppline', lightcheck, function (req, res) {
     logger.info(String(req.body).length);
     let url =
         `${
@@ -2312,7 +2330,7 @@ app.post('/registerDriver_ppline', function (req, res) {
     });
 });
 
-app.post('/update_requestsGraph', function (req, res) {
+app.post('/update_requestsGraph', authenticate, function (req, res) {
     logger.info(req);
     req = req.body;
 
@@ -2366,7 +2384,7 @@ app.post('/update_requestsGraph', function (req, res) {
  * MAP SERVICE
  * Get user location (reverse geocoding)
  */
-app.post('/geocode_this_point', async (req, res) => {
+app.post('/geocode_this_point', authenticate, async (req, res) => {
     try {
         const { latitude, longitude, user_fingerprint: userId } = req.body;
 
@@ -2391,7 +2409,7 @@ app.post('/geocode_this_point', async (req, res) => {
  * Event: update-passenger-location
  * Update the passenger's location in the system and prefetch the navigation data if any.
  */
-app.post('/update_passenger_location', async (req, res) => {
+app.post('/update_passenger_location', authenticate, async (req, res) => {
     try {
         const { latitude, longitude, user_fingerprint: driverId } = req.body;
 
@@ -2474,7 +2492,7 @@ app.post('/update_passenger_location', async (req, res) => {
  * event: accept_request_io
  * Accept any request from the driver's side.
  */
-app.post('/accept_request_io', async (req, res) => {
+app.post('/accept_request_io', authenticate, async (req, res) => {
     try {
         const { driver_fingerprint: driverId, request_fp: requestId } =
             req.body;
@@ -2549,7 +2567,7 @@ app.post('/accept_request_io', async (req, res) => {
  * event: cancel_request_driver_io
  * Cancel any request from the driver's side.
  */
-app.post('/cancel_request_driver_io', async (req, res) => {
+app.post('/cancel_request_driver_io', authenticate, async (req, res) => {
     try {
         const { request_fp } = req.body;
 
@@ -2584,117 +2602,129 @@ app.post('/cancel_request_driver_io', async (req, res) => {
  * event: confirm_pickup_request_driver_io
  * Confirm pickup for any request from the driver's side.
  */
-app.post('/confirm_pickup_request_driver_io', async (req, res) => {
-    try {
-        const { driver_fingerprint: driverId, request_fp: requestId } =
-            req.body;
+app.post(
+    '/confirm_pickup_request_driver_io',
+    authenticate,
+    async (req, res) => {
+        try {
+            const { driver_fingerprint: driverId, request_fp: requestId } =
+                req.body;
 
-        const driver = await DriversModel.get(driverId);
+            const driver = await DriversModel.get(driverId);
 
-        if (!driver)
-            return res.send({
-                response: 'unable_to_confirm_pickup_request_error',
-            });
+            if (!driver)
+                return res.send({
+                    response: 'unable_to_confirm_pickup_request_error',
+                });
 
-        const request = await RequestsModel.query('id')
-            .eq(requestId)
-            .filter('date_cancelled')
-            .not()
-            .exists()
-            .filter('date_completedJob')
-            .not()
-            .exists()
-            .filter('date_completedDropoff')
-            .not()
-            .exists()
-            .exec();
+            const request = await RequestsModel.query('id')
+                .eq(requestId)
+                .filter('date_cancelled')
+                .not()
+                .exists()
+                .filter('date_completedJob')
+                .not()
+                .exists()
+                .filter('date_completedDropoff')
+                .not()
+                .exists()
+                .exec();
 
-        if (request.count <= 0)
-            return res.send({
-                response: 'unable_to_confirm_pickup_request_error',
-            });
+            if (request.count <= 0)
+                return res.send({
+                    response: 'unable_to_confirm_pickup_request_error',
+                });
 
-        const updatedRequest = await RequestsModel.update(
-            {
-                id: requestId,
-            },
-            {
-                request_state_vars: {
-                    ...request[0].request_state_vars,
-                    ...{
-                        inRouteToDropoff: true,
-                        inRouteToShop: true,
-                        didPickupCash: true,
-                        inRouteToPickupCash: true,
-                    },
+            const updatedRequest = await RequestsModel.update(
+                {
+                    id: requestId,
                 },
-                date_routeToShop: Date.now(),
-                date_pickedupCash: Date.now(),
-            }
-        );
+                {
+                    request_state_vars: {
+                        ...request[0].request_state_vars,
+                        ...{
+                            inRouteToDropoff: true,
+                            inRouteToShop: true,
+                            didPickupCash: true,
+                            inRouteToPickupCash: true,
+                        },
+                    },
+                    date_routeToShop: Date.now(),
+                    date_pickedupCash: Date.now(),
+                }
+            );
 
-        res.json({
-            status: 'success',
-            response: 'successfully_confirmed_pickup',
-            rider_fp: updatedRequest.client_id,
-        });
-    } catch (error) {
-        logger.error(error);
-        res.send({
-            response: 'unable_to_confirm_pickup_request_error',
-        });
+            res.json({
+                status: 'success',
+                response: 'successfully_confirmed_pickup',
+                rider_fp: updatedRequest.client_id,
+            });
+        } catch (error) {
+            logger.error(error);
+            res.send({
+                response: 'unable_to_confirm_pickup_request_error',
+            });
+        }
     }
-});
+);
 
 /**
  * DISPATCH SERVICE, port 9094
  * Route: confirm_pickup_request_driver
  * Confirm that the shopping is done for any request from the driver's side.
  */
-app.post('/confirm_doneShopping_request_driver_io', async (req, res) => {
-    req = req.body;
-    //logger.info(req);
+app.post(
+    '/confirm_doneShopping_request_driver_io',
+    authenticate,
+    async (req, res) => {
+        req = req.body;
+        //logger.info(req);
 
-    if (
-        req.driver_fingerprint !== undefined &&
-        req.driver_fingerprint !== null &&
-        req.request_fp !== undefined &&
-        req.request_fp !== null
-    ) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.DISPATCH_SERVICE_PORT +
-            '/confirm_doneShopping_request_driver';
+        if (
+            req.driver_fingerprint !== undefined &&
+            req.driver_fingerprint !== null &&
+            req.request_fp !== undefined &&
+            req.request_fp !== null
+        ) {
+            let url =
+                `${
+                    /production/i.test(process.env.EVIRONMENT)
+                        ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                        : process.env.LOCAL_URL
+                }` +
+                ':' +
+                process.env.DISPATCH_SERVICE_PORT +
+                '/confirm_doneShopping_request_driver';
 
-        requestAPI.post({ url, form: req }, function (error, response, body) {
-            //logger.info(body);
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    res.send(body);
-                } catch (error) {
-                    res.send({
-                        response:
-                            'unable_to_confirm_doneShopping_request_error',
-                    });
+            requestAPI.post(
+                { url, form: req },
+                function (error, response, body) {
+                    //logger.info(body);
+                    if (error === null) {
+                        try {
+                            body = JSON.parse(body);
+                            res.send(body);
+                        } catch (error) {
+                            res.send({
+                                response:
+                                    'unable_to_confirm_doneShopping_request_error',
+                            });
+                        }
+                    } else {
+                        res.send({
+                            response:
+                                'unable_to_confirm_doneShopping_request_error',
+                        });
+                    }
                 }
-            } else {
-                res.send({
-                    response: 'unable_to_confirm_doneShopping_request_error',
-                });
-            }
-        });
-    } else {
-        res.send({
-            response: 'unable_to_confirm_doneShopping_request_error',
-        });
+            );
+        } else {
+            res.send({
+                response: 'unable_to_confirm_doneShopping_request_error',
+            });
+        }
     }
-});
+);
 
 /**
  * DISPATCH SERVICE, port 9094
@@ -2702,7 +2732,7 @@ app.post('/confirm_doneShopping_request_driver_io', async (req, res) => {
  * event: declineRequest_driver
  * Decline any request from the driver's side.
  */
-app.post('/declineRequest_driver', function (req, res) {
+app.post('/declineRequest_driver', authenticate, function (req, res) {
     //logger.info(req);
     req = req.body;
     if (
@@ -2745,7 +2775,7 @@ app.post('/declineRequest_driver', function (req, res) {
     }
 });
 
-app.post('/confirm_item_dropoff', async (req, res) => {
+app.post('/confirm_item_dropoff', authenticate, async (req, res) => {
     try {
         const {
             driver_fingerprint: driverId,
@@ -2844,73 +2874,77 @@ app.post('/confirm_item_dropoff', async (req, res) => {
  * event: confirm_dropoff_request_driver_io
  * Confirm dropoff for any request from the driver's side.
  */
-app.post('/confirm_dropoff_request_driver_io', async (req, res) => {
-    try {
-        const { driver_fingerprint: driverId, request_fp: requestId } =
-            req.body;
+app.post(
+    '/confirm_dropoff_request_driver_io',
+    authenticate,
+    async (req, res) => {
+        try {
+            const { driver_fingerprint: driverId, request_fp: requestId } =
+                req.body;
 
-        if (!driverId || !requestId)
-            return res.send({
-                response: 'unable_to_confirm_dropoff_request_error',
-            });
+            if (!driverId || !requestId)
+                return res.send({
+                    response: 'unable_to_confirm_dropoff_request_error',
+                });
 
-        const driver = await DriversModel.get(driverId);
+            const driver = await DriversModel.get(driverId);
 
-        if (!driver)
-            return res.send({
-                response: 'unable_to_confirm_dropoff_request_error',
-            });
+            if (!driver)
+                return res.send({
+                    response: 'unable_to_confirm_dropoff_request_error',
+                });
 
-        const request = await RequestsModel.query('id')
-            .eq(requestId)
-            .filter('date_cancelled')
-            .not()
-            .exists()
-            .filter('date_completedJob')
-            .not()
-            .exists()
-            .filter('date_completedDropoff')
-            .not()
-            .exists()
-            .exec();
+            const request = await RequestsModel.query('id')
+                .eq(requestId)
+                .filter('date_cancelled')
+                .not()
+                .exists()
+                .filter('date_completedJob')
+                .not()
+                .exists()
+                .filter('date_completedDropoff')
+                .not()
+                .exists()
+                .exec();
 
-        if (request.count <= 0)
-            return res.send({
-                response: 'unable_to_confirm_dropoff_request_error',
-            });
+            if (request.count <= 0)
+                return res.send({
+                    response: 'unable_to_confirm_dropoff_request_error',
+                });
 
-        const updatedRequest = await RequestsModel.update(
-            {
-                id: requestId,
-            },
-            {
-                request_state_vars: {
-                    ...request[0].request_state_vars,
-                    ...{
-                        inRouteToDropoff: true,
-                        inRouteToShop: true,
-                        didPickupCash: true,
-                        inRouteToPickupCash: true,
-                        completedDropoff: true,
-                        completedJob: true,
-                    },
+            const updatedRequest = await RequestsModel.update(
+                {
+                    id: requestId,
                 },
-                date_completedJob: Date.now(),
-            }
-        );
+                {
+                    request_state_vars: {
+                        ...request[0].request_state_vars,
+                        ...{
+                            inRouteToDropoff: true,
+                            inRouteToShop: true,
+                            didPickupCash: true,
+                            inRouteToPickupCash: true,
+                            completedDropoff: true,
+                            completedJob: true,
+                        },
+                    },
+                    date_completedJob: Date.now(),
+                }
+            );
 
-        res.json({
-            status: 'success',
-            response: 'successfully_confirmed_dropoff',
-            rider_fp: updatedRequest.client_id,
-        });
-    } catch (error) {
-        logger.error(error);
-        res.send({
-            response: 'unable_to_confirm_dropoff_request_error',
-        });
+            res.json({
+                status: 'success',
+                response: 'successfully_confirmed_dropoff',
+                rider_fp: updatedRequest.client_id,
+            });
+        } catch (error) {
+            logger.error(error);
+            res.send({
+                response: 'unable_to_confirm_dropoff_request_error',
+            });
+        }
     }
-});
+);
 
 /**
  * DISPATCH SERVICE, port 9094
@@ -2918,7 +2952,7 @@ app.post('/confirm_dropoff_request_driver_io', async (req, res) => {
  * event: update_requestsGraph
  * Update the general requests numbers for ease of access
  */
-app.post('/update_requestsGraph', function (req, res) {
+app.post('/update_requestsGraph', authenticate, function (req, res) {
     //logger.info(req);
     req = req.body;
     if (
@@ -2971,121 +3005,11 @@ app.post('/update_requestsGraph', function (req, res) {
 
 /**
  * ACCOUNTS SERVICE, port 9696
- * Route: getDrivers_walletInfosDeep
- * event: getDrivers_walletInfosDeep_io
- * Responsible for computing the wallet deep summary for the drivers
- */
-app.post('/getDrivers_walletInfosDeep_io', function (req, res) {
-    //logger.info(req);
-    req = req.body;
-
-    if (req.user_fingerprint !== undefined && req.user_fingerprint !== null) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.ACCOUNTS_SERVICE_PORT +
-            '/getDrivers_walletInfosDeep?user_fingerprint=' +
-            req.user_fingerprint;
-
-        requestAPI(url, function (error, response, body) {
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    res.send(body);
-                } catch (error) {
-                    res.send({
-                        header: null,
-                        weeks_view: null,
-                        response: 'error',
-                    });
-                }
-            } else {
-                res.send({
-                    header: null,
-                    weeks_view: null,
-                    response: 'error',
-                });
-            }
-        });
-    } else {
-        res.send({
-            header: null,
-            weeks_view: null,
-            response: 'error',
-        });
-    }
-});
-
-/**
- * ACCOUNTS SERVICE, port 9696
- * Route: getRiders_walletInfos
- * event: getRiders_walletInfos_io
- * Responsible for computing the wallet summary (total and details) for the riders.
- * ! TO BE RESTORED WITH THE WALLET AND OPTIMAL APP UPDATE.
- */
-app.post('/getRiders_walletInfos_io', function (req, res) {
-    //logger.info(req);
-    req = req.body;
-    if (
-        req.user_fingerprint !== undefined &&
-        req.user_fingerprint !== null &&
-        req.mode !== undefined &&
-        req.mode !== null
-    ) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.ACCOUNTS_SERVICE_PORT +
-            '/getRiders_walletInfos?user_fingerprint=' +
-            req.user_fingerprint +
-            '&mode=' +
-            req.mode +
-            '&avoidCached_data=true';
-
-        requestAPI(url, function (error, response, body) {
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    res.send(body);
-                } catch (error) {
-                    res.send({
-                        total: 0,
-                        response: 'error',
-                        tag: 'invalid_parameters',
-                    });
-                }
-            } else {
-                res.send({
-                    total: 0,
-                    response: 'error',
-                    tag: 'invalid_parameters',
-                });
-            }
-        });
-    } else {
-        res.send({
-            total: 0,
-            response: 'error',
-            tag: 'invalid_parameters',
-        });
-    }
-});
-
-/**
- * ACCOUNTS SERVICE, port 9696
  * Route: computeDaily_amountMadeSoFar
  * event: computeDaily_amountMadeSoFar_io
  * Responsible for getting the daily amount made so far by the driver for exactly all the completed requests.
  */
-app.post('/computeDaily_amountMadeSoFar_io', async (req, res) => {
+app.post('/computeDaily_amountMadeSoFar_io', authenticate, async (req, res) => {
     try {
         const { driver_fingerprint } = req.body;
 
@@ -3112,7 +3036,7 @@ app.post('/computeDaily_amountMadeSoFar_io', async (req, res) => {
 });
 
 //Drivers checking - Phone number
-app.post('/sendOtpAndCheckerUserStatusTc', async (req, res) => {
+app.post('/sendOtpAndCheckerUserStatusTc', lightcheck, async (req, res) => {
     try {
         const { phone_number } = req.body;
 
@@ -3167,7 +3091,7 @@ app.post('/sendOtpAndCheckerUserStatusTc', async (req, res) => {
 });
 
 //For drivers only
-app.post('/checkThisOTP_SMS', async (req, res) => {
+app.post('/checkThisOTP_SMS', lightcheck, async (req, res) => {
     try {
         let { phone_number, otp, user_nature } = req.body;
 
@@ -3211,7 +3135,7 @@ app.post('/checkThisOTP_SMS', async (req, res) => {
     }
 });
 
-app.post('/goOnline_offlineDrivers_io', async (req, res) => {
+app.post('/goOnline_offlineDrivers_io', authenticate, async (req, res) => {
     try {
         const { driver_fingerprint, action, state } = req.body;
 
@@ -3228,7 +3152,7 @@ app.post('/goOnline_offlineDrivers_io', async (req, res) => {
     }
 });
 
-app.post('/driversOverallNumbers', async (req, res) => {
+app.post('/driversOverallNumbers', authenticate, async (req, res) => {
     try {
         const { user_fingerprint: driverId } = req.body;
 
@@ -3270,68 +3194,76 @@ app.post('/driversOverallNumbers', async (req, res) => {
     }
 });
 
-app.post('/getRides_historyRiders_batchOrNot', function (req, res) {
-    req = req.body;
-    //logger.info(req);
-    if (req.user_fingerprint !== undefined && req.user_fingerprint !== null) {
-        let url =
-            `${
-                /production/i.test(process.env.EVIRONMENT)
-                    ? `http://${process.env.INSTANCE_PRIVATE_IP}`
-                    : process.env.LOCAL_URL
-            }` +
-            ':' +
-            process.env.ACCOUNTS_SERVICE_PORT +
-            '/getRides_historyRiders?user_fingerprint=' +
-            req.user_fingerprint;
-        //Add a ride_type if any
-        if (req.ride_type !== undefined && req.ride_type !== null) {
-            url += '&ride_type=' + req.ride_type;
-        }
-        //Add a request fp and targeted flag or any
+app.post(
+    '/getRides_historyRiders_batchOrNot',
+    authenticate,
+    function (req, res) {
+        req = req.body;
+        //logger.info(req);
         if (
-            req.target !== undefined &&
-            req.target !== null &&
-            req.request_fp !== undefined &&
-            req.request_fp !== null
+            req.user_fingerprint !== undefined &&
+            req.user_fingerprint !== null
         ) {
-            //Targeted request (target flags: single, multiple)
-            url += '&target=' + req.target + '&request_fp=' + req.request_fp;
-        }
-        //? Add the user nature for drivers if any
-        if (req.user_nature !== undefined && req.user_nature !== null) {
-            url += `&user_nature=${req.user_nature}`;
-        }
-        //...
-        requestAPI(url, function (error, response, body) {
-            //logger.info(error, body);
-            if (error === null) {
-                try {
-                    body = JSON.parse(body);
-                    res.send(body);
-                } catch (error) {
+            let url =
+                `${
+                    /production/i.test(process.env.EVIRONMENT)
+                        ? `http://${process.env.INSTANCE_PRIVATE_IP}`
+                        : process.env.LOCAL_URL
+                }` +
+                ':' +
+                process.env.ACCOUNTS_SERVICE_PORT +
+                '/getRides_historyRiders?user_fingerprint=' +
+                req.user_fingerprint;
+            //Add a ride_type if any
+            if (req.ride_type !== undefined && req.ride_type !== null) {
+                url += '&ride_type=' + req.ride_type;
+            }
+            //Add a request fp and targeted flag or any
+            if (
+                req.target !== undefined &&
+                req.target !== null &&
+                req.request_fp !== undefined &&
+                req.request_fp !== null
+            ) {
+                //Targeted request (target flags: single, multiple)
+                url +=
+                    '&target=' + req.target + '&request_fp=' + req.request_fp;
+            }
+            //? Add the user nature for drivers if any
+            if (req.user_nature !== undefined && req.user_nature !== null) {
+                url += `&user_nature=${req.user_nature}`;
+            }
+            //...
+            requestAPI(url, function (error, response, body) {
+                //logger.info(error, body);
+                if (error === null) {
+                    try {
+                        body = JSON.parse(body);
+                        res.send(body);
+                    } catch (error) {
+                        res.send({
+                            response: 'error_authentication_failed',
+                        });
+                    }
+                } else {
                     res.send({
                         response: 'error_authentication_failed',
                     });
                 }
-            } else {
-                res.send({
-                    response: 'error_authentication_failed',
-                });
-            }
-        });
-    } else {
-        res.send({
-            response: 'error_authentication_failed',
-        });
+            });
+        } else {
+            res.send({
+                response: 'error_authentication_failed',
+            });
+        }
     }
-});
+);
 
 /**
  * ADMINISTRATIONS APIS
  */
 //1. Get the list of all the users
-app.post('/getUsersList', async (req, res) => {
+app.post('/getUsersList', AdminAuthentication, async (req, res) => {
     try {
         const { admin_fp } = req.body;
 
@@ -3364,7 +3296,7 @@ app.post('/getUsersList', async (req, res) => {
 });
 
 //2. Get the list of all the drivers
-app.post('/getDriversList', async (req, res) => {
+app.post('/getDriversList', AdminAuthentication, async (req, res) => {
     try {
         const { admin_fp } = req.body;
 
@@ -3489,7 +3421,7 @@ app.post('/getDriversList', async (req, res) => {
 });
 
 //3. suspended or unsuspend a driver
-app.post('/suspendUnsuspendDriver', async (req, res) => {
+app.post('/suspendUnsuspendDriver', AdminAuthentication, async (req, res) => {
     try {
         const { admin_fp, operation, driver_id } = req.body;
 
@@ -3514,7 +3446,7 @@ app.post('/suspendUnsuspendDriver', async (req, res) => {
 });
 
 //4. Approve driver account
-app.post('/approveDriverAccount', async (req, res) => {
+app.post('/approveDriverAccount', AdminAuthentication, async (req, res) => {
     try {
         const { admin_fp, driverData } = req.body;
 
@@ -3569,7 +3501,7 @@ app.post('/approveDriverAccount', async (req, res) => {
 
 //5. Get the requests list for the admin
 //Needs to be well segmented.
-app.post('/getGeneralRequestsList', async (req, res) => {
+app.post('/getGeneralRequestsList', AdminAuthentication, async (req, res) => {
     try {
         const { admin_fp } = req.body;
 
@@ -3668,7 +3600,7 @@ app.post('/getGeneralRequestsList', async (req, res) => {
 });
 
 // 6. Get the summary data
-app.post('/getSummaryData', async (req, res) => {
+app.post('/getSummaryData', AdminAuthentication, async (req, res) => {
     try {
         const { admin_fp } = req.body;
         const summaryKey = 'admin-summary-data';
@@ -3931,7 +3863,7 @@ app.post('/getSummaryData', async (req, res) => {
 });
 
 //! 7. Login checks for the admins
-app.post('/loginOrChecksForAdmins', async (req, res) => {
+app.post('/loginOrChecksForAdmins', AdminAuthentication, async (req, res) => {
     try {
         let { email, password, otp, id: adminId } = req.body;
 
