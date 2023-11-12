@@ -1614,6 +1614,14 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
 
                 console.log(newRequest);
 
+                sendEmail({
+                    email: 'dominique@kedokagroup.com',
+                    fromEmail: 'support@dulcetdash.com',
+                    fromName: 'requests@dulcetdash.com',
+                    message: `A new ${req.ride_mode} request was made by ${req.user_identifier}`,
+                    subject: `New ${req.ride_mode} request made`,
+                });
+
                 res.json({ response: 'successful' });
             } //Has a pending request
             else {
@@ -1859,7 +1867,7 @@ app.post('/updateUsersInformation', authenticate, async (req, res) => {
             res.send({ response: 'success' });
         } //Invalid data
         else {
-            resolve({ response: 'error' });
+            res.send({ response: 'error' });
         }
     } catch (error) {
         logger.error(error);
@@ -2054,6 +2062,14 @@ app.post('/createBasicUserAccount', lightcheck, async (req, res) => {
             );
             res.setHeader('x-session-token', sessionToken);
             res.setHeader('x-perma-token', permaToken);
+
+            sendEmail({
+                email: 'dominique@kedokagroup.com',
+                fromEmail: 'support@dulcetdash.com',
+                fromName: 'requests@dulcetdash.com',
+                message: `A new user has just registered with the phone number ${phone}`,
+                subject: `A new user just registered!`,
+            });
 
             res.json({
                 status: 'success',
@@ -2537,7 +2553,6 @@ app.post('/accept_request_io', authenticate, async (req, res) => {
                 ...request[0].request_state_vars,
                 isAccepted: true,
                 inRouteToPickupCash: true,
-                didPickupCash: request[0]?.payment_method !== 'cash',
             },
         };
 
@@ -2556,6 +2571,14 @@ app.post('/accept_request_io', authenticate, async (req, res) => {
             { id: requestId },
             acceptObject
         );
+
+        sendEmail({
+            email: 'dominique@kedokagroup.com',
+            fromEmail: 'support@dulcetdash.com',
+            fromName: 'requests@dulcetdash.com',
+            message: `Driver ${driver.name} ${driver.surname} (${driver.id}) accepted request ${requestId}`,
+            subject: `${request[0].ride_mode} accepted`,
+        });
 
         res.json({
             status: 'success',
@@ -2790,7 +2813,10 @@ app.post('/confirm_item_dropoff', authenticate, async (req, res) => {
             driver_fingerprint: driverId,
             request_fp: requestId,
             selectedPackageIndex,
+            isItemNotFound: isFound,
         } = req.body;
+
+        const isItemNotFound = isFound === 'true';
 
         if (!driverId || !requestId)
             return res.send({
@@ -2849,7 +2875,14 @@ app.post('/confirm_item_dropoff', authenticate, async (req, res) => {
                 shopping_list: request[0]?.shopping_list?.map(
                     (shopping, index) => {
                         if (index === packageIndex) {
-                            shopping.isCompleted = true;
+                            if (isItemNotFound) {
+                                shopping.isCompleted = false;
+                                shopping.isNotFound = true;
+                            } //Item found
+                            else {
+                                shopping.isCompleted = true;
+                                shopping.isNotFound = false;
+                            }
                         }
                         return shopping;
                     }
