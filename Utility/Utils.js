@@ -263,23 +263,23 @@ exports.uploadBase64ToS3 = async (
 
 exports.sendSMS = async (message, phone_number) => {
     try {
-        const response = await axios.post(
-            process.env.BULKSMS_ENDPOINT,
-            {
-                body: message,
-                to: phone_number.replace('+', '').trim(),
-            },
-            {
-                headers: {
-                    Authorization: process.env.BULKSMS_BASIC_AUTH,
-                },
-            }
-        );
+        // const response = await axios.post(
+        //     process.env.BULKSMS_ENDPOINT,
+        //     {
+        //         body: message,
+        //         to: phone_number.replace('+', '').trim(),
+        //     },
+        //     {
+        //         headers: {
+        //             Authorization: process.env.BULKSMS_BASIC_AUTH,
+        //         },
+        //     }
+        // );
 
-        const { data } = response;
-        if (data?.[0]?.status?.type === 'ACCEPTED') {
-            return true;
-        }
+        // const { data } = response;
+        // if (data?.[0]?.status?.type === 'ACCEPTED') {
+        //     return true;
+        // }
 
         return false;
     } catch (error) {

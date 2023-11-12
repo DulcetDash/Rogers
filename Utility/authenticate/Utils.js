@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const UserModel = require('../../models/UserModel');
+const { logger } = require('../../LogService');
 
-exports.generateNewSecurityToken = async (user) => {
+exports.generateNewSecurityToken = async (user, mainUserModel = UserModel) => {
     const userId = user.id;
 
     const sessionToken = jwt.sign({ user_id: userId }, process.env.JWT_SECRET, {
@@ -18,7 +19,7 @@ exports.generateNewSecurityToken = async (user) => {
     const hashedSessionToken = await bcrypt.hash(sessionToken, salt);
     const hashedPermaToken = await bcrypt.hash(permaToken, salt);
 
-    await UserModel.update(
+    await mainUserModel.update(
         { id: userId },
         {
             sessionToken: hashedSessionToken,

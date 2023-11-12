@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const UserModel = require('../models/UserModel');
 const { logger } = require('../LogService');
+const DriversModel = require('../models/DriversModel');
 
 const decodedPermaToken = (permaToken) => {
     let decoded;
@@ -52,14 +53,29 @@ const authenticate = async (req, res, next) => {
         if (decoded && decoded?.user_id !== permaTokenData)
             return res.status(401).send('Unauthorized');
 
-        if (!decoded?.user_id || !areBothTokensValid)
+        if (!decoded?.user_id && !areBothTokensValid)
             return res.status(401).send('Unauthorized');
 
-        const user = await UserModel.get(
+        const resolvedUserId =
             areBothTokensValid && decoded?.user_id
                 ? decoded?.user_id
-                : permaTokenData
+                : permaTokenData;
+
+        let mainUserModel = UserModel;
+        let user = await UserModel.get(resolvedUserId);
+
+        if (!user) {
+            user = await DriversModel.get(resolvedUserId);
+            mainUserModel = DriversModel;
+        }
+
+        //! Permatoken must exist
+        const validPermaToken = await bcrypt.compare(
+            permaToken,
+            user.permaToken
         );
+
+        if (!validPermaToken) return res.status(401).send('Unauthorized');
 
         if (!user) return res.status(401).send('Unauthorized');
 
@@ -70,12 +86,12 @@ const authenticate = async (req, res, next) => {
         const currentTimestamp = Math.floor(
             (user?.lastTokenUpdate ?? Date.now()) / 1000
         );
-        const timeLeft = decoded.exp - currentTimestamp;
+        const timeLeft = (decoded?.exp ?? 0) - currentTimestamp;
 
         if (timeLeft <= 600 * 3 || !decoded?.user_id) {
             // 600 seconds = 10 minutes
             const newToken = jwt.sign(
-                { user_id: decoded.user_id },
+                { user_id: user?.id },
                 process.env.JWT_SECRET,
                 { expiresIn: `${process.env.DEFAULT_SESSION_DURATION_H}h` }
             );
@@ -83,12 +99,11 @@ const authenticate = async (req, res, next) => {
             const salt = await bcrypt.genSalt(10);
             const hashedToken = await bcrypt.hash(newToken, salt);
 
-            await UserModel.update(
-                { id: decoded.user_id },
+            await mainUserModel.update(
+                { id: user?.id },
                 { sessionToken: hashedToken, lastTokenUpdate: Date.now() }
             );
 
-            res.locals.sessionToken = newToken;
             res.setHeader('x-session-token', newToken);
         }
 

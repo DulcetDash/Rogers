@@ -3059,39 +3059,29 @@ app.post('/sendOtpAndCheckerUserStatusTc', lightcheck, async (req, res) => {
         if (driver.count > 0) {
             const driverData = driver[0];
 
-            const didSendOTP = await shouldSendNewSMS(
-                driverData,
-                phone_number,
-                true
-            );
+            await shouldSendNewSMS(driverData, phone_number, true);
 
-            if (didSendOTP) {
-                return res.send({
-                    _id: driverData.id,
-                    response: 'registered',
-                    user_fp: driverData.id,
-                    name: driverData.name,
-                    surname: driverData.surname,
-                    gender: driverData.gender,
-                    phone_number: driverData.phone_number,
-                    email: driverData.email,
-                    profile_picture: driverData?.profile_picture,
-                    account_state: driverData?.account_state ?? 'valid', //? By default - Valid
-                    isDriverSuspended: driverData?.isDriverSuspended ?? false,
-                    pushnotif_token: driverData.pushnotif_token,
-                    suspension_message: driverData.suspension_message,
-                });
-            }
-
-            return res.send({ response: 'error_checking_user' });
+            return res.send({
+                _id: driverData.id,
+                response: 'registered',
+                user_fp: driverData.id,
+                name: driverData.name,
+                surname: driverData.surname,
+                gender: driverData.gender,
+                phone_number: driverData.phone_number,
+                email: driverData.email,
+                profile_picture: driverData?.profile_picture,
+                account_state: driverData?.account_state ?? 'valid', //? By default - Valid
+                isDriverSuspended: driverData?.isDriverSuspended ?? false,
+                pushnotif_token: driverData.pushnotif_token,
+                suspension_message: driverData.suspension_message,
+            });
         } //Unregistered user
         else {
             //Get the last
-            const didSendOTP = await shouldSendNewSMS(null, phone_number, true);
+            await shouldSendNewSMS(null, phone_number, true);
 
-            if (didSendOTP) return res.send({ response: 'not_yet_registered' });
-
-            return res.send({ response: 'error_checking_user' });
+            return res.send({ response: 'not_yet_registered' });
         }
     } catch (error) {
         logger.error(error);
@@ -3109,7 +3099,7 @@ app.post('/checkThisOTP_SMS', lightcheck, async (req, res) => {
         if (!phone_number || !otp)
             return res.send({ response: 'error_checking_otp' });
 
-        otp = parseInt(otp);
+        otp = parseInt(otp, 10);
 
         const driver = await DriversModel.query('phone_number')
             .eq(phone_number)
@@ -3127,14 +3117,25 @@ app.post('/checkThisOTP_SMS', lightcheck, async (req, res) => {
 
             return res.send({ response: false });
         } //Checking for registered user - check the OTP secrets binded to the profile
+        // eslint-disable-next-line no-else-return
         else {
-            const driver = await DriversModel.query('phone_number')
+            const checkedDriver = await DriversModel.query('phone_number')
                 .eq(phone_number)
                 .filter('otp')
                 .eq(otp)
                 .exec();
 
-            if (driver.count > 0) return res.send({ response: true });
+            if (checkedDriver.count > 0) {
+                const { sessionToken, permaToken } =
+                    await generateNewSecurityToken(
+                        checkedDriver.toJSON()[0],
+                        DriversModel
+                    );
+                res.setHeader('x-session-token', sessionToken);
+                res.setHeader('x-perma-token', permaToken);
+
+                return res.send({ response: true });
+            }
 
             res.send({ response: false });
         }
