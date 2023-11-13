@@ -132,6 +132,7 @@ const authenticate = require('./middlewares/authenticate');
 const lightcheck = require('./middlewares/lightcheck');
 const { generateNewSecurityToken } = require('./Utility/authenticate/Utils');
 const AdminAuthentication = require('./middlewares/AdminAuthenticate');
+const { json } = require('stream/consumers');
 
 function SendSMSTo(phone_number, message) {
     // Load the AWS SDK for Node.js
@@ -1559,16 +1560,16 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                   req?.pickup_location;
 
         if (checkerCondition) {
-            let security_pin = otpGenerator.generate(6, {
+            let securityPin = otpGenerator.generate(6, {
                 lowerCaseAlphabets: false,
                 upperCaseAlphabets: false,
                 specialChars: false,
             });
             //! --------------
-            security_pin =
-                String(security_pin).length < 6
-                    ? parseInt(security_pin, 10) * 10
-                    : security_pin;
+            securityPin =
+                String(securityPin).length < 6
+                    ? parseInt(securityPin, 10) * 10
+                    : securityPin;
 
             //! Check if the user has no unconfirmed shoppings
             const previousRequest = await RequestsModel.query('client_id')
@@ -1609,7 +1610,7 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                     totals_request: req.totals, //Has the cart details in terms of fees
                     request_documentation: req.note,
                     ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
-                    security: security_pin,
+                    security: securityPin,
                 });
 
                 console.log(newRequest);
@@ -1619,8 +1620,35 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                     fromEmail: 'support@dulcetdash.com',
                     fromName: 'requests@dulcetdash.com',
                     message: `A new ${req.ride_mode} request was made by ${req.user_identifier}`,
-                    subject: `New ${req.ride_mode} request made`,
+                    subject: `New ${req.ride_mode} for N$${
+                        req.totals?.delivery_fee ??
+                        req.totals?.shopping_fee ??
+                        'Unknown'
+                    } request made`,
                 });
+
+                //Notify all the shoppers
+                const driversOneSignalUserIds = (
+                    await DriversModel.scan().all().exec()
+                )
+                    .toJSON()
+                    .map((driver) => driver?.oneSignalUserId)
+                    .filter((el) => el);
+
+                const message = {
+                    title: `New ${req.ride_mode} request`,
+                    body: `N$${
+                        req.totals?.delivery_fee ??
+                        req.totals?.shopping_fee ??
+                        'Unknown'
+                    } request made`,
+                };
+
+                await sendPushUPNotification(
+                    'shopper',
+                    driversOneSignalUserIds,
+                    message
+                );
 
                 res.json({ response: 'successful' });
             } //Has a pending request
@@ -2261,49 +2289,31 @@ app.post('/validateUserOTP_changeNumber', authenticate, async (req, res) => {
 });
 
 //?21. Upload the riders' or drivers pushnotif_token
-app.post('/receivePushNotification_token', authenticate, function (req, res) {
-    new Promise((resolve) => {
-        req = req.body;
+app.post('/receivePushNotification_token', authenticate, async (req, res) => {
+    try {
+        const { pushnotif_token } = req.body;
 
-        if (
-            req.user_identifier !== undefined &&
-            req.user_identifier !== null &&
-            req.pushnotif_token !== undefined &&
-            req.pushnotif_token !== null
-        ) {
-            //Attach the user nature: rider/driver
-            req['user_nature'] =
-                req.user_nature !== undefined && req.user_nature !== null
-                    ? req.user_nature
-                    : 'rider';
+        if (!pushnotif_token) return res.send({ response: 'error' });
 
-            let redisKey = `${req.user_identifier}-pushnotif_tokenDataCached`;
-            req.pushnotif_token = JSON.parse(req.pushnotif_token);
-            //! Get the cached and compare, only update the database if not the same as the cached
-            //Update
-            new Promise((resCompute) => {
-                updateRidersPushNotifToken(req, redisKey, resCompute);
-            })
-                .then((result) => {
-                    resolve(result);
-                })
-                .catch((error) => {
-                    logger.error(error);
-                    resolve({ response: 'error' });
-                });
-        } //invalid data
-        else {
-            resolve({ response: 'error' });
-        }
-    })
-        .then((result) => {
-            // logger.info(result);
-            res.send(result);
-        })
-        .catch((error) => {
-            logger.error(error);
-            res.send({ response: 'error' });
-        });
+        const { userId } = JSON.parse(pushnotif_token);
+
+        if (!userId) return res.send({ response: 'no userId found' });
+
+        const mainModel = req.user?.isDriver ? DriversModel : UserModel;
+
+        await mainModel.update(
+            {
+                id: req.user?.id,
+            },
+            {
+                oneSignalUserId: userId,
+            }
+        );
+
+        res.send({ response: 'success' });
+    } catch (error) {
+        res.send({ response: 'error' });
+    }
 });
 
 //? REST equivalent for common websockets.
@@ -2577,8 +2587,21 @@ app.post('/accept_request_io', authenticate, async (req, res) => {
             fromEmail: 'support@dulcetdash.com',
             fromName: 'requests@dulcetdash.com',
             message: `Driver ${driver.name} ${driver.surname} (${driver.id}) accepted request ${requestId}`,
-            subject: `${request[0].ride_mode} accepted`,
+            subject: `${acceptedRequest.ride_mode} accepted`,
         });
+
+        const client = await UserModel.get(acceptedRequest.client_id);
+
+        if (client?.oneSignalUserId) {
+            await sendPushUPNotification('shopper', client?.oneSignalUserId, {
+                title: 'Your request was accepted',
+                message: `We've found a ${
+                    acceptedRequest.ride_mode === 'SHOPPING'
+                        ? 'shopper'
+                        : 'Courier'
+                } for you!}`,
+            });
+        }
 
         res.json({
             status: 'success',
@@ -2685,6 +2708,30 @@ app.post(
                     date_pickedupCash: Date.now(),
                 }
             );
+
+            const client = await UserModel.get(updatedRequest.client_id);
+
+            if (client?.oneSignalUserId) {
+                await sendPushUPNotification(
+                    'shopper',
+                    client?.oneSignalUserId,
+                    {
+                        title:
+                            updatedRequest.ride_mode === 'SHOPPING'
+                                ? 'Money picked up'
+                                : 'Package picked up',
+                        message: `Your ${
+                            updatedRequest.ride_mode === 'SHOPPING'
+                                ? 'shopper'
+                                : 'Courier'
+                        } has just picked up the ${
+                            updatedRequest.ride_mode === 'SHOPPING'
+                                ? 'money'
+                                : 'package'
+                        }`,
+                    }
+                );
+            }
 
             res.json({
                 status: 'success',
@@ -2973,6 +3020,26 @@ app.post(
                     date_completedJob: Date.now(),
                 }
             );
+
+            const client = await UserModel.get(updatedRequest.client_id);
+
+            if (client?.oneSignalUserId) {
+                await sendPushUPNotification(
+                    'shopper',
+                    client?.oneSignalUserId,
+                    {
+                        title:
+                            updatedRequest.ride_mode === 'SHOPPING'
+                                ? 'Rate your shopper!'
+                                : 'Rate your courier!',
+                        message: `Your ${
+                            updatedRequest.ride_mode === 'SHOPPING'
+                                ? 'Shopping'
+                                : 'Delivery'
+                        } has been successfully completed.`,
+                    }
+                );
+            }
 
             res.json({
                 status: 'success',

@@ -1444,7 +1444,10 @@ const reverseGeocoderExec = async (latitude, longitude) => {
             return false;
         }
     } catch (error) {
-        logger.warn(error);
+        logger.error(error);
+        logger.warn(
+            `${process.env.URL_NOMINATIM_SERVICES}/reverse?lat=${latitude}&lon=${longitude}&zoom=10&format=json`
+        );
         return false;
     }
 };

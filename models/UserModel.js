@@ -73,6 +73,7 @@ const userSchema = new dynamoose.Schema(
                 throughput: 'ON_DEMAND',
             },
         },
+        oneSignalUserId: String,
     },
     {
         timestamps: true,

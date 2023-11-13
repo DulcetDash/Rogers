@@ -61,12 +61,14 @@ const authenticate = async (req, res, next) => {
                 ? decoded?.user_id
                 : permaTokenData;
 
+        let isDriver = false;
         let mainUserModel = UserModel;
         let user = await UserModel.get(resolvedUserId);
 
         if (!user) {
             user = await DriversModel.get(resolvedUserId);
             mainUserModel = DriversModel;
+            isDriver = true;
         }
 
         //! Permatoken must exist
@@ -107,7 +109,10 @@ const authenticate = async (req, res, next) => {
             res.setHeader('x-session-token', newToken);
         }
 
-        req.user = user;
+        req.user = {
+            ...user,
+            isDriver,
+        };
 
         next();
     } catch (error) {

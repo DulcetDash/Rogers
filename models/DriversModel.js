@@ -131,6 +131,7 @@ const driverSchema = new dynamoose.Schema(
                 throughput: 'ON_DEMAND',
             },
         },
+        oneSignalUserId: String,
     },
     {
         timestamps: true,
