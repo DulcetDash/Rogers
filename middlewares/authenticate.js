@@ -77,7 +77,10 @@ const authenticate = async (req, res, next) => {
             user.permaToken
         );
 
-        if (!validPermaToken) return res.status(401).send('Unauthorized');
+        if (!validPermaToken)
+            return res
+                .status(401)
+                .json({ message: 'Unauthorized', error: 'ipm' });
 
         if (!user) return res.status(401).send('Unauthorized');
 
