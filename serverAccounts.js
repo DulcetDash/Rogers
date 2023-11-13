@@ -6962,7 +6962,7 @@ exports.processCourierDrivers_application = async (req) => {
         )
             return { response: 'error_parsing_data_1' };
 
-        const driver = await DriversModel.query('phone_number')
+        const driver = await DriversApplicationsModel.query('phone_number')
             .eq(phone)
             .exec();
 
