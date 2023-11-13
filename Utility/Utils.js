@@ -14,7 +14,7 @@ const { logger } = require('../LogService');
 AWS.config.update({
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    region: 'us-west-1',
+    region: 'us-east-1',
 });
 
 dayjs.extend(utc);
@@ -237,11 +237,7 @@ exports.uploadBase64ToS3 = async (
     objectKey,
     imageType = 'jpeg'
 ) => {
-    const s3 = new AWS.S3({
-        region: 'us-west-1',
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    });
+    const s3 = new AWS.S3();
 
     try {
         var buffer = Buffer.from(

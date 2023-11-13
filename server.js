@@ -134,29 +134,6 @@ const { generateNewSecurityToken } = require('./Utility/authenticate/Utils');
 const AdminAuthentication = require('./middlewares/AdminAuthenticate');
 const { json } = require('stream/consumers');
 
-function SendSMSTo(phone_number, message) {
-    // Load the AWS SDK for Node.js
-    AWS_SMS.config.update({ region: 'us-east-1' });
-
-    // Create publish parameters
-    var params = {
-        Message: 'TEXT_MESSAGE' /* required */,
-        PhoneNumber: '264856997167',
-        // attributes: {
-        //   SMSType: "Transactional",
-        // },
-    };
-
-    // Create promise and SNS service object
-    return new AWS_SMS.SNS({
-        apiVersion: '2010-03-31',
-        // sslEnabled: false,
-        // maxRetries: 10,
-    })
-        .publish(params)
-        .promise();
-}
-
 /**
  * Responsible for sending push notification to devices
  */
