@@ -3205,7 +3205,7 @@ app.post('/checkThisOTP_SMS', lightcheck, async (req, res) => {
             .eq(phone_number)
             .exec();
 
-        if (!driver) {
+        if (driver.count <= 0) {
             //Unregistered users
             const otpCheck = await OTPModel.query('phone_number')
                 .eq(phone_number)
