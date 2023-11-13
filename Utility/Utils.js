@@ -248,6 +248,7 @@ exports.uploadBase64ToS3 = async (
             Body: buffer,
             ContentEncoding: 'base64',
             ContentType: `image/${imageType}`,
+            ACL: 'private',
         };
 
         const upload = await s3.putObject(data).promise();

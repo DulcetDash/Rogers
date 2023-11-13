@@ -74,7 +74,7 @@ const RequestsModel = require('./models/RequestsModel');
 function SendSMSTo(phone_number, message) {
     // Load the AWS SDK for Node.js
     // Set region
-    AWS_SMS.config.update({ region: 'us-east-1' });
+    // AWS_SMS.config.update({ region: 'us-east-1' });
 
     // Create publish parameters
     var params = {
