@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
@@ -235,7 +237,11 @@ exports.uploadBase64ToS3 = async (
     objectKey,
     imageType = 'jpeg'
 ) => {
-    const s3 = new AWS.S3();
+    const s3 = new AWS.S3({
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        region: 'us-east-1',
+    });
 
     try {
         var buffer = Buffer.from(
@@ -248,7 +254,6 @@ exports.uploadBase64ToS3 = async (
             Body: buffer,
             ContentEncoding: 'base64',
             ContentType: `image/${imageType}`,
-            ACL: 'private',
         };
 
         const upload = await s3.putObject(data).promise();
