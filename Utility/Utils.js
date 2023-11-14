@@ -1,3 +1,5 @@
+import _ from 'lodash';
+
 require('dotenv').config();
 
 const dayjs = require('dayjs');
@@ -505,4 +507,40 @@ exports.parseRequestsForShopperAppView = async (request, driverData) => {
         logger.error(error);
         return [];
     }
+};
+
+/**
+ * Removes duplicates from an array of objects based on a specified key.
+ *
+ * @param {Array} array - The array of objects.
+ * @param {string} key - The key to check for duplicates.
+ * @return {Array} - The array with duplicates removed.
+ */
+exports.removeDuplicatesByKey = (array, key) => _.uniqBy(array, key);
+
+/**
+ * Removes duplicates from an array of objects based on a specified key,
+ * keeping the object with the most recent date.
+ *
+ * @param {Array} array - The array of objects.
+ * @param {string} key - The key to check for duplicates.
+ * @param {string} dateField - The date field to determine the most recent object.
+ * @return {Array} - The array with duplicates removed.
+ */
+exports.removeDuplicatesKeepRecent = (array, key, dateField) => {
+    // Group objects by the key
+    const grouped = _.groupBy(array, key);
+
+    // For each group, sort by date and remove the oldest if there are duplicates
+    const processed = _.map(grouped, (group) => {
+        if (group.length > 1) {
+            return _.orderBy(group, [dateField], ['asc']).slice(1);
+        }
+        return group;
+    });
+
+    // Flatten the array of arrays into a single array
+    const dupFree = _.flatten(processed);
+
+    return _.orderBy(dupFree, [dateField], ['desc']);
 };

@@ -21,6 +21,7 @@ const {
     getAllItemsByShopFp,
     shuffle,
     getItemsByShop,
+    removeDuplicatesKeepRecent,
 } = require('./Utility/Utils');
 const AWS = require('aws-sdk');
 const _ = require('lodash');
@@ -581,6 +582,8 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
     //1. Get all the requests made by the user
     const requests = await RequestsModel.query('client_id')
         .eq(user_identifier)
+        .filter('ride_mode')
+        .eq('SHOPPING')
         .exec();
     let requestData = requests;
 
@@ -591,39 +594,29 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
             request.date_requested = new Date(request.createdAt);
             return request;
         });
-        //?2. Sort in descending order
-        requestData.sort((a, b) =>
-            a.date_requested > b.date_requested
-                ? -1
-                : b.date_requested > a.date_requested
-                ? 1
-                : 0
-        );
-        //?3. Only take the shopping requests
-        requestData = requestData.filter(
-            (el) => el.ride_mode.toLowerCase().trim() === 'shopping'
-        );
-        //?4. Only take the 2 first
-        requestData = requestData.slice(0, 2);
 
-        //! Get the stores
-        const storesFP = [
-            ...new Set(
-                requestData
-                    .map((request) => {
-                        const tmp = request.shopping_list.map((shop) => ({
-                            store_id: shop.meta.store_fp,
-                            createdAt: request.createdAt,
-                        }));
-                        return tmp;
-                    })
-                    .flat()
-            ),
-        ];
+        const storesMeta = requestData
+            .map((request) => {
+                const tmp = request.shopping_list.map((shop) => ({
+                    store_id: shop.meta.store_fp,
+                    createdAt: request.createdAt,
+                }));
+                return tmp;
+            })
+            .flat();
+
+        let recentUserStores = removeDuplicatesKeepRecent(
+            storesMeta,
+            'shop_fp',
+            'createdAt'
+        );
+
+        //?4. Only take the 2 first
+        recentUserStores = recentUserStores.slice(0, 2);
 
         const stores = (
             await Promise.all(
-                storesFP.map(async (request) => {
+                recentUserStores.map(async (request) => {
                     const store = await StoreModel.get(request.store_id);
 
                     if (!store) return false;
@@ -658,14 +651,6 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
             )
         ).filter((el) => el);
 
-        //?6. Sort based on when the user requested from here
-        stores.sort((a, b) =>
-            a.date_requested_from_here > b.date_requested_from_here
-                ? -1
-                : b.date_requested_from_here > a.date_requested_from_here
-                ? 1
-                : 0
-        );
         //?7. Cache
         const response = { response: stores.slice(0, 2) };
 
