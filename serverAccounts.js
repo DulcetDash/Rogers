@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { v4: uuidv4 } = require('uuid');
-//require("newrelic");
+
 var express = require('express');
 const http = require('http');
 const fs = require('fs');
@@ -14,10 +14,6 @@ const s3 = new AWS.S3({
     secretAccessKey: process.env.AWS_S3_SECRET,
 });
 
-var accessLogStream = fs.createWriteStream(
-    path.join(__dirname, 'accountService_access.log'),
-    { flags: 'a' }
-);
 const { logger } = require('./LogService');
 
 var app = express();
@@ -68,9 +64,15 @@ const {
 
 var AWS_SMS = require('aws-sdk');
 const DriversModel = require('./models/DriversModel');
-const { uploadBase64ToS3, sendSMS } = require('./Utility/Utils');
+const {
+    uploadBase64ToS3,
+    sendSMS,
+    getDailyAmountDriverRedisKey,
+} = require('./Utility/Utils');
 const DriversApplicationsModel = require('./models/DriversApplicationsModel');
 const RequestsModel = require('./models/RequestsModel');
+const Redis = require('./Utility/redisConnector');
+
 function SendSMSTo(phone_number, message) {
     // Load the AWS SDK for Node.js
     // Set region
@@ -95,44 +97,6 @@ function SendSMSTo(phone_number, message) {
         .catch(function (err) {
             console.error(err, err.stack);
         });
-    // let username = "DulcetDash";
-    // let password = "DulcetDash*1";
-
-    // let postData = JSON.stringify({
-    //   to: phone_number,
-    //   body: message,
-    // });
-
-    // let options = {
-    //   hostname: "api.bulksms.com",
-    //   port: 443,
-    //   path: "/v1/messages",
-    //   method: "POST",
-    //   headers: {
-    //     "Content-Type": "application/json",
-    //     "Content-Length": postData.length,
-    //     Authorization:
-    //       "Basic " + Buffer.from(username + ":" + password).toString("base64"),
-    //   },
-    // };
-
-    // let req = https.request(options, (resp) => {
-    //   logger.info("statusCode:", resp.statusCode);
-    //   let data = "";
-    //   resp.on("data", (chunk) => {
-    //     data += chunk;
-    //   });
-    //   resp.on("end", () => {
-    //     logger.info("Response:", data);
-    //   });
-    // });
-
-    // req.on("error", (e) => {
-    //   logger.warn(e);
-    // });
-
-    // req.write(postData);
-    // req.end();
 }
 
 let dateObject;
@@ -225,153 +189,6 @@ function generateUniqueFingerprint(str, encryption = false, resolve) {
             .update(str)
             .digest('hex');
         resolve(fingerprint);
-    }
-}
-
-/**
- * @func checkUserStatus
- * @param userData: the user's bundled data (phone_number, user_nature,...)
- * @param otp: the otp generated for this user
- * @param collection_OTP_dispatch_map: the collection holding all the OTP dispatch
- * @param collectionPassengers_profiles: the collection of all the passengers
- * @param collectiondrivers_shoppers_central: the collection of all the drivers
- * @param resolve
- * Responsible for checking whether the user is registeredd or not, if yes send back
- * the user fingerprint.
- */
-function checkUserStatus(
-    userData,
-    otp,
-    collection_OTP_dispatch_map,
-    collectionPassengers_profiles,
-    collectiondrivers_shoppers_central,
-    resolve
-) {
-    //Save the dispatch map for this user
-    new Promise((res) => {
-        let dispatchMap = {
-            phone_number: userData.phone_number,
-            otp: parseInt(otp),
-            date_sent: new Date(chaineDateUTC),
-        };
-        dynamo_insert('OTP_dispatch_map', dispatchMap)
-            .then((result) => {
-                res(result);
-            })
-            .catch((error) => {
-                logger.error(error);
-                res(false);
-            });
-    }).then(
-        () => {},
-        () => {}
-    );
-    //...Check the user's status
-    let checkUser = {
-        phone_number: /^\+/i.test(userData.phone_number)
-            ? userData.phone_number
-            : `+${userData.phone_number}`,
-    }; //?Indexed
-
-    logger.warn(checkUser);
-
-    //1. Passengers
-    if (
-        userData.user_nature === undefined ||
-        userData.user_nature === null ||
-        /passenger/i.test(userData.user_nature)
-    ) {
-        dynamo_find_query({
-            table_name: 'passengers_profiles',
-            IndexName: 'phone_number',
-            KeyConditionExpression: 'phone_number = :val1',
-            ExpressionAttributeValues: {
-                ':val1': checkUser.phone_number,
-            },
-        })
-            .then((result) => {
-                if (result.length > 0) {
-                    //User already registered
-                    //Send the fingerprint
-                    resolve({
-                        _id: result[0]._id,
-                        response: 'registered',
-                        user_fp: result[0].user_fingerprint,
-                        name: result[0].name,
-                        surname: result[0].surname,
-                        gender: result[0].gender,
-                        phone_number: result[0].phone_number,
-                        email: result[0].email,
-                        profile_picture: `${process.env.AWS_S3_RIDERS_PROFILE_PICTURES_PATH}/${result[0].media.profile_picture}`,
-                        account_state:
-                            result[0].account_state !== undefined &&
-                            result[0].account_state !== null
-                                ? result[0].account_state
-                                : 'minimal',
-                        pushnotif_token: result[0].pushnotif_token,
-                    });
-                } //Not yet registeredd
-                else {
-                    resolve({ response: 'not_yet_registered' });
-                }
-            })
-            .catch((error) => {
-                logger.error(error);
-                resolve({ response: 'error_checking_user' });
-            });
-    } else if (
-        userData.user_nature !== undefined &&
-        userData.user_nature !== null &&
-        /driver/i.test(userData.user_nature)
-    ) {
-        /**
-         * ! elligibility_status: {
-         * !  status:'valid',		//valid, suspended, expelled
-         * !  message: 'Message to display',
-         * !  date_updated: ${date},
-         * ! }
-         */
-        //2. Drivers
-        dynamo_find_query({
-            table_name: 'drivers_shoppers_central',
-            IndexName: 'phone_number',
-            KeyConditionExpression: 'phone_number = :val1',
-            ExpressionAttributeValues: {
-                ':val1': checkUser.phone_number,
-            },
-        })
-            .then((result) => {
-                if (result.length > 0) {
-                    //User already registered
-                    //Send the fingerprint
-                    resolve({
-                        _id: result[0]._id,
-                        response: 'registered',
-                        user_fp: result[0].driver_fingerprint,
-                        name: result[0].name,
-                        surname: result[0].surname,
-                        gender: result[0].gender,
-                        phone_number: result[0].phone_number,
-                        email: result[0].email,
-                        profile_picture: `${process.env.AWS_S3_DRIVERS_PROFILE_PICTURES_PATH}/${result[0].identification_data.profile_picture}`,
-                        account_state:
-                            result[0].elligibility_status !== undefined &&
-                            result[0].elligibility_status !== null
-                                ? result[0].elligibility_status.status
-                                : 'valid', //? By default - Valid
-                        pushnotif_token: result[0].pushnotif_token,
-                        suspension_message: result[0].suspension_message,
-                    });
-                } //Not yet registeredd
-                else {
-                    logger.warn('No yet registered driver');
-                    resolve({ response: 'not_yet_registered' });
-                }
-            })
-            .catch((error) => {
-                logger.error(error);
-                resolve({ response: 'error_checking_user' });
-            });
     }
 }
 
@@ -1284,23 +1101,6 @@ function proceedTargeted_requestHistory_fetcher(
 }
 
 /**
- * @func clearDailyRequestAmountCached
- * Responsible for clearing the cached data about the daily amount.
- * @param driver_fingerprint: the driver's id
- * @param resolve
- */
-function clearDailyRequestAmountCached(driver_fingerprint, resolve) {
-    resolveDate();
-    //Form the redis key
-    let refDate = new Date(chaineDateUTC);
-    let redisKey = `dailyAmount-${refDate.getDay()}-${refDate.getMonth()}-${refDate.getFullYear()}-${driver_fingerprint}`;
-    //...
-    redisCluster.del(redisKey, function () {
-        resolve(true);
-    });
-}
-
-/**
  * @func getDaily_requestAmount_driver
  * Responsible for getting the daily amount made so far for the driver at any given time.
  * CACHED.
@@ -1308,18 +1108,25 @@ function clearDailyRequestAmountCached(driver_fingerprint, resolve) {
  * @param resolve
  */
 const getDaily_requestAmount_driver = async (driverId) => {
-    const now = new Date();
-    let redisKey = `dailyAmount-${now.getDay()}-${now.getMonth()}-${now.getFullYear()}-${driverId}`;
+    const redisKey = getDailyAmountDriverRedisKey(driverId);
+
+    const cachedData = await Redis.get(redisKey);
+
+    if (cachedData) {
+        return JSON.parse(cachedData);
+    }
 
     const driver = await DriversModel.get(driverId);
 
     const startOfDay = moment().startOf('day').valueOf();
     const endOfDay = moment().endOf('day').valueOf();
 
-    const todaysRequests = await RequestsModel.scan()
+    const todaysRequests = await RequestsModel.query('shopper_id')
+        .eq(driverId)
         .all()
         .filter('createdAt')
         .ge(startOfDay)
+        .filter('createdAt')
         .le(endOfDay)
         .exec();
 
@@ -1360,29 +1167,18 @@ const getDaily_requestAmount_driver = async (driverId) => {
         return acc + tmp;
     }, 0);
     //...
-    resolve({
+    const dailyAmount = {
         amount: todaysTotal,
         currency: 'NAD',
         currency_symbol: 'N$',
         supported_requests_types: driver?.operation_clearances ?? 'none',
         response: 'success',
-    });
+    };
+
+    await Redis.set(redisKey, JSON.stringify(dailyAmount), 'EX', 2 * 3600);
+
+    return dailyAmount;
 };
-
-/**
- * @func checkIfSameDay
- * Responsible for finding out if two dates where on the same day or Not
- * @param date1: first date
- * @param date2: second date
- * ? The order of the dates does not matter.
- * @return true: same day
- * @return false: not same day
- */
-
-function checkIfSameDay(date1, date2) {
-    let hourDiff = Math.abs((date1 - date2) / (1000 * 3600)); //In hour
-    return hourDiff < 24;
-}
 
 /**
  * @func getRiders_wallet_summary

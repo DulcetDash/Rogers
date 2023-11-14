@@ -22,6 +22,7 @@ const {
     shuffle,
     getItemsByShop,
     removeDuplicatesKeepRecent,
+    getDailyAmountDriverRedisKey,
 } = require('./Utility/Utils');
 const AWS = require('aws-sdk');
 const _ = require('lodash');
@@ -3002,6 +3003,11 @@ app.post(
                     }
                 );
             }
+
+            //Clear the driver's daily cache
+            const redisKey = getDailyAmountDriverRedisKey(driverId);
+
+            await Redis.del(redisKey);
 
             res.json({
                 status: 'success',

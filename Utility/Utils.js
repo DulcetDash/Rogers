@@ -1,4 +1,4 @@
-import _ from 'lodash';
+const _ = require('lodash');
 
 require('dotenv').config();
 
@@ -543,4 +543,9 @@ exports.removeDuplicatesKeepRecent = (array, key, dateField) => {
     const dupFree = _.flatten(processed);
 
     return _.orderBy(dupFree, [dateField], ['desc']);
+};
+
+exports.getDailyAmountDriverRedisKey = (driverId) => {
+    const now = new Date();
+    return `dailyAmount-${now.getDay()}-${now.getMonth()}-${now.getFullYear()}-${driverId}`;
 };
