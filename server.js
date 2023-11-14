@@ -1,13 +1,13 @@
 require('newrelic');
 require('dotenv').config();
 
-var express = require('express');
+const express = require('express');
 const http = require('http');
-const path = require('path');
 const crypto = require('crypto');
-var otpGenerator = require('otp-generator');
+const otpGenerator = require('otp-generator');
 const morgan = require('morgan');
 const { v4: uuidv4 } = require('uuid');
+const https = require('https');
 const Redis = require('./Utility/redisConnector');
 const bcrypt = require('bcrypt');
 // eslint-disable-next-line import/no-extraneous-dependencies
@@ -20,39 +20,20 @@ const {
     parseRequestsForShopperAppView,
     getAllItemsByShopFp,
     shuffle,
-    getItemsByShop,
     removeDuplicatesKeepRecent,
     getDailyAmountDriverRedisKey,
 } = require('./Utility/Utils');
-const AWS = require('aws-sdk');
 const _ = require('lodash');
-
-const s3 = new AWS.S3({
-    accessKeyId: process.env.AWS_S3_ID,
-    secretAccessKey: process.env.AWS_S3_SECRET,
-});
 
 const dynamoose = require('dynamoose');
 
-var app = express();
-var server = http.createServer(app);
-var cors = require('cors');
-var helmet = require('helmet');
+const app = express();
+const server = http.createServer(app);
+const cors = require('cors');
+const helmet = require('helmet');
 const requestAPI = require('request');
 
-var jwt = require('jsonwebtoken');
-
-const nodemailer = require('nodemailer');
-
-let transporterChecks = nodemailer.createTransport({
-    host: process.env.INOUT_GOING_SERVER,
-    port: process.env.LOGIN_EMAIL_SMTP,
-    secure: true, // true for 465, false for other ports
-    auth: {
-        user: process.env.EMAIL_CHECK, // generated ethereal user
-        pass: process.env.EMAIL_CHECK_PASSWORD, // generated ethereal password
-    },
-});
+const jwt = require('jsonwebtoken');
 
 const ddb = new dynamoose.aws.ddb.DynamoDB({
     credentials: {
@@ -66,46 +47,13 @@ const ddb = new dynamoose.aws.ddb.DynamoDB({
 dynamoose.aws.ddb.set(ddb);
 
 //! Attach DynamoDB helper
-const {
-    dynamo_insert,
-    dynamo_update,
-    dynamo_find_query,
-    dynamo_delete,
-    dynamo_get_all,
-} = require('./DynamoServiceManager');
+const { dynamo_find_query } = require('./DynamoServiceManager');
 //....
-
-const redis = require('redis');
-let dateObject;
 var chaineDateUTC = null;
 const moment = require('moment');
 
-function resolveDate() {
-    //Resolve date
-    var date = new Date();
-    date = moment(date.getTime()).utcOffset(2);
-
-    dateObject = date;
-    date =
-        date.year() +
-        '-' +
-        (date.month() + 1) +
-        '-' +
-        date.date() +
-        ' ' +
-        date.hour() +
-        ':' +
-        date.minute() +
-        ':' +
-        date.second();
-    chaineDateUTC = new Date(date).toISOString();
-}
-resolveDate();
-
-var AWS_SMS = require('aws-sdk');
 const UserModel = require('./models/UserModel');
 const OTPModel = require('./models/OTPModel');
-const { default: axios } = require('axios');
 const {
     getUserLocationInfos,
     getSearchedLocations,
@@ -114,11 +62,7 @@ const RequestsModel = require('./models/RequestsModel');
 const DriversModel = require('./models/DriversModel');
 const StoreModel = require('./models/StoreModel');
 const { presignS3URL } = require('./Utility/PresignDocs');
-const {
-    storeTimeStatus,
-    searchProducts,
-    uploadToS3,
-} = require('./Utility/Utils');
+const { storeTimeStatus, searchProducts } = require('./Utility/Utils');
 const CatalogueModel = require('./models/CatalogueModel');
 const {
     processCourierDrivers_application,
@@ -127,26 +71,22 @@ const {
 } = require('./serverAccounts');
 const AdminsModel = require('./models/AdminsModel');
 const sendEmail = require('./Utility/sendEmail');
-const DriversApplications = require('./models/DriversApplicationsModel');
 const DriversApplicationsModel = require('./models/DriversApplicationsModel');
-const { getItinaryInformation } = require('./Utility/Maps/Utils');
 const authenticate = require('./middlewares/authenticate');
 const lightcheck = require('./middlewares/lightcheck');
 const { generateNewSecurityToken } = require('./Utility/authenticate/Utils');
-const AdminAuthentication = require('./middlewares/AdminAuthenticate');
-const { json } = require('stream/consumers');
 
 /**
  * Responsible for sending push notification to devices
  */
-var sendPushUPNotification = function (data) {
+const sendPushUPNotification = (data) => {
     //logger.info("Notify data");
     //logger.info(data);
-    var headers = {
+    const headers = {
         'Content-Type': 'application/json; charset=utf-8',
     };
 
-    var options = {
+    const options = {
         host: 'onesignal.com',
         port: 443,
         path: '/api/v1/notifications',
@@ -154,10 +94,9 @@ var sendPushUPNotification = function (data) {
         headers: headers,
     };
 
-    var https = require('https');
-    var req = https.request(options, function (res) {
-        res.on('data', function (data) {
-            ////logger.info("Response:");
+    const req = https.request(options, function (res) {
+        res.on('data', function (response) {
+            logger.info('Response:', response);
         });
     });
 
@@ -166,41 +105,6 @@ var sendPushUPNotification = function (data) {
     req.write(JSON.stringify(data));
     req.end();
 };
-
-/**
- * @func generateUniqueFingerprint()
- * Generate unique fingerprint for any string size.
- */
-function generateUniqueFingerprint(str, encryption = false, resolve) {
-    str = str.trim();
-    let fingerprint = null;
-    if (encryption === false) {
-        fingerprint = crypto
-            .createHmac(
-                'sha512WithRSAEncryption',
-                'NEJBASICKEYFINGERPRINTS-RIDES-DELIVERY'
-            )
-            .update(str)
-            .digest('hex');
-        resolve(fingerprint);
-    } else if (/md5/i.test(encryption)) {
-        fingerprint = crypto
-            .createHmac(
-                'md5WithRSAEncryption',
-                'NEJBASICKEYFINGERPRINTS-RIDES-DELIVERY'
-            )
-            .update(str)
-            .digest('hex');
-        resolve(fingerprint);
-    } //Other - default
-    else {
-        fingerprint = crypto
-            .createHmac('sha256', 'NEJBASICKEYFINGERPRINTS-RIDES-DELIVERY')
-            .update(str)
-            .digest('hex');
-        resolve(fingerprint);
-    }
-}
 
 //EVENT GATEWAY PORT
 
@@ -211,7 +115,7 @@ function generateUniqueFingerprint(str, encryption = false, resolve) {
  */
 const getStores = async () => {
     try {
-        let redisKey = 'get-stores';
+        const redisKey = 'get-stores';
 
         const stores = await StoreModel.scan().all().exec();
 
@@ -228,7 +132,7 @@ const getStores = async () => {
                                 logger.error(error);
                                 logo = 'logo.png';
                             }
-                            let tmpStore = {
+                            const tmpStore = {
                                 name: store.name,
                                 fd_name: store.friendly_name,
                                 type: store.shop_type,
@@ -263,7 +167,7 @@ const getStores = async () => {
                 redisKey,
                 JSON.stringify(STORES_MODEL),
                 'EX',
-                parseInt(process.env.REDIS_EXPIRATION_5MIN) * 5
+                parseInt(process.env.REDIS_EXPIRATION_5MIN, 10) * 5
             );
 
             return { response: STORES_MODEL };
@@ -376,7 +280,7 @@ const getRequestDataClient = async (requestData) => {
             shoppingData?.ride_mode.toUpperCase() === 'DELIVERY'
         ) {
             //Has a pending shopping
-            let RETURN_DATA_TEMPLATE = {
+            const RETURN_DATA_TEMPLATE = {
                 ride_mode: shoppingData?.ride_mode.toUpperCase(),
                 request_fp: shoppingData.id,
                 client_id: requestData.user_identifier, //the user identifier - requester
@@ -624,7 +528,7 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
 
                     const logo = await presignS3URL(store.shop_logo);
 
-                    let tmpStore = {
+                    const tmpStore = {
                         name: store.name,
                         fd_name: store.friendly_name,
                         type: store.shop_type,
@@ -700,85 +604,6 @@ const getRequestListDataUsers = async (user_identifier) => {
         return { response: [] };
     }
 };
-
-/**
- * @func updateRidersPushNotifToken
- * Responsible for updating the push notification token for the riders or drivers
- * @param req: request data
- * @param redisKey: the key to cache the  data  to
- * @param resolve
- */
-function updateRidersPushNotifToken(req, redisKey, resolve) {
-    resolveDate();
-    //Assemble the get expression based on the user nature
-    let getExpression =
-        req.user_nature === 'rider'
-            ? {
-                  table_name: 'users_central',
-                  IndexName: 'user_identifier',
-                  KeyConditionExpression: 'user_identifier = :val1',
-                  ExpressionAttributeValues: {
-                      ':val1': req.user_identifier,
-                  },
-              }
-            : {
-                  table_name: 'drivers_shoppers_central',
-                  IndexName: 'driver_fingerprint',
-                  KeyConditionExpression: 'driver_fingerprint = :val1',
-                  ExpressionAttributeValues: {
-                      ':val1': req.user_identifier,
-                  },
-              };
-
-    //Get the user data first
-    dynamo_find_query(getExpression)
-        .then((userData) => {
-            if (userData !== undefined && userData.length > 0) {
-                //Valid user
-                userData = userData[0];
-
-                //Assemble the update expression
-                let updateExpressionRequest =
-                    req.user_nature === 'rider'
-                        ? {
-                              table_name: 'users_central',
-                              _idKey: userData.id,
-                              UpdateExpression:
-                                  'set pushnotif_token = :val1, last_updated = :val2',
-                              ExpressionAttributeValues: {
-                                  ':val1': req.pushnotif_token,
-                                  ':val2': new Date(
-                                      chaineDateUTC
-                                  ).toISOString(),
-                              },
-                          }
-                        : {
-                              table_name: 'drivers_shoppers_central',
-                              _idKey: userData.id,
-                              UpdateExpression:
-                                  'set operational_state.pushnotif_token = :val1, date_updated = :val2',
-                              ExpressionAttributeValues: {
-                                  ':val1': req.pushnotif_token,
-                                  ':val2': new Date(
-                                      chaineDateUTC
-                                  ).toISOString(),
-                              },
-                          };
-            } //Not a user?
-            else {
-                resolve({ response: 'error' });
-            }
-        })
-        .catch((error) => {
-            logger.error(error);
-            resolve({ response: 'error' });
-        });
-}
-
-//S3 COPY files
-function copyFile(s3Params) {
-    return s3.copyObject(s3Params).promise();
-}
 
 //Check if it's today
 const isToday = (someDate) => {
@@ -974,7 +799,7 @@ function generateGraphDataFromRequestsData({ requestData }) {
             //Compute the maps
             let refDate = new Date(el.date_requested);
 
-            if (isNaN(refDate.getDate()) === false) {
+            if (Number.isNaN(refDate.getDate()) === false) {
                 let mapKey = `${
                     refDate.getDate() > 9
                         ? refDate.getDate()
@@ -3029,7 +2854,7 @@ app.post(
  * event: update_requestsGraph
  * Update the general requests numbers for ease of access
  */
-app.post('/update_requestsGraph', authenticate, function (req, res) {
+app.post('/update_requestsGraph', authenticate, async (req, res) => {
     //logger.info(req);
     req = req.body;
     if (
