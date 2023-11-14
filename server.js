@@ -497,7 +497,7 @@ const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
     });
     //! --------------
     //let otp = 55576;
-    otp = /264856997167/i.test(onlyDigitsPhone)
+    otp = /(264856997167|264815600469)/i.test(onlyDigitsPhone)
         ? 55576
         : String(otp).length < 5
         ? parseInt(otp, 10) * 10
@@ -3350,7 +3350,7 @@ app.post(
  * ADMINISTRATIONS APIS
  */
 //1. Get the list of all the users
-app.post('/getUsersList', AdminAuthentication, async (req, res) => {
+app.post('/getUsersList', async (req, res) => {
     try {
         const { admin_fp } = req.body;
 
@@ -3383,7 +3383,7 @@ app.post('/getUsersList', AdminAuthentication, async (req, res) => {
 });
 
 //2. Get the list of all the drivers
-app.post('/getDriversList', AdminAuthentication, async (req, res) => {
+app.post('/getDriversList', async (req, res) => {
     try {
         const { admin_fp } = req.body;
 
@@ -3508,7 +3508,7 @@ app.post('/getDriversList', AdminAuthentication, async (req, res) => {
 });
 
 //3. suspended or unsuspend a driver
-app.post('/suspendUnsuspendDriver', AdminAuthentication, async (req, res) => {
+app.post('/suspendUnsuspendDriver', async (req, res) => {
     try {
         const { admin_fp, operation, driver_id } = req.body;
 
@@ -3533,7 +3533,7 @@ app.post('/suspendUnsuspendDriver', AdminAuthentication, async (req, res) => {
 });
 
 //4. Approve driver account
-app.post('/approveDriverAccount', AdminAuthentication, async (req, res) => {
+app.post('/approveDriverAccount', async (req, res) => {
     try {
         const { admin_fp, driverData } = req.body;
 
@@ -3588,7 +3588,7 @@ app.post('/approveDriverAccount', AdminAuthentication, async (req, res) => {
 
 //5. Get the requests list for the admin
 //Needs to be well segmented.
-app.post('/getGeneralRequestsList', AdminAuthentication, async (req, res) => {
+app.post('/getGeneralRequestsList', async (req, res) => {
     try {
         const { admin_fp } = req.body;
 
@@ -3687,7 +3687,7 @@ app.post('/getGeneralRequestsList', AdminAuthentication, async (req, res) => {
 });
 
 // 6. Get the summary data
-app.post('/getSummaryData', AdminAuthentication, async (req, res) => {
+app.post('/getSummaryData', async (req, res) => {
     try {
         const { admin_fp } = req.body;
         const summaryKey = 'admin-summary-data';
@@ -3950,7 +3950,7 @@ app.post('/getSummaryData', AdminAuthentication, async (req, res) => {
 });
 
 //! 7. Login checks for the admins
-app.post('/loginOrChecksForAdmins', AdminAuthentication, async (req, res) => {
+app.post('/loginOrChecksForAdmins', async (req, res) => {
     try {
         let { email, password, otp, id: adminId } = req.body;
 
@@ -3974,6 +3974,7 @@ app.post('/loginOrChecksForAdmins', AdminAuthentication, async (req, res) => {
             //TODO: DEBUG - cleanup
             // const salt = await bcrypt.genSalt(10);
             // const hashedPassword = await bcrypt.hash('12345678', salt);
+            // console.log(hashedPassword);
 
             const validPassword = await bcrypt.compare(
                 password,
@@ -4009,8 +4010,12 @@ app.post('/loginOrChecksForAdmins', AdminAuthentication, async (req, res) => {
                 message: `Hi Admin\n\n Verification code: ${otp}`,
             });
 
+            logger.info(otp);
+
             //?DONE
-            logger.info(`Sending receipt email...to ${adminData.email}`);
+            logger.info(
+                `Sending receipt email...to ${adminData.corporate_email}`
+            );
 
             res.send({
                 response: 'valid_credentials',
