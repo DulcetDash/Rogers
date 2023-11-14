@@ -1156,13 +1156,13 @@ const getDaily_requestAmount_driver = async (driverId) => {
         shopping_fee = shopping_fee ?? 0;
         total = total ?? 0;
 
-        let tmp =
-            parseFloat(cart) +
+        const tmp =
+            // parseFloat(cart) +
             parseFloat(cash_pickup_fee) +
             parseFloat(delivery_fee) +
             parseFloat(service_fee) +
-            parseFloat(shopping_fee) +
-            parseFloat(total);
+            parseFloat(shopping_fee);
+        // +parseFloat(total);
 
         return acc + tmp;
     }, 0);
