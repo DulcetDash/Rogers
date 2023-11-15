@@ -187,6 +187,12 @@ const getStores = async () => {
  * @param resolve
  */
 const getCatalogueFor = async (body) => {
+    const pageNumber = body?.pageNumber ? parseInt(body?.pageNumber, 10) : 1;
+    const pageSize = 200;
+
+    const paginationStart = (pageNumber - 1) * pageSize;
+    const paginationEnd = pageNumber * pageSize;
+
     const redisKey = `${JSON.stringify(body)}-catalogue`;
 
     let cachedData = await Redis.get(redisKey);
@@ -206,7 +212,7 @@ const getCatalogueFor = async (body) => {
 
     const storeData = shop;
 
-    const productsData =
+    let productsData =
         cachedData.length > 0
             ? cachedData
             : await getAllItemsByShopFp(
@@ -219,8 +225,11 @@ const getCatalogueFor = async (body) => {
     }
 
     if (productsData?.count > 0 || productsData?.length > 0) {
-        //?Limit all the results to 400 products
-        // productsData = productsData.slice(0, 100);
+        productsData =
+            paginationStart > productsData.length ? [] : productsData;
+
+        //?Limit all the results to 200 products
+        productsData = productsData.slice(paginationStart, paginationEnd);
 
         //Reformat the data
         const reformattedData = shuffle(
