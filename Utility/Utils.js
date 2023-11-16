@@ -11,6 +11,8 @@ const { default: axios } = require('axios');
 const UserModel = require('../models/UserModel');
 const { getItinaryInformation } = require('./Maps/Utils');
 const { logger } = require('../LogService');
+const Redis = require('./redisConnector');
+const { presignS3URL } = require('./PresignDocs');
 
 // Configure AWS with your access and secret key.
 AWS.config.update({
@@ -78,17 +80,17 @@ exports.storeTimeStatus = (opening_time, closing_time) => {
     }
 };
 
-exports.searchProducts = async (index, criteria) => {
+exports.searchProducts = async (index, criteria, size = 500) => {
     const { category, subcategory, product_name, shop_fp } = criteria;
 
-    let boolArray = [
+    const boolArray = [
         {
-            fuzzy: {
+            match: {
                 product_name: {
-                    value: product_name,
-                    fuzziness: '2', // This can be a number like 1, 2, or 'AUTO' to auto-determine fuzziness level
-                    prefix_length: 0, // Optional: number of characters at the start of the term which will not be “fuzzified”
-                    max_expansions: 50, // Optional: the maximum number of terms that the fuzzy query will expand to
+                    query: product_name,
+                    fuzziness: 'AUTO', // Adjust fuzziness as needed
+                    prefix_length: 0, // Optional, but can be adjusted
+                    max_expansions: 50, // Optional, but can be adjusted
                 },
             },
         },
@@ -103,7 +105,7 @@ exports.searchProducts = async (index, criteria) => {
 
     try {
         const response = await ESClient.search({
-            size: 2500,
+            size: 500,
             index: index,
             body: {
                 query: {
@@ -125,7 +127,6 @@ exports.searchProducts = async (index, criteria) => {
         return results;
     } catch (error) {
         console.error('Error searching in Elasticsearch:', error);
-        // throw error;
         return [];
     }
 };
@@ -548,4 +549,52 @@ exports.removeDuplicatesKeepRecent = (array, key, dateField) => {
 exports.getDailyAmountDriverRedisKey = (driverId) => {
     const now = new Date();
     return `dailyAmount-${now.getDay()}-${now.getMonth()}-${now.getFullYear()}-${driverId}`;
+};
+
+exports.batchPresignProductsLinks = async (productsData) => {
+    //Create presigned product links for the ones we host (s3://)
+    productsData = await Promise.all(
+        productsData.map(async (product) => {
+            if (product.product_picture?.[0].includes('s3://')) {
+                const s3URIImage = product.product_picture[0];
+                const cachedPresignedImage = await Redis.get(s3URIImage);
+
+                if (!cachedPresignedImage) {
+                    const presignedURL = await presignS3URL(s3URIImage);
+                    product.product_picture = [presignedURL];
+                    //Cache the presigned URL - Has to be less than presign time
+                    await Redis.set(s3URIImage, presignedURL, 'EX', 1 * 3600);
+                } else {
+                    product.product_picture = [cachedPresignedImage];
+                }
+            }
+            return product;
+        })
+    );
+
+    return productsData;
+};
+
+exports.batchStoresImageFront = async (stores) => {
+    //Create presigned product links for the ones we host (s3://)
+    stores = await Promise.all(
+        stores.map(async (store) => {
+            if (store.logo.includes('s3://')) {
+                const s3URIImage = store.logo;
+                const cachedPresignedImage = await Redis.get(s3URIImage);
+
+                if (!cachedPresignedImage) {
+                    const presignedURL = await presignS3URL(s3URIImage);
+                    store.logo = presignedURL;
+                    //Cache the presigned URL - Has to be less than presign time
+                    await Redis.set(s3URIImage, presignedURL, 'EX', 1 * 3600);
+                } else {
+                    store.logo = cachedPresignedImage;
+                }
+            }
+            return store;
+        })
+    );
+
+    return stores;
 };

@@ -22,6 +22,8 @@ const {
     shuffle,
     removeDuplicatesKeepRecent,
     getDailyAmountDriverRedisKey,
+    batchPresignProductsLinks,
+    batchStoresImageFront,
 } = require('./Utility/Utils');
 const _ = require('lodash');
 
@@ -115,65 +117,51 @@ const sendPushUPNotification = (data) => {
  */
 const getStores = async () => {
     try {
-        const redisKey = 'get-stores';
-
         const stores = await StoreModel.scan().all().exec();
 
         if (stores.length > 0) {
-            const STORES_MODEL = (
-                await Promise.all(
-                    stores.map(async (store) => {
-                        if (store.publish) {
-                            logger.info(store);
-                            let logo;
-                            try {
-                                logo = await presignS3URL(store.shop_logo);
-                            } catch (error) {
-                                logger.error(error);
-                                logo = 'logo.png';
+            const STORES_MODEL = await batchStoresImageFront(
+                (
+                    await Promise.all(
+                        stores.map(async (store) => {
+                            if (store.publish) {
+                                const tmpStore = {
+                                    name: store.name,
+                                    fd_name: store.friendly_name,
+                                    type: store.shop_type,
+                                    description: store.description,
+                                    background: store.shop_background_color,
+                                    border: store.border_color,
+                                    logo: store.shop_logo,
+                                    fp: store.id,
+                                    structured: store.structured_shopping,
+                                    times: {
+                                        target_state: null, //two values: opening or closing
+                                        string: null, //something like: opening in ...min or closing in ...h
+                                    },
+                                    date_added: new Date(
+                                        store.createdAt
+                                    ).getTime(),
+                                };
+                                //...
+                                tmpStore.times.string = storeTimeStatus(
+                                    store.opening_time,
+                                    store.closing_time
+                                );
+                                //? DONE - SAVE
+                                return tmpStore;
                             }
-                            const tmpStore = {
-                                name: store.name,
-                                fd_name: store.friendly_name,
-                                type: store.shop_type,
-                                description: store.description,
-                                background: store.shop_background_color,
-                                border: store.border_color,
-                                logo,
-                                fp: store.id,
-                                structured: store.structured_shopping,
-                                times: {
-                                    target_state: null, //two values: opening or closing
-                                    string: null, //something like: opening in ...min or closing in ...h
-                                },
-                                date_added: new Date(store.createdAt).getTime(),
-                            };
-                            //...
-                            tmpStore.times.string = storeTimeStatus(
-                                store.opening_time,
-                                store.closing_time
-                            );
-                            //? DONE - SAVE
-                            return tmpStore;
-                        } else {
+
                             return null;
-                        }
-                    })
-                )
-            ).filter((el) => el);
-            //...
-            //! Cache
-            Redis.set(
-                redisKey,
-                JSON.stringify(STORES_MODEL),
-                'EX',
-                parseInt(process.env.REDIS_EXPIRATION_5MIN, 10) * 5
+                        })
+                    )
+                ).filter((el) => el)
             );
 
             return { response: STORES_MODEL };
-        } else {
-            return { response: [] };
         }
+
+        return { response: [] };
     } catch (error) {
         logger.error(error);
         return { response: [] };
@@ -187,23 +175,6 @@ const getStores = async () => {
  * @param resolve
  */
 const getCatalogueFor = async (body) => {
-    const pageNumber = body?.pageNumber ? parseInt(body?.pageNumber, 10) : 1;
-    const pageSize = 200;
-
-    const paginationStart = (pageNumber - 1) * pageSize;
-    const paginationEnd = pageNumber * pageSize;
-
-    const redisKey = `${JSON.stringify(body)}-catalogue`;
-
-    let cachedData = await Redis.get(redisKey);
-
-    if (cachedData) {
-        logger.info('Got cached data');
-        cachedData = JSON.parse(cachedData);
-    } else {
-        cachedData = [];
-    }
-
     const { store: storeFp, category, subcategory, structured } = body;
 
     const shop = await StoreModel.get(storeFp);
@@ -211,6 +182,22 @@ const getCatalogueFor = async (body) => {
     if (!shop) return { response: {}, store: null };
 
     const storeData = shop;
+
+    const pageNumber = body?.pageNumber ? parseInt(body?.pageNumber, 10) : 1;
+    const pageSize = 200;
+
+    const paginationStart = (pageNumber - 1) * pageSize;
+    const paginationEnd = pageNumber * pageSize;
+
+    const redisKey = `${storeFp}-catalogue`;
+
+    let cachedData = await Redis.get(redisKey);
+
+    if (cachedData) {
+        cachedData = JSON.parse(cachedData);
+    } else {
+        cachedData = [];
+    }
 
     let productsData =
         cachedData.length > 0
@@ -225,34 +212,36 @@ const getCatalogueFor = async (body) => {
     }
 
     if (productsData?.count > 0 || productsData?.length > 0) {
-        productsData =
-            paginationStart > productsData.length ? [] : productsData;
+        productsData = shuffle(
+            paginationStart > productsData.length ? [] : productsData
+        );
 
         //?Limit all the results to 200 products
         productsData = productsData.slice(paginationStart, paginationEnd);
 
-        //Reformat the data
-        const reformattedData = shuffle(
-            productsData.map((product, index) => {
-                const tmpData = {
-                    index: index,
-                    name: product.product_name,
-                    price: product.product_price,
-                    currency: product.currency,
-                    pictures: product.product_picture,
-                    sku: product.sku,
-                    meta: {
-                        category: product.category,
-                        subcategory: product.subcategory,
-                        store: product.shop_name,
-                        store_fp: storeFp,
-                        structured: storeData.structured_shopping,
-                    },
-                };
+        //Create presigned product links for the ones we host (s3://)
+        productsData = await batchPresignProductsLinks(productsData);
 
-                return tmpData;
-            })
-        );
+        //Reformat the data
+        const reformattedData = productsData.map((product, index) => {
+            const tmpData = {
+                index: index,
+                name: product.product_name,
+                price: product.product_price,
+                currency: product.currency,
+                pictures: product.product_picture,
+                sku: product.sku,
+                meta: {
+                    category: product.category,
+                    subcategory: product.subcategory,
+                    store: product.shop_name,
+                    store_fp: storeFp,
+                    structured: storeData.structured_shopping,
+                },
+            };
+
+            return tmpData;
+        });
 
         return { response: reformattedData, store: storeFp };
     }
@@ -1080,13 +1069,30 @@ app.post('/getResultsForKeywords', authenticate, async (req, res) => {
         } = req.body;
 
         if (key && shop_fp) {
-            const products = await searchProducts(process.env.CATALOGUE_INDEX, {
-                shop_fp,
-                product_name,
-                product_name: key,
-                category,
-                subcategory,
-            });
+            const redisKey = `${shop_fp}-${key}-searchedProduct`;
+
+            const cachedData = await Redis.get(redisKey);
+
+            let products = cachedData
+                ? JSON.parse(cachedData)
+                : await searchProducts(process.env.CATALOGUE_INDEX, {
+                      shop_fp,
+                      product_name,
+                      product_name: key,
+                      category,
+                      subcategory,
+                  });
+
+            if (!cachedData && products.length > 0) {
+                await Redis.set(
+                    redisKey,
+                    JSON.stringify(products),
+                    'EX',
+                    1 * 24 * 3600
+                );
+            }
+
+            products = await batchPresignProductsLinks(products);
 
             const reformattedData = products.map((product, index) => {
                 const tmpData = {
@@ -1116,7 +1122,10 @@ app.post('/getResultsForKeywords', authenticate, async (req, res) => {
                 _.omit(obj, privateKeys)
             );
 
-            res.send({ count: reformattedData.length, response: safeProducts });
+            res.send({
+                count: reformattedData.length,
+                response: safeProducts,
+            });
         } //No valid data
         else {
             res.send({ response: [] });
