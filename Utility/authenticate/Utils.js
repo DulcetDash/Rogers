@@ -11,7 +11,7 @@ exports.generateNewSecurityToken = async (user, mainUserModel = UserModel) => {
     });
 
     const permaToken = jwt.sign(
-        { user_id: userId },
+        { user_id: userId, time_signature: Date.now() },
         process.env.JWT_PERMATOKEN_SECRET
     );
 
