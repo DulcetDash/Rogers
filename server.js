@@ -228,7 +228,7 @@ const getCatalogueFor = async (body) => {
                 id: product.id,
                 index: index,
                 name: product.product_name,
-                price: product.product_price,
+                price: product.priceAdjusted,
                 currency: product.currency,
                 pictures: product.product_picture,
                 sku: product.sku,
@@ -1099,6 +1099,9 @@ app.post('/getResultsForKeywords', authenticate, async (req, res) => {
                 const tmpData = {
                     ...product,
                     ...{
+                        product_price: product.priceAdjusted,
+                    },
+                    ...{
                         meta: {
                             category: product.category,
                             subcategory: product.subcategory,
@@ -1117,6 +1120,7 @@ app.post('/getResultsForKeywords', authenticate, async (req, res) => {
                 'used_link',
                 'local_images_registry',
                 'createdAt',
+                'priceAdjusted',
             ];
 
             const safeProducts = _.map(reformattedData, (obj) =>
