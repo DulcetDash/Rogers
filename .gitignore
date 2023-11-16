@@ -21,3 +21,4 @@ Drivers_profile_pictures/
 .env
 dist/
 coverage/
+tmp.js
