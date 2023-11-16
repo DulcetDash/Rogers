@@ -1363,15 +1363,13 @@ const reverseGeocoderExec = async (latitude, longitude) => {
     //! APPLY BLUE OCEAN BUG FIX FOR THE PICKUP LOCATION COORDINATES
     //? 1. Destination
     //? Get temporary vars
-    let pickLatitude1 = parseFloat(latitude);
-    let pickLongitude1 = parseFloat(longitude);
+    const pickLatitude1 = parseFloat(latitude);
+    const pickLongitude1 = parseFloat(longitude);
     //! Coordinates order fix - major bug fix for ocean bug
     if (
-        pickLatitude1 !== undefined &&
-        pickLatitude1 !== null &&
+        pickLatitude1 &&
         pickLatitude1 !== 0 &&
-        pickLongitude1 !== undefined &&
-        pickLongitude1 !== null &&
+        pickLongitude1 &&
         pickLongitude1 !== 0
     ) {
         //? Switch latitude and longitude - check the negative sign
@@ -1382,12 +1380,7 @@ const reverseGeocoderExec = async (latitude, longitude) => {
         }
     }
     //! -------
-    let url =
-        process.env.URL_SEARCH_SERVICES +
-        'reverse?lon=' +
-        longitude +
-        '&lat=' +
-        latitude;
+    const url = `${process.env.URL_SEARCH_SERVICES}reverse?lon=${longitude}&lat=${latitude}`;
 
     try {
         const photonData = await axios.get(url);
@@ -1397,7 +1390,7 @@ const reverseGeocoderExec = async (latitude, longitude) => {
             if (body.features[0].properties != undefined) {
                 //Check if a city was already assigned
                 //? Deduct consistently the town
-                let urlNominatim = `${process.env.URL_NOMINATIM_SERVICES}/reverse?lat=${latitude}&lon=${longitude}&zoom=10&format=json`;
+                const urlNominatim = `${process.env.URL_NOMINATIM_SERVICES}/reverse?lat=${latitude}&lon=${longitude}&zoom=10&format=json`;
 
                 const nominatimData = await axios.get(urlNominatim);
 

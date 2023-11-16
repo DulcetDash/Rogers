@@ -225,6 +225,7 @@ const getCatalogueFor = async (body) => {
         //Reformat the data
         const reformattedData = productsData.map((product, index) => {
             const tmpData = {
+                id: product.id,
                 index: index,
                 name: product.product_name,
                 price: product.product_price,
@@ -517,42 +518,42 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
         //?4. Only take the 2 first
         recentUserStores = recentUserStores.slice(0, 2);
 
-        const stores = (
-            await Promise.all(
-                recentUserStores.map(async (request) => {
-                    const store = await StoreModel.get(request.store_id);
+        const stores = await batchStoresImageFront(
+            (
+                await Promise.all(
+                    recentUserStores.map(async (request) => {
+                        const store = await StoreModel.get(request.store_id);
 
-                    if (!store) return false;
+                        if (!store) return false;
 
-                    const logo = await presignS3URL(store.shop_logo);
+                        const tmpStore = {
+                            name: store.name,
+                            fd_name: store.friendly_name,
+                            type: store.shop_type,
+                            description: store.description,
+                            background: store.shop_background_color,
+                            border: store.border_color,
+                            logo: store.shop_logo,
+                            fp: store.id,
+                            structured: store.structured_shopping,
+                            times: {
+                                target_state: null, //two values: opening or closing
+                                string: null, //something like: opening in ...min or closing in ...h
+                            },
+                            date_added: new Date(request.createdAt).getTime(),
+                            date_requested_from_here: request.createdAt,
+                        };
 
-                    const tmpStore = {
-                        name: store.name,
-                        fd_name: store.friendly_name,
-                        type: store.shop_type,
-                        description: store.description,
-                        background: store.shop_background_color,
-                        border: store.border_color,
-                        logo,
-                        fp: store.id,
-                        structured: store.structured_shopping,
-                        times: {
-                            target_state: null, //two values: opening or closing
-                            string: null, //something like: opening in ...min or closing in ...h
-                        },
-                        date_added: new Date(request.createdAt).getTime(),
-                        date_requested_from_here: request.createdAt,
-                    };
+                        tmpStore.times.string = storeTimeStatus(
+                            store.opening_time,
+                            store.closing_time
+                        );
 
-                    tmpStore.times.string = storeTimeStatus(
-                        store.opening_time,
-                        store.closing_time
-                    );
-
-                    return tmpStore;
-                })
-            )
-        ).filter((el) => el);
+                        return tmpStore;
+                    })
+                )
+            ).filter((el) => el)
+        );
 
         //?7. Cache
         const response = { response: stores.slice(0, 2) };
