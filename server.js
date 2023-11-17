@@ -1902,7 +1902,7 @@ app.post('/createBasicUserAccount', lightcheck, async (req, res) => {
             res.setHeader('x-session-token', sessionToken);
             res.setHeader('x-perma-token', permaToken);
 
-            sendEmail({
+            await sendEmail({
                 email: 'dominique@kedokagroup.com',
                 fromEmail: 'support@dulcetdash.com',
                 fromName: 'requests@dulcetdash.com',
@@ -2393,7 +2393,7 @@ app.post('/accept_request_io', authenticate, async (req, res) => {
             acceptObject
         );
 
-        sendEmail({
+        await sendEmail({
             email: 'dominique@kedokagroup.com',
             fromEmail: 'support@dulcetdash.com',
             fromName: 'requests@dulcetdash.com',
@@ -3841,7 +3841,7 @@ app.post('/loginOrChecksForAdmins', async (req, res) => {
 
             //Send the OTP email
             //? Send email
-            sendEmail({
+            await sendEmail({
                 email,
                 fromEmail: 'security@dulcetdash.com',
                 fromName: 'DulcetDash - Cesar',
