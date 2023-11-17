@@ -134,7 +134,7 @@ exports.searchProducts = async (index, criteria, size = 500) => {
 exports.getItemsByShop = async (index, shopFpValue) => {
     try {
         const response = await ESClient.search({
-            size: 500,
+            size: 300,
             index: index,
             body: {
                 query: {
