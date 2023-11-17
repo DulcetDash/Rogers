@@ -228,7 +228,7 @@ const getCatalogueFor = async (body) => {
                 id: product.id,
                 index: index,
                 name: product.product_name,
-                price: product.priceAdjusted,
+                price: String(product.priceAdjusted),
                 currency: product.currency,
                 pictures: product.product_picture,
                 sku: product.sku,
@@ -1099,7 +1099,7 @@ app.post('/getResultsForKeywords', authenticate, async (req, res) => {
                 const tmpData = {
                     ...product,
                     ...{
-                        product_price: product.priceAdjusted,
+                        product_price: String(product.priceAdjusted),
                     },
                     ...{
                         meta: {
