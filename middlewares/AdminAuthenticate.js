@@ -5,12 +5,6 @@ const AdminsModel = require('../models/AdminsModel');
 
 const AdminAuthentication = async (req, res, next) => {
     try {
-        const { browser, version, os, source } = req.useragent;
-
-        const check = `${browser}-${version}-${os}-${source}`;
-        if (check !== process.env.AUTH_MOBILE_STRING)
-            return res.status(401).send('Unauthorized');
-
         const authHeader = req.headers.authorization;
         const token = authHeader && authHeader.split(' ')[1];
 
@@ -42,7 +36,7 @@ const AdminAuthentication = async (req, res, next) => {
             const newToken = jwt.sign(
                 { user_id: decoded.user_id },
                 process.env.JWT_SECRET,
-                { expiresIn: `${process.env.DEFAULT_SESSION_DURATION_H}h` }
+                { expiresIn: `3h` }
             );
 
             const salt = await bcrypt.genSalt(10);
