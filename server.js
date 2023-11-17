@@ -24,6 +24,7 @@ const {
     getDailyAmountDriverRedisKey,
     batchPresignProductsLinks,
     batchStoresImageFront,
+    addTwoHours,
 } = require('./Utility/Utils');
 const _ = require('lodash');
 
@@ -625,65 +626,22 @@ const getAmountsSums = ({
             return arrayRequests
                 .filter((el) => isToday(new Date(el.createdAt)) === today)
                 .map((el) => {
-                    logger.warn(el);
-                    return el?.totals_request?.fare
-                        ? parseFloat(String(el.totals_request.fare))
-                        : parseFloat(
-                              String(el.totals_request.total).replace('N$', '')
-                          );
+                    let { total } = el.totals_request;
+
+                    return total ?? 0;
                 })
                 .reduce((partialSum, a) => partialSum + a, 0);
 
         case 'revenue':
             return arrayRequests
-                .filter(
-                    (el) =>
-                        isToday(new Date(el.createdAt)) === today &&
-                        el.ride_mode !== 'RIDE'
-                )
+                .filter((el) => isToday(new Date(el.createdAt)) === today)
                 .map((el) => {
-                    let tmpSum = 0;
-                    tmpSum += el?.totals_request?.service_fee
-                        ? parseFloat(
-                              String(el.totals_request.service_fee).replace(
-                                  'N$',
-                                  ''
-                              )
-                          )
-                        : 0;
+                    let { delivery_fee, shopping_fee } = el.totals_request;
 
-                    tmpSum += el?.totals_request?.cart
-                        ? parseFloat(
-                              String(el.totals_request.cart).replace('N$', '')
-                          )
-                        : 0;
+                    delivery_fee = delivery_fee ?? 0;
+                    shopping_fee = shopping_fee ?? 0;
 
-                    tmpSum += el?.totals_request?.delivery_fee
-                        ? parseFloat(
-                              String(el.totals_request.delivery_fee).replace(
-                                  'N$',
-                                  ''
-                              )
-                          )
-                        : 0;
-
-                    tmpSum += el?.totals_request?.cash_pickup_fee
-                        ? parseFloat(
-                              String(el.totals_request.cash_pickup_fee).replace(
-                                  'N$',
-                                  ''
-                              )
-                          )
-                        : 0;
-
-                    //...
-                    tmpSum += el?.totals_request?.service_fee
-                        ? parseFloat(
-                              String(el.totals_request.total).replace('N$', '')
-                          )
-                        : 0;
-
-                    return tmpSum;
+                    return delivery_fee + shopping_fee;
                 })
                 .reduce((partialSum, a) => partialSum + a, 0);
 
@@ -700,15 +658,9 @@ const getAmountsSums = ({
         case 'gross_sum':
             return arrayRequests
                 .map((el) => {
-                    return el?.totals_request?.fare
-                        ? parseFloat(
-                              String(el.totals_request.fare).replace('N$', '')
-                          )
-                        : el?.totals_request?.total
-                        ? parseFloat(
-                              String(el.totals_request.total).replace('N$', '')
-                          )
-                        : 0;
+                    let { total } = el.totals_request;
+
+                    return total ?? 0;
                 })
                 .reduce((partialSum, a) => partialSum + a, 0);
 
@@ -3439,6 +3391,12 @@ app.post('/getGeneralRequestsList', async (req, res) => {
 
         requests = requests.toJSON();
 
+        //Change to windhoek time
+        requests = requests.map((request) => {
+            request.createdAt = addTwoHours(request.createdAt);
+            return request;
+        });
+
         //?Sort based on the requested date
         requests.sort((a, b) =>
             new Date(a.createdAt) > new Date(b.createdAt)
@@ -3470,13 +3428,11 @@ app.post('/getGeneralRequestsList', async (req, res) => {
                 inprogress: requests.filter(
                     (el) =>
                         el.ride_mode === 'DELIVERY' &&
-                        !el?.request_state_vars?.completedRatingClient &&
+                        !el?.date_clientRating &&
                         !el?.date_cancelled
                 ),
                 completed: requests.filter(
-                    (el) =>
-                        el.ride_mode === 'DELIVERY' &&
-                        el?.request_state_vars?.completedRatingClient
+                    (el) => el.ride_mode === 'DELIVERY' && el?.date_clientRating
                 ),
                 cancelled: requests.filter(
                     (el) => el.ride_mode === 'DELIVERY' && el?.date_cancelled
@@ -3486,13 +3442,11 @@ app.post('/getGeneralRequestsList', async (req, res) => {
                 inprogress: requests.filter(
                     (el) =>
                         el.ride_mode === 'SHOPPING' &&
-                        !el?.request_state_vars?.completedRatingClient &&
+                        !el?.date_clientRating &&
                         !el?.date_cancelled
                 ),
                 completed: requests.filter(
-                    (el) =>
-                        el.ride_mode === 'SHOPPING' &&
-                        el?.request_state_vars?.completedRatingClient
+                    (el) => el.ride_mode === 'SHOPPING' && el?.date_clientRating
                 ),
                 cancelled: requests.filter(
                     (el) => el.ride_mode === 'SHOPPING' && el?.date_cancelled
@@ -3500,11 +3454,13 @@ app.post('/getGeneralRequestsList', async (req, res) => {
             },
             stats: {
                 total_sales_today: getAmountsSums({
-                    arrayRequests: requests,
+                    arrayRequests: requests.filter((el) => !el.date_cancelled),
                     dataType: 'sales',
                 }),
                 total_revenue_today: getAmountsSums({
-                    arrayRequests: requests,
+                    arrayRequests: requests.filter(
+                        (el) => !el.date_cancelled && el?.date_clientRating
+                    ),
                     dataType: 'revenue',
                 }),
                 total_requests_success: getAmountsSums({
@@ -3543,6 +3499,13 @@ app.post('/getSummaryData', async (req, res) => {
         if (!admin_fp) return res.send({ response: 'error' });
 
         let requests = (await RequestsModel.scan().all().exec()).toJSON();
+
+        //Change to windhoek time
+        requests = requests.map((request) => {
+            request.createdAt = addTwoHours(request.createdAt);
+            return request;
+        });
+
         const cancelledRequests = requests.filter((el) => el?.date_cancelled);
         requests = requests.filter((el) => !el?.date_cancelled);
         const drivers = await DriversModel.scan().all().exec();

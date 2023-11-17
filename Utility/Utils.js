@@ -5,6 +5,7 @@ require('dotenv').config();
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
+const moment = require('moment');
 const { ESClient } = require('./ESClient');
 const AWS = require('aws-sdk');
 const { default: axios } = require('axios');
@@ -597,4 +598,13 @@ exports.batchStoresImageFront = async (stores) => {
     );
 
     return stores;
+};
+
+exports.addTwoHours = (timeString) => {
+    const time = moment.utc(timeString);
+
+    // Add 2 hours
+    time.add(2, 'hours');
+
+    return time.format();
 };
