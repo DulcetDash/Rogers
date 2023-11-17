@@ -3738,7 +3738,7 @@ app.post('/getSummaryData', async (req, res) => {
             summaryKey,
             JSON.stringify(TEMPLATE_SUMMARY_META),
             'EX',
-            5 * 60
+            1 * 60 * 60
         );
 
         //Start filling out
