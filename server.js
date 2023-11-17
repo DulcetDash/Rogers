@@ -1426,7 +1426,7 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
 
                 console.log(newRequest);
 
-                sendEmail({
+                await sendEmail({
                     email: 'dominique@kedokagroup.com',
                     fromEmail: 'support@dulcetdash.com',
                     fromName: 'requests@dulcetdash.com',
