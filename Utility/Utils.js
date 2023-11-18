@@ -623,3 +623,23 @@ exports.addTwoHours = (timeString) => {
 
     return time.format();
 };
+
+exports.timeAgo = (inputDate) => {
+    const date = moment(inputDate);
+    const now = moment();
+    const minutesAgo = now.diff(date, 'minutes');
+    const hoursAgo = now.diff(date, 'hours');
+    const daysAgo = now.diff(date, 'days');
+    const weeksAgo = now.diff(date, 'weeks');
+    const monthsAgo = now.diff(date, 'months');
+    const yearsAgo = now.diff(date, 'years');
+
+    if (yearsAgo > 1) return 'Over a year ago';
+    if (yearsAgo === 1) return 'Last year';
+    if (monthsAgo > 1) return `${monthsAgo} months ago`;
+    if (weeksAgo > 1) return `${weeksAgo} weeks ago`;
+    if (daysAgo > 1) return `${daysAgo} days ago`;
+    if (hoursAgo >= 1) return `${hoursAgo} hours ago`;
+    if (minutesAgo >= 1) return `${minutesAgo} minutes ago`;
+    return 'Just now';
+};

@@ -25,6 +25,7 @@ const {
     batchPresignProductsLinks,
     batchStoresImageFront,
     addTwoHours,
+    timeAgo,
 } = require('./Utility/Utils');
 const _ = require('lodash');
 
@@ -481,11 +482,17 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
     const cachedData = await Redis.get(redisKey);
 
     if (cachedData) {
-        return JSON.parse(cachedData);
+        const recentStores = JSON.parse(cachedData).map((store) => {
+            store.timeString = timeAgo(store.createdAt);
+            return store;
+        });
+
+        return { response: recentStores.slice(0, 2) };
     }
 
     //1. Get all the requests made by the user
     const requests = await RequestsModel.query('client_id')
+        .all()
         .eq(user_identifier)
         .filter('ride_mode')
         .eq('SHOPPING')
@@ -496,7 +503,7 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
         //Has some requests
         //?1. Reformat the dates
         requestData = requestData.map((request) => {
-            request.date_requested = new Date(request.createdAt);
+            request.createdAt = addTwoHours(request.createdAt);
             return request;
         });
 
@@ -504,6 +511,7 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
             .map((request) => {
                 const tmp = request.shopping_list.map((shop) => ({
                     store_id: shop.meta.store_fp,
+                    timeString: timeAgo(request.createdAt),
                     createdAt: request.createdAt,
                 }));
                 return tmp;
@@ -512,7 +520,7 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
 
         let recentUserStores = removeDuplicatesKeepRecent(
             storesMeta,
-            'shop_fp',
+            'store_id',
             'createdAt'
         );
 
@@ -541,8 +549,9 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
                                 target_state: null, //two values: opening or closing
                                 string: null, //something like: opening in ...min or closing in ...h
                             },
+                            timeString: request.timeString,
                             date_added: new Date(request.createdAt).getTime(),
-                            date_requested_from_here: request.createdAt,
+                            createdAt: request.createdAt,
                         };
 
                         tmpStore.times.string = storeTimeStatus(
@@ -557,9 +566,9 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
         );
 
         //?7. Cache
-        const response = { response: stores.slice(0, 2) };
+        Redis.set(redisKey, JSON.stringify(stores), 'EX', 10 * 60);
 
-        Redis.set(redisKey, JSON.stringify(response), 'EX', 10 * 60);
+        const response = { response: stores.slice(0, 2) };
 
         return response;
     } //No requests
