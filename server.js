@@ -3400,12 +3400,6 @@ app.post('/getGeneralRequestsList', async (req, res) => {
 
         requests = requests.toJSON();
 
-        //Change to windhoek time
-        // requests = requests.map((request) => {
-        //     request.createdAt = addTwoHours(request.createdAt);
-        //     return request;
-        // });
-
         //?Sort based on the requested date
         requests.sort((a, b) =>
             new Date(a.createdAt) > new Date(b.createdAt)
@@ -3415,7 +3409,7 @@ app.post('/getGeneralRequestsList', async (req, res) => {
                 : 0
         );
 
-        //Attach the user and/or driver details
+        //Attach the user and/or driver detailsx
         requests = await Promise.all(
             requests.map(async (request) => {
                 const user = (await UserModel.get(request.client_id)) ?? false;
