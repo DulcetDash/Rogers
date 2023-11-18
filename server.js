@@ -571,12 +571,10 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
         const response = { response: stores.slice(0, 2) };
 
         return response;
-    } //No requests
-    else {
-        let response = { response: [] };
-        Redis.set(redisKey, JSON.stringify(response), 'EX', 5 * 60);
-        return response;
     }
+
+    //No requests
+    return { response: [] };
 };
 
 /**
@@ -1388,7 +1386,10 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                 console.log(newRequest);
 
                 await sendEmail({
-                    email: 'dominique@kedokagroup.com',
+                    email: [
+                        'dominique@kedokagroup.com',
+                        'silas@kedokagroup.com',
+                    ],
                     fromEmail: 'support@dulcetdash.com',
                     fromName: 'requests@dulcetdash.com',
                     message: `A new ${req.ride_mode} request was made by ${req.user_identifier}`,
@@ -1864,7 +1865,7 @@ app.post('/createBasicUserAccount', lightcheck, async (req, res) => {
             res.setHeader('x-perma-token', permaToken);
 
             await sendEmail({
-                email: 'dominique@kedokagroup.com',
+                email: ['dominique@kedokagroup.com', 'silas@kedokagroup.com'],
                 fromEmail: 'support@dulcetdash.com',
                 fromName: 'requests@dulcetdash.com',
                 message: `A new user has just registered with the phone number ${phone}`,
@@ -2355,7 +2356,7 @@ app.post('/accept_request_io', authenticate, async (req, res) => {
         );
 
         await sendEmail({
-            email: 'dominique@kedokagroup.com',
+            email: ['dominique@kedokagroup.com', 'silas@kedokagroup.com'],
             fromEmail: 'support@dulcetdash.com',
             fromName: 'requests@dulcetdash.com',
             message: `Driver ${driver.name} ${driver.surname} (${driver.id}) accepted request ${requestId}`,
@@ -3795,7 +3796,10 @@ app.post('/loginOrChecksForAdmins', async (req, res) => {
                 upperCaseAlphabets: false,
                 specialChars: false,
             });
-            otp = String(otp).length < 8 ? parseInt(otp) * 10 : parseInt(otp);
+            otp =
+                String(otp).length < 8
+                    ? parseInt(otp, 10) * 10
+                    : parseInt(otp, 10);
 
             //Update security PIN
             await AdminsModel.update(
@@ -3809,7 +3813,7 @@ app.post('/loginOrChecksForAdmins', async (req, res) => {
             //? Send email
             await sendEmail({
                 email,
-                fromEmail: 'security@dulcetdash.com',
+                fromEmail: 'support@dulcetdash.com',
                 fromName: 'DulcetDash - Cesar',
                 subject: 'Admin Verification Code',
                 message: `Hi Admin\n\n Verification code: ${otp}`,

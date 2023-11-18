@@ -1,6 +1,9 @@
 /* eslint-disable import/no-extraneous-dependencies */
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 const Bull = require('bull');
+
+// Set the SendGrid API Key
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 // Creating a new Bull Queue for email jobs
 const emailQueue = new Bull('emailQueue');
@@ -13,32 +16,29 @@ emailQueue.process(async (job) => {
         fromName,
         message,
         subject,
-        templateType,
+        templateId, // Assuming SendGrid template ID
         dynamicTemplateData,
         attachments,
     } = job.data;
 
-    const transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST,
-        port: process.env.EMAIL_POST,
-        secure: false,
-        auth: {
-            user: process.env.EMAIL_USERNAME,
-            pass: process.env.EMAIL_PASSWORD,
-        },
-    });
-
-    const mailOptions = {
-        from: `"${fromName}" <${fromEmail}>`,
+    const msg = {
         to: email,
+        from: { email: fromEmail, name: fromName },
+        subject: subject,
         text: message,
-        subject,
-        dynamicTemplateData,
-        attachments,
+        templateId: templateId,
+        dynamicTemplateData: dynamicTemplateData,
+        attachments: attachments,
     };
 
     // Send the email
-    await transporter.sendMail(mailOptions);
+    try {
+        await sgMail.send(msg);
+        console.log(`Email sent to ${email}`);
+    } catch (error) {
+        console.error(`Error sending email to ${email}:`, error);
+        throw error;
+    }
 });
 
 // Event listener when a job is completed
@@ -58,7 +58,7 @@ const sendEmail = ({
     fromName,
     message,
     subject,
-    templateType,
+    templateId,
     dynamicTemplateData = {},
     attachments = [],
 }) => {
@@ -68,7 +68,7 @@ const sendEmail = ({
         fromName,
         message,
         subject,
-        templateType,
+        templateId,
         dynamicTemplateData,
         attachments,
     });
