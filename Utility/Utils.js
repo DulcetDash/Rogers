@@ -573,7 +573,12 @@ exports.batchPresignProductsLinks = async (productsData) => {
 
                     product.product_picture = [presignedURL];
                     //Cache the presigned URL - Has to be less than presign time
-                    await Redis.set(s3URIImage, presignedURL, 'EX', 45 * 60);
+                    await Redis.set(
+                        s3URIImage,
+                        presignedURL,
+                        'EX',
+                        1 * 24 * 3600
+                    );
                 } else {
                     product.product_picture = [cachedPresignedImage];
                 }

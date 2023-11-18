@@ -86,9 +86,10 @@ exports.generateCloudfrontSignedUrl = async (imageUrl, forStore = false) => {
 
         // Get the current time
         const now = moment.utc();
+        const expiration = 24; // 24 hours
 
         // Calculate the expiration time (1 hour from now)
-        const expirationTime = now.add(1, 'hours').unix(); // UNIX timestamp
+        const expirationTime = now.add(expiration, 'hours').unix(); // UNIX timestamp
 
         const policy = {
             Statement: [
@@ -105,7 +106,8 @@ exports.generateCloudfrontSignedUrl = async (imageUrl, forStore = false) => {
 
         const options = {
             url: imageUrl,
-            expires: Math.floor(new Date().getTime() / 1000) + 60 * 60, // 1 hour validity
+            expires:
+                Math.floor(new Date().getTime() / 1000) + 60 * 60 * expiration, // 1 hour validity
             privateKey,
             keyPairId,
             policy: JSON.stringify(policy),
