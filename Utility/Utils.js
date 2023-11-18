@@ -537,18 +537,13 @@ exports.removeDuplicatesKeepRecent = (array, key, dateField) => {
     // Group objects by the key
     const grouped = _.groupBy(array, key);
 
-    // For each group, sort by date and remove the oldest if there are duplicates
-    const processed = _.map(grouped, (group) => {
-        if (group.length > 1) {
-            return _.orderBy(group, [dateField], ['asc']).slice(1);
-        }
-        return group;
-    });
+    // For each group, keep only the most recent entry
+    const mostRecentItems = _.map(grouped, (group) =>
+        _.maxBy(group, dateField)
+    );
 
-    // Flatten the array of arrays into a single array
-    const dupFree = _.flatten(processed);
-
-    return _.orderBy(dupFree, [dateField], ['desc']);
+    // Sort the resulting array by date in descending order
+    return _.orderBy(mostRecentItems, [dateField], ['desc']);
 };
 
 exports.getDailyAmountDriverRedisKey = (driverId) => {
