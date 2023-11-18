@@ -3819,8 +3819,6 @@ app.post('/loginOrChecksForAdmins', async (req, res) => {
                 message: `Hi Admin\n\n Verification code: ${otp}`,
             });
 
-            logger.info(otp);
-
             //?DONE
             logger.info(
                 `Sending receipt email...to ${adminData.corporate_email}`
