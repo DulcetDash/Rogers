@@ -3401,10 +3401,10 @@ app.post('/getGeneralRequestsList', async (req, res) => {
         requests = requests.toJSON();
 
         //Change to windhoek time
-        requests = requests.map((request) => {
-            request.createdAt = addTwoHours(request.createdAt);
-            return request;
-        });
+        // requests = requests.map((request) => {
+        //     request.createdAt = addTwoHours(request.createdAt);
+        //     return request;
+        // });
 
         //?Sort based on the requested date
         requests.sort((a, b) =>
