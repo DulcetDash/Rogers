@@ -1241,8 +1241,7 @@ function execTripChecker_Dispatcher(
                             //! SAVE THE FINAL FULL RESULT - for 24h ------
                             redisCluster.setex(
                                 RIDE_REDIS_KEY,
-                                parseInt(process.env.REDIS_EXPIRATION_5MIN) *
-                                    288,
+                                300 * 288,
                                 JSON.stringify(resultFinal)
                             );
                             //! ----------------------------------------------
@@ -1269,8 +1268,7 @@ function execTripChecker_Dispatcher(
                             //! SAVE THE FINAL FULL RESULT - for 24h ------
                             redisCluster.setex(
                                 RIDE_REDIS_KEY,
-                                parseInt(process.env.REDIS_EXPIRATION_5MIN) *
-                                    288,
+                                300 * 288,
                                 JSON.stringify(resultFinal)
                             );
                             //! ----------------------------------------------
@@ -1298,7 +1296,7 @@ function execTripChecker_Dispatcher(
                         //! SAVE THE FINAL FULL RESULT - for 24h ------
                         redisCluster.setex(
                             RIDE_REDIS_KEY,
-                            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 288,
+                            300 * 288,
                             JSON.stringify(resultFinal)
                         );
                         //! ----------------------------------------------
@@ -2096,7 +2094,7 @@ function execDriver_requests_parsing(request, driverData, redisKey, resolve) {
                                     new Promise((resCache) => {
                                         redisCluster.setex(
                                             redisKey,
-                                            process.env.REDIS_EXPIRATION_5MIN,
+                                            300,
                                             JSON.stringify(parsedRequestsArray)
                                         );
                                         resCache(true);
@@ -2358,7 +2356,7 @@ function computeRouteDetails_skeleton(
                                         //! auto cache the driver's location - Major performance update!
                                         redisCluster.setex(
                                             rideHistory.taxi_id,
-                                            process.env.REDIS_EXPIRATION_5MIN,
+                                            300,
                                             JSON.stringify(
                                                 driverProfile.operational_state
                                                     .last_location.coordinates
@@ -2568,7 +2566,7 @@ function computeRouteDetails_skeleton(
                                         //! auto cache the driver's location - Major performance update!
                                         redisCluster.setex(
                                             rideHistory.taxi_id,
-                                            process.env.REDIS_EXPIRATION_5MIN,
+                                            300,
                                             JSON.stringify(
                                                 driverProfile.operational_state
                                                     .last_location.coordinates
@@ -2774,9 +2772,7 @@ function computeRouteDetails_skeleton(
                             ) {
                                 redisCluster.setex(
                                     RIDE_REDIS_KEY,
-                                    parseInt(
-                                        process.env.REDIS_EXPIRATION_5MIN
-                                    ) * 3,
+                                    300 * 3,
                                     JSON.stringify(confirmation_request_schema)
                                 );
                             }
@@ -2787,7 +2783,7 @@ function computeRouteDetails_skeleton(
                             //! SAVE THE FINAL FULL RESULT - for 15 min ------
                             redisCluster.setex(
                                 RIDE_REDIS_KEY,
-                                parseInt(process.env.REDIS_EXPIRATION_5MIN) * 3,
+                                300 * 3,
                                 JSON.stringify(true)
                             );
                             //! ----------------------------------------------
@@ -2798,7 +2794,7 @@ function computeRouteDetails_skeleton(
                         //! SAVE THE FINAL FULL RESULT - for 15 min ------
                         redisCluster.setex(
                             RIDE_REDIS_KEY,
-                            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 3,
+                            300 * 3,
                             JSON.stringify(false)
                         );
                         //! ----------------------------------------------
@@ -2860,7 +2856,7 @@ function computeRouteDetails_skeleton(
                 //! SAVE THE FINAL FULL RESULT - for 15 min ------
                 redisCluster.setex(
                     RIDE_REDIS_KEY,
-                    parseInt(process.env.REDIS_EXPIRATION_5MIN) * 3,
+                    300 * 3,
                     JSON.stringify(dataSource)
                 );
                 //! ----------------------------------------------
@@ -2875,7 +2871,7 @@ function computeRouteDetails_skeleton(
                                 //..
                                 redisCluster.setex(
                                     rideHistory.client_id,
-                                    process.env.REDIS_EXPIRATION_5MIN,
+                                    300,
                                     JSON.stringify(reslt)
                                 );
                                 res(true);
@@ -2887,7 +2883,7 @@ function computeRouteDetails_skeleton(
                         else {
                             redisCluster.setex(
                                 rideHistory.request_fp,
-                                process.env.REDIS_EXPIRATION_5MIN,
+                                300,
                                 JSON.stringify({
                                     rides_history: dataSource,
                                 })
@@ -2911,11 +2907,7 @@ function computeRouteDetails_skeleton(
     else {
         //logger.info("No ride in progress");
         //! SAVE THE FINAL FULL RESULT - for 15 min ------
-        redisCluster.setex(
-            RIDE_REDIS_KEY,
-            parseInt(process.env.REDIS_EXPIRATION_5MIN) * 3,
-            JSON.stringify(true)
-        );
+        redisCluster.setex(RIDE_REDIS_KEY, 300 * 3, JSON.stringify(true));
         //! ----------------------------------------------
         resolve(true);
     }
@@ -2997,7 +2989,7 @@ function computeAndCacheRouteDestination(
                                 prevDriverCache.rides_history = rideHistory;
                                 redisCluster.setex(
                                     resp.user_fingerprint,
-                                    process.env.REDIS_EXPIRATION_5MIN,
+                                    300,
                                     JSON.stringify(prevDriverCache)
                                 );
                                 //Update rider old trip cached ride history
@@ -3343,9 +3335,7 @@ function computeAndCacheRouteDestination(
                                 ) {
                                     redisCluster.setex(
                                         RIDE_REDIS_KEY,
-                                        parseInt(
-                                            process.env.REDIS_EXPIRATION_5MIN
-                                        ) * 3,
+                                        300 * 3,
                                         JSON.stringify(result)
                                     );
                                 }
@@ -3406,9 +3396,7 @@ function computeAndCacheRouteDestination(
                                 ) {
                                     redisCluster.setex(
                                         RIDE_REDIS_KEY,
-                                        parseInt(
-                                            process.env.REDIS_EXPIRATION_5MIN
-                                        ) * 3,
+                                        300 * 3,
                                         JSON.stringify(result)
                                     );
                                 }
@@ -3582,7 +3570,7 @@ async function updateRiderLocationInfosCache(req, resolve) {
     //         prevCache.date_logged = req.date_logged; //Updated cache data
     //         redisCluster.setex(
     //           req.user_fingerprint.trim(),
-    //           process.env.REDIS_EXPIRATION_5MIN,
+    //           300,
     //           JSON.stringify(prevCache)
     //         );
     //         resolve(true);
@@ -3593,7 +3581,7 @@ async function updateRiderLocationInfosCache(req, resolve) {
     //     else {
     //       redisCluster.setex(
     //         req.user_fingerprint.trim(),
-    //         process.env.REDIS_EXPIRATION_5MIN,
+    //         300,
     //         JSON.stringify(req)
     //       );
     //       resolve(true);
@@ -3604,7 +3592,7 @@ async function updateRiderLocationInfosCache(req, resolve) {
     //     //Create or update the current cache entry
     //     redisCluster.setex(
     //       req.user_fingerprint.trim(),
-    //       process.env.REDIS_EXPIRATION_5MIN,
+    //       300,
     //       JSON.stringify(req)
     //     );
     //     resolve(true);
@@ -3654,7 +3642,7 @@ function reverseGeocodeUserLocation(resolve, req) {
                             };
                             redisCluster.setex(
                                 redisKey,
-                                process.env.REDIS_EXPIRATION_5MIN,
+                                300,
                                 JSON.stringify(currentLocationEntry)
                             );
                         },
@@ -3677,7 +3665,7 @@ function reverseGeocodeUserLocation(resolve, req) {
                             };
                             redisCluster.setex(
                                 redisKey,
-                                process.env.REDIS_EXPIRATION_5MIN,
+                                300,
                                 JSON.stringify(currentLocationEntry)
                             );
                             resolve(result);
@@ -3701,7 +3689,7 @@ function reverseGeocodeUserLocation(resolve, req) {
                         };
                         redisCluster.setex(
                             redisKey,
-                            process.env.REDIS_EXPIRATION_5MIN,
+                            300,
                             JSON.stringify(currentLocationEntry)
                         );
                         resolve(result);
@@ -3792,7 +3780,7 @@ function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
                                             body.features[0].properties;
                                         redisCluster.setex(
                                             redisKey,
-                                            process.env.REDIS_EXPIRATION_5MIN,
+                                            300,
                                             JSON.stringify(updateCache)
                                         );
                                     }
@@ -3818,7 +3806,7 @@ function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
                                             body.features[0].properties;
                                         redisCluster.setex(
                                             redisKey,
-                                            process.env.REDIS_EXPIRATION_5MIN,
+                                            300,
                                             JSON.stringify(updateCache)
                                         );
                                     }
@@ -3839,7 +3827,7 @@ function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
                                             body.features[0].properties;
                                         redisCluster.setex(
                                             redisKey,
-                                            process.env.REDIS_EXPIRATION_5MIN,
+                                            300,
                                             JSON.stringify(updateCache)
                                         );
                                     }
@@ -3857,7 +3845,7 @@ function reverseGeocoderExec(resolve, req, updateCache = false, redisKey) {
                                             body.features[0].properties;
                                         redisCluster.setex(
                                             redisKey,
-                                            process.env.REDIS_EXPIRATION_5MIN,
+                                            300,
                                             JSON.stringify(updateCache)
                                         );
                                     }
@@ -4160,7 +4148,7 @@ function findRouteSnapshotExec(resolve, pointData) {
                                 ].map(JSON.parse);
                                 redisCluster.setex(
                                     pointData.redisKey,
-                                    process.env.REDIS_EXPIRATION_5MIN,
+                                    300,
                                     JSON.stringify(resp)
                                 );
                                 res(true);
@@ -4168,7 +4156,7 @@ function findRouteSnapshotExec(resolve, pointData) {
                                 //Create a fresh one
                                 redisCluster.setex(
                                     pointData.redisKey,
-                                    process.env.REDIS_EXPIRATION_5MIN,
+                                    300,
                                     JSON.stringify([result])
                                 );
                                 res(false);
@@ -4177,7 +4165,7 @@ function findRouteSnapshotExec(resolve, pointData) {
                         else {
                             redisCluster.setex(
                                 pointData.redisKey,
-                                process.env.REDIS_EXPIRATION_5MIN,
+                                300,
                                 JSON.stringify([result])
                             );
                             res(true);
@@ -4187,7 +4175,7 @@ function findRouteSnapshotExec(resolve, pointData) {
                         //create fresh record
                         redisCluster.setex(
                             pointData.redisKey,
-                            process.env.REDIS_EXPIRATION_5MIN,
+                            300,
                             JSON.stringify([result])
                         );
                         res(false);
@@ -5008,7 +4996,7 @@ function getFreshProximity_driversList(
                                 new Promise((resCacheDriversList) => {
                                     redisCluster.setex(
                                         redisKey,
-                                        process.env.REDIS_EXPIRATION_5MIN * 6,
+                                        300 * 6,
                                         stringify(reslt)
                                     );
                                     resCacheDriversList(true);
@@ -5232,7 +5220,7 @@ function exec_getDriversProfile(req, redisKey, resolve) {
                 //!Cache for 5min*1440 - > 5 days
                 redisCluster.setex(
                     redisKey,
-                    parseInt(process.env.REDIS_EXPIRATION_5MIN) * 1440,
+                    300 * 1440,
                     JSON.stringify(driverData[0])
                 );
                 //...
@@ -5265,13 +5253,13 @@ redisCluster.on('connect', function () {
     })
         .use(
             express.json({
-                limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+                limit: '1000mb',
                 extended: true,
             })
         )
         .use(
             express.urlencoded({
-                limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+                limit: '1000mb',
                 extended: true,
             })
         )
@@ -6129,7 +6117,7 @@ redisCluster.on('connect', function () {
                                     if (result !== false) {
                                         redisCluster.setex(
                                             redisKey,
-                                            process.env.REDIS_EXPIRATION_5MIN,
+                                            300,
                                             JSON.stringify(result)
                                         );
                                         //...
@@ -6173,7 +6161,7 @@ redisCluster.on('connect', function () {
                                 if (result !== false) {
                                     redisCluster.setex(
                                         redisKey,
-                                        process.env.REDIS_EXPIRATION_5MIN,
+                                        300,
                                         JSON.stringify(result)
                                     );
                                     //...

@@ -13,7 +13,11 @@ const UserModel = require('../models/UserModel');
 const { getItinaryInformation } = require('./Maps/Utils');
 const { logger } = require('../LogService');
 const Redis = require('./redisConnector');
-const { presignS3URL } = require('./PresignDocs');
+const {
+    presignS3URL,
+    extractS3ImagePath,
+    generateCloudfrontSignedUrl,
+} = require('./PresignDocs');
 
 // Configure AWS with your access and secret key.
 AWS.config.update({
@@ -561,10 +565,15 @@ exports.batchPresignProductsLinks = async (productsData) => {
                 const cachedPresignedImage = await Redis.get(s3URIImage);
 
                 if (!cachedPresignedImage) {
-                    const presignedURL = await presignS3URL(s3URIImage);
+                    const presignedURL = await generateCloudfrontSignedUrl(
+                        `${
+                            process.env.DD_PRODUCTS_IMAGES_CLOUDFRONT_LINK
+                        }/${extractS3ImagePath(s3URIImage)}`
+                    );
+
                     product.product_picture = [presignedURL];
                     //Cache the presigned URL - Has to be less than presign time
-                    await Redis.set(s3URIImage, presignedURL, 'EX', 1 * 3600);
+                    await Redis.set(s3URIImage, presignedURL, 'EX', 45 * 60);
                 } else {
                     product.product_picture = [cachedPresignedImage];
                 }
@@ -585,10 +594,16 @@ exports.batchStoresImageFront = async (stores) => {
                 const cachedPresignedImage = await Redis.get(s3URIImage);
 
                 if (!cachedPresignedImage) {
-                    const presignedURL = await presignS3URL(s3URIImage);
+                    const presignedURL = await generateCloudfrontSignedUrl(
+                        `${
+                            process.env.DD_STORES_IMAGES_CLOUDFRONT_LINK
+                        }/${extractS3ImagePath(s3URIImage)}`,
+                        true
+                    );
+
                     store.logo = presignedURL;
                     //Cache the presigned URL - Has to be less than presign time
-                    await Redis.set(s3URIImage, presignedURL, 'EX', 1 * 3600);
+                    await Redis.set(s3URIImage, presignedURL, 'EX', 45 * 60);
                 } else {
                     store.logo = cachedPresignedImage;
                 }

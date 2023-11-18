@@ -5792,13 +5792,13 @@ redisCluster.on('connect', function () {
     })
         .use(
             express.json({
-                limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+                limit: '1000mb',
                 extended: true,
             })
         )
         .use(
             express.urlencoded({
-                limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+                limit: '1000mb',
                 extended: true,
             })
         );
@@ -5950,8 +5950,7 @@ redisCluster.on('connect', function () {
                                         //logger.info(error);
                                         redisCluster.setex(
                                             redisKey,
-                                            process.env.REDIS_EXPIRATION_5MIN *
-                                                6,
+                                            300 * 6,
                                             JSON.stringify(result)
                                         );
                                     });
@@ -5999,8 +5998,7 @@ redisCluster.on('connect', function () {
                                         //logger.info(error);
                                         redisCluster.setex(
                                             redisKey,
-                                            process.env.REDIS_EXPIRATION_5MIN *
-                                                6,
+                                            300 * 6,
                                             JSON.stringify(result)
                                         );
                                         resMAIN({
@@ -6025,8 +6023,7 @@ redisCluster.on('connect', function () {
                                     (result) => {
                                         redisCluster.setex(
                                             redisKey,
-                                            process.env.REDIS_EXPIRATION_5MIN *
-                                                6,
+                                            300 * 6,
                                             JSON.stringify(result)
                                         );
                                         resMAIN(result);
@@ -6035,8 +6032,7 @@ redisCluster.on('connect', function () {
                                         //logger.info(error);
                                         redisCluster.setex(
                                             redisKey,
-                                            process.env.REDIS_EXPIRATION_5MIN *
-                                                6,
+                                            300 * 6,
                                             JSON.stringify(result)
                                         );
                                         resMAIN({
@@ -6051,7 +6047,7 @@ redisCluster.on('connect', function () {
                                     //logger.info(error);
                                     redisCluster.setex(
                                         redisKey,
-                                        process.env.REDIS_EXPIRATION_5MIN * 6,
+                                        300 * 6,
                                         JSON.stringify(result)
                                     );
                                     resMAIN({
@@ -6077,7 +6073,7 @@ redisCluster.on('connect', function () {
                                 (result) => {
                                     redisCluster.setex(
                                         redisKey,
-                                        process.env.REDIS_EXPIRATION_5MIN * 6,
+                                        300 * 6,
                                         JSON.stringify(result)
                                     );
                                     resMAIN(result);
@@ -6086,7 +6082,7 @@ redisCluster.on('connect', function () {
                                     //logger.info(error);
                                     redisCluster.setex(
                                         redisKey,
-                                        process.env.REDIS_EXPIRATION_5MIN * 6,
+                                        300 * 6,
                                         JSON.stringify(result)
                                     );
                                     resMAIN({
@@ -6101,7 +6097,7 @@ redisCluster.on('connect', function () {
                                 //logger.info(error);
                                 redisCluster.setex(
                                     redisKey,
-                                    process.env.REDIS_EXPIRATION_5MIN * 6,
+                                    300 * 6,
                                     JSON.stringify(result)
                                 );
                                 resMAIN({

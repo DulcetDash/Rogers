@@ -1,4 +1,9 @@
+// eslint-disable-next-line import/no-extraneous-dependencies
+import { getSignedUrl } from '@aws-sdk/cloudfront-signer';
+import { logger } from '../LogService';
+
 const AWS = require('aws-sdk');
+const moment = require('moment');
 
 const s3 = new AWS.S3({
     region: 'us-west-1',
@@ -56,4 +61,77 @@ exports.presignS3URL = async (uri, expires = 7200) => {
     } catch (error) {
         return 'null';
     }
+};
+
+exports.generateCloudfrontSignedUrl = async (imageUrl, forStore = false) => {
+    try {
+        //For catalogue images
+        let keyPairId = process.env.DD_PRODUCTS_IMAGES_CLOUDFRONT_KEY_PAIR_ID;
+        let privateKey =
+            process.env.DD_CLOUDFRONT_CATALOGUE_IMAGE_PRIVATE_KEY.replace(
+                /\\n/g,
+                '\n'
+            );
+        let cloudfrontLink = process.env.DD_PRODUCTS_IMAGES_CLOUDFRONT_LINK;
+
+        //For store front images
+        if (forStore) {
+            keyPairId = process.env.DD_STORES_IMAGES_CLOUDFRONT_KEY_PAIR_ID;
+            privateKey = process.env.DD_STORES_IMAGES_PRIVATE_KEY.replace(
+                /\\n/g,
+                '\n'
+            );
+            cloudfrontLink = process.env.DD_STORES_IMAGES_CLOUDFRONT_LINK;
+        }
+
+        // Get the current time
+        const now = moment.utc();
+
+        // Calculate the expiration time (1 hour from now)
+        const expirationTime = now.add(1, 'hours').unix(); // UNIX timestamp
+
+        const policy = {
+            Statement: [
+                {
+                    Resource: `${cloudfrontLink}/*`,
+                    Condition: {
+                        DateLessThan: {
+                            'AWS:EpochTime': expirationTime,
+                        },
+                    },
+                },
+            ],
+        };
+
+        const options = {
+            url: imageUrl,
+            expires: Math.floor(new Date().getTime() / 1000) + 60 * 60, // 1 hour validity
+            privateKey,
+            keyPairId,
+            policy: JSON.stringify(policy),
+        };
+
+        // Generate the signed URL
+        return getSignedUrl(options);
+    } catch (error) {
+        // console.error('Error generating signed URL:', error);
+        // logger.error(imageUrl);
+        return imageUrl;
+    }
+};
+
+exports.extractS3ImagePath = (s3Url) => {
+    // Split the URL on '://'
+    const parts = s3Url.split('://');
+
+    // Check if the URL is in the expected format
+    if (parts.length !== 2) {
+        return s3Url;
+    }
+
+    // The image path is everything after 's3://'
+    // This will remove the bucket name and return only the path
+    const imagePath = parts[1].split('/').slice(1).join('/');
+
+    return imagePath;
 };

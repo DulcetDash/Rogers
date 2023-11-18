@@ -4838,7 +4838,7 @@ function TrulyGetAdsManagerRunningInfos(req, redisKey, resolve) {
     //       //? Cache data
     //       redisCluster.setex(
     //         redisKey,
-    //         process.env.REDIS_EXPIRATION_5MIN * 9,
+    //         300 * 9,
     //         stringify(adsData)
     //       );
     //       //..DONE
@@ -4847,7 +4847,7 @@ function TrulyGetAdsManagerRunningInfos(req, redisKey, resolve) {
     //     else {
     //       redisCluster.setex(
     //         redisKey,
-    //         process.env.REDIS_EXPIRATION_5MIN * 9,
+    //         300 * 9,
     //         stringify({
     //           response: "No_ad_infos",
     //         })
@@ -6361,7 +6361,7 @@ function execGetTargetedNotificationsOps(requestData, redisKey, resolve) {
     //       new Promise((resCache) => {
     //         redisCluster.setex(
     //           redisKey,
-    //           parseInt(process.env.REDIS_EXPIRATION_5MIN) * 1440,
+    //           parseInt(300
     //           JSON.stringify(response)
     //         );
     //         resCache(true);
@@ -6377,7 +6377,7 @@ function execGetTargetedNotificationsOps(requestData, redisKey, resolve) {
     //       new Promise((resCache) => {
     //         redisCluster.setex(
     //           redisKey,
-    //           parseInt(process.env.REDIS_EXPIRATION_5MIN) * 1440,
+    //           300 * 1440,
     //           JSON.stringify(response)
     //         );
     //         resCache(true);
@@ -6694,7 +6694,7 @@ function exec_getDriversProfile(req, redisKey, resolve) {
                 //!Cache for 5min*1440 - > 5 days
                 redisCluster.setex(
                     redisKey,
-                    parseInt(process.env.REDIS_EXPIRATION_5MIN) * 1440,
+                    300 * 1440,
                     JSON.stringify(driverData[0])
                 );
                 //...
@@ -6964,13 +6964,13 @@ redisCluster.on('connect', function () {
     })
         .use(
             express.json({
-                limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+                limit: '1000mb',
                 extended: true,
             })
         )
         .use(
             express.urlencoded({
-                limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+                limit: '1000mb',
                 extended: true,
             })
         )

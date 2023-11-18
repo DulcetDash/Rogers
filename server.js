@@ -919,13 +919,13 @@ app.use(useragent.express());
 app.use(morgan('dev'));
 app.use(
     express.json({
-        limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+        limit: '1000mb',
         extended: true,
     })
 )
     .use(
         express.urlencoded({
-            limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+            limit: '1000mb',
             extended: true,
         })
     )

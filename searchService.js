@@ -789,8 +789,7 @@ function brieflyCompleteEssentialsForLocations(
                                     ) {
                                         redisCluster.setex(
                                             redisKey,
-                                            process.env.REDIS_EXPIRATION_5MIN *
-                                                864,
+                                            300 * 864,
                                             JSON.stringify(result)
                                         );
                                         resCache(true);
@@ -838,7 +837,7 @@ function brieflyCompleteEssentialsForLocations(
                                 ) {
                                     redisCluster.setex(
                                         redisKey,
-                                        process.env.REDIS_EXPIRATION_5MIN * 864,
+                                        300 * 864,
                                         JSON.stringify(result)
                                     );
                                     resCache(true);
@@ -886,7 +885,7 @@ function brieflyCompleteEssentialsForLocations(
                             ) {
                                 redisCluster.setex(
                                     redisKey,
-                                    process.env.REDIS_EXPIRATION_5MIN * 864,
+                                    300 * 864,
                                     JSON.stringify(result)
                                 );
                                 resCache(true);
@@ -934,7 +933,7 @@ function brieflyCompleteEssentialsForLocations(
                         ) {
                             redisCluster.setex(
                                 redisKey,
-                                process.env.REDIS_EXPIRATION_5MIN * 864,
+                                300 * 864,
                                 JSON.stringify(result)
                             );
                             resCache(true);
@@ -1276,7 +1275,7 @@ function makeFreshOpenCageRequests(coordinates, osm_id, redisKey, resolve) {
                         body['osm_id'] = osm_id; //! Add osm id
                         redisCluster.setex(
                             redisKey,
-                            process.env.REDIS_EXPIRATION_5MIN * 864,
+                            300 * 864,
                             JSON.stringify(body)
                         );
                         resCache(true);
@@ -1485,7 +1484,7 @@ const reverseGeocoderExec = async (latitude, longitude) => {
 //               let currentLocationEntry = { currentLocationInfos: result };
 //               redisCluster.setex(
 //                 redisKey,
-//                 process.env.REDIS_EXPIRATION_5MIN,
+//                 300,
 //                 JSON.stringify(currentLocationEntry)
 //               );
 //             },
@@ -1506,7 +1505,7 @@ const reverseGeocoderExec = async (latitude, longitude) => {
 //               let currentLocationEntry = { currentLocationInfos: result };
 //               redisCluster.setex(
 //                 redisKey,
-//                 process.env.REDIS_EXPIRATION_5MIN,
+//                 300,
 //                 JSON.stringify(currentLocationEntry)
 //               );
 //               resolve(result);
@@ -1528,7 +1527,7 @@ const reverseGeocoderExec = async (latitude, longitude) => {
 //             let currentLocationEntry = { currentLocationInfos: result };
 //             redisCluster.setex(
 //               redisKey,
-//               process.env.REDIS_EXPIRATION_5MIN,
+//               300,
 //               JSON.stringify(currentLocationEntry)
 //             );
 //             resolve(result);
@@ -1612,7 +1611,7 @@ const reverseGeocoderExec = async (latitude, longitude) => {
 //                     body.features[0].properties;
 //                   redisCluster.setex(
 //                     redisKey,
-//                     process.env.REDIS_EXPIRATION_5MIN,
+//                     300,
 //                     JSON.stringify(updateCache)
 //                   );
 //                 }
@@ -1633,7 +1632,7 @@ const reverseGeocoderExec = async (latitude, longitude) => {
 //                     body.features[0].properties;
 //                   redisCluster.setex(
 //                     redisKey,
-//                     process.env.REDIS_EXPIRATION_5MIN,
+//                     300,
 //                     JSON.stringify(updateCache)
 //                   );
 //                 }
@@ -1651,7 +1650,7 @@ const reverseGeocoderExec = async (latitude, longitude) => {
 //                     body.features[0].properties;
 //                   redisCluster.setex(
 //                     redisKey,
-//                     process.env.REDIS_EXPIRATION_5MIN,
+//                     300,
 //                     JSON.stringify(updateCache)
 //                   );
 //                 }
@@ -1666,7 +1665,7 @@ const reverseGeocoderExec = async (latitude, longitude) => {
 //                     body.features[0].properties;
 //                   redisCluster.setex(
 //                     redisKey,
-//                     process.env.REDIS_EXPIRATION_5MIN,
+//                     300,
 //                     JSON.stringify(updateCache)
 //                   );
 //                 }
@@ -1856,7 +1855,7 @@ function findRouteSnapshotExec(resolve, pointData) {
                                 ].map(JSON.parse);
                                 redisCluster.setex(
                                     pointData.redisKey,
-                                    process.env.REDIS_EXPIRATION_5MIN,
+                                    300,
                                     JSON.stringify(resp)
                                 );
                                 res(true);
@@ -1864,7 +1863,7 @@ function findRouteSnapshotExec(resolve, pointData) {
                                 //Create a fresh one
                                 redisCluster.setex(
                                     pointData.redisKey,
-                                    process.env.REDIS_EXPIRATION_5MIN,
+                                    300,
                                     JSON.stringify([result])
                                 );
                                 res(false);
@@ -1873,7 +1872,7 @@ function findRouteSnapshotExec(resolve, pointData) {
                         else {
                             redisCluster.setex(
                                 pointData.redisKey,
-                                process.env.REDIS_EXPIRATION_5MIN,
+                                300,
                                 JSON.stringify([result])
                             );
                             res(true);
@@ -1883,7 +1882,7 @@ function findRouteSnapshotExec(resolve, pointData) {
                         //create fresh record
                         redisCluster.setex(
                             pointData.redisKey,
-                            process.env.REDIS_EXPIRATION_5MIN,
+                            300,
                             JSON.stringify([result])
                         );
                         res(false);
@@ -2185,12 +2184,12 @@ redisCluster.on('connect', function () {
     //Cached restore OR initialized
     app.use(
         express.json({
-            limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+            limit: '1000mb',
             extended: true,
         })
     ).use(
         express.urlencoded({
-            limit: process.env.MAX_DATA_BANDWIDTH_EXPRESS,
+            limit: '1000mb',
             extended: true,
         })
     );
