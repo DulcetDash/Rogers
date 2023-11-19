@@ -22,3 +22,4 @@ Drivers_profile_pictures/
 dist/
 coverage/
 tmp.js
+tmpEmails.js
