@@ -1299,6 +1299,21 @@ app.post('/requestForShopping', authenticate, async (req, res) => {
 
                 console.log(newRequest);
 
+                await sendEmail({
+                    email: [
+                        'dominique@kedokagroup.com',
+                        'silas@kedokagroup.com',
+                    ],
+                    fromEmail: 'support@dulcetdash.com',
+                    fromName: 'requests@dulcetdash.com',
+                    message: `A new ${req.ride_mode} request was made by ${req.user_identifier}`,
+                    subject: `New ${req.ride_mode} for N$${
+                        req.totals?.delivery_fee ??
+                        req.totals?.shopping_fee ??
+                        'Unknown'
+                    } request made`,
+                });
+
                 res.json({ response: 'successful' });
             } else {
                 res.json({ response: 'has_a_pending_shopping' });
