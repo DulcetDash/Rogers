@@ -1306,10 +1306,13 @@ app.post('/requestForShopping', authenticate, async (req, res) => {
                     ],
                     fromEmail: 'support@dulcetdash.com',
                     fromName: 'requests@dulcetdash.com',
-                    message: `A new ${req.ride_mode} request was made by ${req.user_identifier}`,
-                    subject: `New ${req.ride_mode} for N$${
-                        req.totals?.delivery_fee ??
-                        req.totals?.shopping_fee ??
+                    message: `A new ${ride_mode} request was made by ${user_identifier.slice(
+                        0,
+                        15
+                    )}`,
+                    subject: `New ${ride_mode} for N$${
+                        parsedTotals?.service_fee ??
+                        parsedTotals?.shopping_fee ??
                         'Unknown'
                     } request made`,
                 });
@@ -1407,7 +1410,9 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                     ],
                     fromEmail: 'support@dulcetdash.com',
                     fromName: 'requests@dulcetdash.com',
-                    message: `A new ${req.ride_mode} request was made by ${req.user_identifier}`,
+                    message: `A new ${
+                        req.ride_mode
+                    } request was made by ${req.user_identifier.slice(0, 15)}`,
                     subject: `New ${req.ride_mode} for N$${
                         req.totals?.delivery_fee ??
                         req.totals?.shopping_fee ??
