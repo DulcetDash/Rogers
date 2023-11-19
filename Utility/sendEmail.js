@@ -1,16 +1,13 @@
 require('dotenv').config();
 /* eslint-disable import/no-extraneous-dependencies */
 const sgMail = require('@sendgrid/mail');
-const Bull = require('bull');
+const { sendMailQueue } = require('./bullJobs');
 
 // Set the SendGrid API Key
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-// Creating a new Bull Queue for email jobs
-const emailQueue = new Bull('emailQueue');
-
 // Process the email jobs in the queue
-emailQueue.process(async (job) => {
+sendMailQueue.process(async (job) => {
     const {
         email,
         fromEmail = 'support@dulcetdash.com',
@@ -68,20 +65,20 @@ const retryEmailJobs = (job, error) => {
  * @param queueName
  */
 const getAndRemoveEmailJob = async (jobId) => {
-    const job = await emailQueue.getJob(jobId);
+    const job = await sendMailQueue.getJob(jobId);
     if (job) {
         await job.remove();
     }
 };
 
 // Event listener when a job is completed
-emailQueue.on('global:completed', async (job, result) => {
-    console.log(`Job completed with ID ${job?.id}`);
-    await getAndRemoveEmailJob(job.id);
+sendMailQueue.on('global:completed', async (jobId, result) => {
+    console.log(`Job completed with ID ${jobId}`);
+    await getAndRemoveEmailJob(jobId);
 });
 
 // Event listener when a job fails
-emailQueue.on('failed', (job, error) => {
+sendMailQueue.on('failed', (job, error) => {
     console.log(`Job failed with ID ${job.id} and error: ${error}`);
     retryEmailJobs(job, error);
 });
@@ -97,7 +94,7 @@ const sendEmail = ({
     dynamicTemplateData = {},
     attachments = [],
 }) => {
-    emailQueue.add({
+    sendMailQueue.add({
         email,
         fromEmail,
         fromName,
