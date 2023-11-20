@@ -492,8 +492,8 @@ const getRecentlyVisitedShops = async (user_identifier, redisKey) => {
 
     //1. Get all the requests made by the user
     const requests = await RequestsModel.query('client_id')
-        .all()
         .eq(user_identifier)
+        .all()
         .filter('ride_mode')
         .eq('SHOPPING')
         .exec();
