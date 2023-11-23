@@ -953,56 +953,60 @@ app.post('/getStores', authenticate, async (req, res) => {
 });
 
 //Register new store
-app.post('/api/v1/store', authenticate, async (req, res) => {
-    try {
-        const {
-            fp,
-            publish,
-            name,
-            friendly_name,
-            shop_type,
-            description,
-            shop_background_color,
-            border_color,
-            shop_logo,
-            structured_shopping,
-            opening_time,
-            closing_time,
-        } = req.body;
+app.post(
+    '/api/v1/store',
+    // authenticate,
+    async (req, res) => {
+        try {
+            const {
+                fp,
+                publish,
+                name,
+                friendly_name,
+                shop_type,
+                description,
+                shop_background_color,
+                border_color,
+                shop_logo,
+                structured_shopping,
+                opening_time,
+                closing_time,
+            } = req.body;
 
-        const checkStore = await StoreModel.get({ id: fp });
+            const checkStore = await StoreModel.get({ id: fp });
 
-        if (checkStore)
-            return res.status(500).json({
-                status: 'fail',
-                error: 'Store already exist',
+            if (checkStore)
+                return res.status(500).json({
+                    status: 'fail',
+                    error: 'Store already exist',
+                });
+
+            const newStore = await StoreModel.create({
+                id: fp,
+                publish,
+                name,
+                friendly_name,
+                shop_type,
+                description,
+                shop_background_color,
+                border_color,
+                shop_logo,
+                structured_shopping,
+                opening_time,
+                closing_time,
             });
 
-        const newStore = await StoreModel.create({
-            id: fp,
-            publish,
-            name,
-            friendly_name,
-            shop_type,
-            description,
-            shop_background_color,
-            border_color,
-            shop_logo,
-            structured_shopping,
-            opening_time,
-            closing_time,
-        });
-
-        res.json({
-            status: 'created',
-            id: newStore.id,
-        });
-    } catch (error) {
-        res.status(500).json({
-            status: 'fail',
-        });
+            res.json({
+                status: 'created',
+                id: newStore.id,
+            });
+        } catch (error) {
+            res.status(500).json({
+                status: 'fail',
+            });
+        }
     }
-});
+);
 
 //?2. Get all the products based on a store
 app.post('/getCatalogueFor', authenticate, async (req, res) => {
