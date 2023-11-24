@@ -48,14 +48,23 @@ function extractTime(timeStr) {
     return { hour, minute };
 }
 
-exports.storeTimeStatus = (opening_time, closing_time) => {
+exports.storeTimeStatus = (operationTime) => {
     // Ensure Day.js has the required plugin
     const now = dayjs().tz('Africa/Windhoek');
+
+    const dayOfWeek = now.format('dddd').toLowerCase().trim();
+    const defaultOpeningTime = '8:00AM';
+    const defaultClosingTime = '5:00PM';
+
+    const dayTime = operationTime?.[dayOfWeek];
+    const [opening_time, closing_time] = dayTime
+        ? dayTime.split('-')
+        : [defaultOpeningTime, defaultClosingTime];
 
     const open = extractTime(opening_time);
     const close = extractTime(closing_time);
 
-    if (!open || !close) return;
+    if (!open || !close) return 'Finding out';
 
     let openingDateTime = now.hour(open.hour).minute(open.minute);
     let closingDateTime = now.hour(close.hour).minute(close.minute);
@@ -63,8 +72,6 @@ exports.storeTimeStatus = (opening_time, closing_time) => {
     if (closingDateTime.isBefore(openingDateTime)) {
         closingDateTime = closingDateTime.add(1, 'day');
     }
-
-    const nowMinusTwoHours = now.subtract(2, 'hour');
 
     if (now.isAfter(openingDateTime) && now.isBefore(closingDateTime)) {
         if (now.isAfter(closingDateTime.subtract(2, 'hour'))) {

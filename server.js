@@ -122,7 +122,7 @@ const getStores = async () => {
         const stores = await StoreModel.scan().all().exec();
 
         if (stores.length > 0) {
-            const STORES_MODEL = await batchStoresImageFront(
+            let STORES_MODEL = await batchStoresImageFront(
                 (
                     await Promise.all(
                         stores.map(async (store) => {
@@ -136,6 +136,7 @@ const getStores = async () => {
                                     border: store.border_color,
                                     logo: store.shop_logo,
                                     fp: store.id,
+                                    reputation: store?.reputation ?? 0,
                                     structured: store.structured_shopping,
                                     times: {
                                         target_state: null, //two values: opening or closing
@@ -147,8 +148,7 @@ const getStores = async () => {
                                 };
                                 //...
                                 tmpStore.times.string = storeTimeStatus(
-                                    store.opening_time,
-                                    store.closing_time
+                                    store?.operation_time
                                 );
                                 //? DONE - SAVE
                                 return tmpStore;
@@ -159,6 +159,8 @@ const getStores = async () => {
                     )
                 ).filter((el) => el)
             );
+
+            STORES_MODEL = _.orderBy(STORES_MODEL, ['reputation'], ['desc']);
 
             return { response: STORES_MODEL };
         }
@@ -184,6 +186,18 @@ const getCatalogueFor = async (body) => {
     if (!shop) return { response: {}, store: null };
 
     const storeData = shop;
+
+    //? Increment store's reputation points
+    const storeReputationPoint = (shop?.reputation ?? 0) + 1;
+
+    await StoreModel.update(
+        {
+            id: shop.id,
+        },
+        {
+            reputation: storeReputationPoint,
+        }
+    );
 
     const pageNumber = body?.pageNumber ? parseInt(body?.pageNumber, 10) : 1;
     const pageSize = 200;
@@ -365,22 +379,6 @@ const getRequestDataClient = async (requestData) => {
 
     return false;
 };
-
-/**
- * @func ucFirst
- * Responsible to uppercase only the first character and lowercase the rest.
- * @param stringData: the string to be processed.
- */
-function ucFirst(stringData) {
-    try {
-        return `${stringData[0].toUpperCase()}${stringData
-            .substr(1)
-            .toLowerCase()}`;
-    } catch (error) {
-        logger.info(error);
-        return stringData;
-    }
-}
 
 /**
  * @func shouldSendNewSMS
