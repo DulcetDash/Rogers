@@ -74,6 +74,16 @@ const userSchema = new dynamoose.Schema(
             },
         },
         oneSignalUserId: String,
+        stripe_customerId: {
+            type: String,
+            default: null,
+            index: {
+                global: true,
+                name: 'stripecustomerid-index',
+                project: true,
+                throughput: 'ON_DEMAND',
+            },
+        },
     },
     {
         timestamps: true,

@@ -650,3 +650,19 @@ exports.timeAgo = (inputDate) => {
     if (minutesAgo >= 1) return `${minutesAgo} minutes ago`;
     return 'Just now';
 };
+
+exports.getHumReadableWalletTrxDescription = (descriptor) => {
+    switch (descriptor) {
+        case 'WALLET_TOPUP':
+            return 'Top-up';
+
+        case 'GROCERY_DELIVERY_PAYMENT':
+            return 'Grocery delivery';
+
+        case 'BASIC_DELIVERY_PAYMENT':
+            return 'Package delivery';
+
+        default:
+            return 'Transaction';
+    }
+};

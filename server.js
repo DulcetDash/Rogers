@@ -10,6 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 const https = require('https');
 const Redis = require('./Utility/redisConnector');
 const bcrypt = require('bcrypt');
+const bodyParser = require('body-parser');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const useragent = require('express-useragent');
 
@@ -26,6 +27,7 @@ const {
     batchStoresImageFront,
     addTwoHours,
     timeAgo,
+    getHumReadableWalletTrxDescription,
 } = require('./Utility/Utils');
 const _ = require('lodash');
 
@@ -38,6 +40,8 @@ const helmet = require('helmet');
 const requestAPI = require('request');
 
 const jwt = require('jsonwebtoken');
+
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const ddb = new dynamoose.aws.ddb.DynamoDB({
     credentials: {
@@ -79,6 +83,7 @@ const DriversApplicationsModel = require('./models/DriversApplicationsModel');
 const authenticate = require('./middlewares/authenticate');
 const lightcheck = require('./middlewares/lightcheck');
 const { generateNewSecurityToken } = require('./Utility/authenticate/Utils');
+const Payments = require('./models/Payments');
 
 /**
  * Responsible for sending push notification to devices
@@ -922,6 +927,80 @@ logger.info('[+] DulcetDash service active');
 
 app.use(useragent.express());
 app.use(morgan('dev'));
+
+app.post('/webhook', bodyParser.raw({ type: '*/*' }), async (req, res) => {
+    let event;
+
+    try {
+        const stripeSigniture = req.headers['stripe-signature'];
+
+        event = stripe.webhooks.constructEvent(
+            req.body,
+            stripeSigniture,
+            process.env.STRIPE_WEBHOOK_SECRET
+        );
+    } catch (err) {
+        console.error(err);
+        res.status(400).send(`Webhook Error: ${err.message}`);
+        return;
+    }
+
+    let eventObject;
+
+    try {
+        const {
+            object,
+            captured,
+            amount_captured,
+            customer: customerId,
+            id: stripePaymentId,
+            status,
+            refunded,
+            currency,
+        } = event.data.object;
+
+        switch (event.type) {
+            case 'charge.succeeded':
+                if (
+                    object === 'charge' &&
+                    status === 'succeeded' &&
+                    !refunded
+                ) {
+                    //Truly received the money
+                    let user = await UserModel.query('stripe_customerId')
+                        .eq(customerId)
+                        .exec();
+
+                    if (user.count <= 0) break;
+
+                    user = user[0];
+
+                    //Update the payment
+                    await Payments.create({
+                        id: uuidv4(),
+                        user_id: user.id,
+                        stripe_payment_id: stripePaymentId,
+                        amount: amount_captured / 100,
+                        transaction_description: 'WALLET_TOPUP',
+                        currency,
+                    });
+                }
+
+                break;
+
+            default:
+                // Handle other types of events or ignore them
+                break;
+        }
+    } catch (error) {
+        console.error('Error handling webhook event:', error);
+        return res.status(500).send('Internal Server Error');
+    }
+
+    // Return a 200 response to acknowledge receipt of the event
+    res.send();
+});
+
 app.use(
     express.json({
         limit: '1000mb',
@@ -936,6 +1015,76 @@ app.use(
     )
     .use(cors())
     .use(helmet());
+
+app.post('/topup', authenticate, async (req, res) => {
+    try {
+        const { amount, userId } = req.body;
+
+        if (!amount || !userId)
+            return res.status(400).json({ error: 'An error occured' });
+
+        const user = await UserModel.get(userId);
+
+        if (!user)
+            return res.status(400).json({ error: 'User does not exist' });
+
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount: parseInt(amount, 10), // amount in cents
+            currency: 'nad',
+            description: `Wallet Top-up for user ${user.email}`,
+            customer: user?.stripe_customerId,
+        });
+
+        res.send({ clientSecret: paymentIntent.client_secret });
+    } catch (error) {
+        logger.error(error);
+        res.status(400).send({ error: error.message });
+    }
+});
+
+app.get('/wallet/balance', authenticate, async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const transactions = await Payments.query('user_id').eq(userId).exec();
+
+        const totalTopup = transactions
+            .filter(
+                (transaction) =>
+                    transaction.transaction_description === 'WALLET_TOPUP'
+            )
+            .reduce((acc, curr) => acc + curr.amount, 0);
+
+        const totalUsed = transactions
+            .filter(
+                (transaction) =>
+                    transaction.transaction_description ===
+                        'GROCERY_DELIVERY_PAYMENT' ||
+                    transaction.transaction_description ===
+                        'BASIC_DELIVERY_PAYMENT'
+            )
+            .reduce((acc, curr) => acc + curr.amount, 0);
+
+        const transactionHistory = transactions.map((transaction) => ({
+            id: transaction.id,
+            amount: transaction.amount,
+            description: getHumReadableWalletTrxDescription(
+                transaction.transaction_description
+            ),
+        }));
+
+        res.status(200).json({
+            status: 'success',
+            data: {
+                balance: totalTopup - totalUsed,
+                transactionHistory,
+            },
+        });
+    } catch (error) {
+        logger.error(error);
+        res.status(400).send({ error: 'Unable to get balance' });
+    }
+});
 
 //?1. Get all the available stores in the app.
 //Get the main ones (4) and the new ones (X)
@@ -990,8 +1139,6 @@ app.post(
                 border_color,
                 shop_logo,
                 structured_shopping,
-                opening_time,
-                closing_time,
             });
 
             res.json({
@@ -1100,122 +1247,6 @@ app.post('/getResultsForKeywords', authenticate, async (req, res) => {
         logger.error(error);
         res.send({ response: [] });
     }
-});
-
-//?4. Move all the pictures from external remote servers to our local server
-app.post('/getImageRessourcesFromExternal', authenticate, function (req, res) {
-    //Get all the images that where not moved yet into the internal ressources
-    //? In an image ressource was moved, it will be in the meta.moved_ressources_manifest, else proceed with the getting
-    // collection_catalogue_central
-    //   .find({})
-    //   .toArray(function (err, productsData) {
-    //     if (err) {
-    //       logger.error(err);
-    //       res.send({ response: "error", flag: err });
-    //     }
-    //     //...
-    //     if (productsData !== undefined && productsData.length > 0) {
-    //       //Has some products
-    //       let parentPromises = productsData.map((product, index) => {
-    //         return new Promise((resolve) => {
-    //           //Get the array of images
-    //           let arrayImages = product.product_picture;
-    //           //Get the transition manifest
-    //           //? Looks like {'old_image_name_external_url': new_image_name_url}
-    //           console.log(arrayImages);
-    //           let transition_manifest =
-    //             product.meta.moved_ressources_manifest !==
-    //               undefined &&
-    //             product.meta.moved_ressources_manifest !== null
-    //               ? product.meta.moved_ressources_manifest
-    //               : {};
-    //           let parentPromises2 = arrayImages.map((picture) => {
-    //             return new Promise((resCompute) => {
-    //               if (
-    //                 transition_manifest[picture] !== undefined &&
-    //                 transition_manifest[picture] !== null
-    //               ) {
-    //                 //!Was moved
-    //                 //Already processed
-    //                 resCompute({
-    //                   message: "Already processed",
-    //                   index: index,
-    //                 });
-    //               } //!Not moved yet - move
-    //               else {
-    //                 let options = {
-    //                   uri: picture,
-    //                   encoding: null,
-    //                 };
-    //                 requestAPI(
-    //                   options,
-    //                   function (error, response, body) {
-    //                     if (error || response.statusCode !== 200) {
-    //                       console.log("failed to get image");
-    //                       console.log(error);
-    //                       resCompute({
-    //                         message: "Processed - failed",
-    //                         index: index,
-    //                       });
-    //                     } else {
-    //                       logger.info("Got the image");
-    //                       s3.putObject(
-    //                         {
-    //                           Body: body,
-    //                           Key: path,
-    //                           Bucket: "bucket_name",
-    //                         },
-    //                         function (error, data) {
-    //                           if (error) {
-    //                             console.log(
-    //                               "error downloading image to s3"
-    //                             );
-    //                             resCompute({
-    //                               message: "Processed - failed",
-    //                               index: index,
-    //                             });
-    //                           } else {
-    //                             console.log(
-    //                               "success uploading to s3"
-    //                             );
-    //                             resCompute({
-    //                               message: "Processed",
-    //                               index: index,
-    //                             });
-    //                           }
-    //                         }
-    //                       );
-    //                     }
-    //                   }
-    //                 );
-    //               }
-    //             });
-    //           });
-    //           //? Done with this
-    //           Promise.all(parentPromises2)
-    //             .then((result) => {
-    //               resolve(result);
-    //             })
-    //             .catch((error) => {
-    //               logger.error(error);
-    //               resolve({ response: "error_processing" });
-    //             });
-    //         });
-    //       });
-    //       //! DONE
-    //       Promise.all(parentPromises)
-    //         .then((result) => {
-    //           res.send({ response: result });
-    //         })
-    //         .catch((error) => {
-    //           logger.error(error);
-    //           res.send({ response: "unable_to_work", flag: error });
-    //         });
-    //     } //No products
-    //     else {
-    //       res.send({ response: "no_products_found" });
-    //     }
-    //   });
 });
 
 //?5. Get location search suggestions
@@ -1601,37 +1632,6 @@ app.post('/cancel_request_user', authenticate, async (req, res) => {
     }
 });
 
-//?10. Search for stores
-// app.post("/searchForStores", function(req, res) {
-//   new Promise((resolve) => {
-//     new promises((resIndices) => {
-//       let index_name = 'stores';
-//       checkIndices(index_name, resIndices);
-//     })
-//     .then((result) => {
-//       if(result)  //All good
-//       {
-
-//       }
-//       else  //There was a problem
-//       {
-//         resolve({ response: [] });
-//       }
-//     }).catch((error) => {
-//       logger.error(error);
-//       resolve({ response: [] });
-//     })
-//   })
-//   .then((result) => {
-//     logger.info(result);
-//     res.send(result);
-//   })
-//   .catch((error) => {
-//     logger.error(error);
-//     res.send({ response: [] });
-//   });
-// })
-
 //?11. get the list of requests for riders
 app.post('/getRequestListRiders', authenticate, async (req, res) => {
     try {
@@ -1752,6 +1752,7 @@ app.post('/getGenericUserData', authenticate, async (req, res) => {
             phone: user.phone_number,
             email: user.email,
             user_identifier: user.id,
+            stripeCustomerId: user?.stripe_customerId,
         };
 
         res.json({
@@ -1914,16 +1915,21 @@ app.post('/createBasicUserAccount', lightcheck, async (req, res) => {
 
 //?17. Add additional user account details
 app.post('/addAdditionalUserAccDetails', authenticate, async (req, res) => {
+    const { user_identifier, additional_data } = req.body;
+
+    if (!user_identifier || !additional_data) {
+        return res.json({ response: 'error' });
+    }
+
+    const { name, surname, gender, email, profile_picture_generic } =
+        JSON.parse(additional_data);
+
+    //? Create stripe user
+    const stripeCustomer = await stripe.customers.create({
+        email,
+    });
+
     try {
-        const { user_identifier, additional_data } = req.body;
-
-        if (!user_identifier || !additional_data) {
-            return res.json({ response: 'error' });
-        }
-
-        const { name, surname, gender, email, profile_picture_generic } =
-            JSON.parse(additional_data);
-
         const userData = await UserModel.update(
             {
                 id: user_identifier,
@@ -1935,6 +1941,7 @@ app.post('/addAdditionalUserAccDetails', authenticate, async (req, res) => {
                 email,
                 profile_picture: profile_picture_generic,
                 account_state: 'full',
+                stripe_customerId: stripeCustomer.id,
             }
         );
 
@@ -1943,7 +1950,7 @@ app.post('/addAdditionalUserAccDetails', authenticate, async (req, res) => {
             surname: userData.surname,
             gender: userData.gender,
             account_state: userData.account_state,
-            profile_picture: `${process.env.AWS_S3_CLIENTS_PROFILES_PATH}/clients_profiles/${userData?.profile_picture}`,
+            profile_picture: userData?.profile_picture,
             is_accountVerified: userData?.is_accountVerified,
             phone: userData.phone_number,
             email: userData.email,
@@ -1963,6 +1970,7 @@ app.post('/addAdditionalUserAccDetails', authenticate, async (req, res) => {
         });
     } catch (error) {
         console.error(error);
+        await stripe.customers.del(stripeCustomer.id);
         res.status(500).send({
             response: 'error',
             error: { message: error.message },
@@ -1972,16 +1980,13 @@ app.post('/addAdditionalUserAccDetails', authenticate, async (req, res) => {
 
 //?18. Get the go again list of the 3 recently visited shops - only for users
 app.post('/getRecentlyVisitedShops', authenticate, async (req, res) => {
-    let redisKey = `${req.user_identifier}-cachedRecentlyVisited_shops`;
-
     try {
-        const { user_identifier } = req.body;
+        const { user_identifier: userId } = req.body;
 
-        if (user_identifier) {
-            const recentShops = await getRecentlyVisitedShops(
-                user_identifier,
-                redisKey
-            );
+        const redisKey = `${userId}-cachedRecentlyVisited_shops`;
+
+        if (userId) {
+            const recentShops = await getRecentlyVisitedShops(userId, redisKey);
 
             res.send(recentShops);
         } else {
