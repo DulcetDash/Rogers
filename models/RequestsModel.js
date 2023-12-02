@@ -34,9 +34,10 @@ const requestSchema = new dynamoose.Schema(
         },
         payment_method: {
             type: String,
-            enum: ['mobile_money', 'cash'],
+            enum: ['mobile_money', 'cash', 'wallet'],
             required: true,
         },
+        transaction_payment_id: String,
         locations: {
             type: Object,
             schema: {

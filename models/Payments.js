@@ -26,10 +26,14 @@ const paymentsSchema = new dynamoose.Schema(
         transaction_description: {
             type: String,
             enum: [
-                'GROCERY_DELIVERY_PAYMENT',
-                'BASIC_DELIVERY_PAYMENT',
+                'GROCERY_PAYMENT',
+                'PACKAGE_DELIVERY_PAYMENT',
                 'WALLET_TOPUP',
             ],
+        },
+        success: {
+            type: Boolean,
+            default: true,
         },
     },
     {

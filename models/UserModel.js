@@ -22,7 +22,7 @@ const userSchema = new dynamoose.Schema(
         },
         profile_picture: {
             type: String,
-            default: 'user.png',
+            default: 's3://dulcetdash-storage/users_profiles/male.png',
         },
         account_state: {
             type: String,

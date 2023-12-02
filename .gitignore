@@ -23,3 +23,5 @@ dist/
 coverage/
 tmp.js
 tmpEmails.js
+
+seed.js

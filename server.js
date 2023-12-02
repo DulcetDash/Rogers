@@ -1046,7 +1046,10 @@ app.get('/wallet/balance', authenticate, async (req, res) => {
     try {
         const userId = req.user.id;
 
-        const transactions = await Payments.query('user_id').eq(userId).exec();
+        const transactions = await Payments.query('user_id')
+            .eq(userId)
+            .all()
+            .exec();
 
         const totalTopup = transactions
             .filter(
@@ -1058,20 +1061,31 @@ app.get('/wallet/balance', authenticate, async (req, res) => {
         const totalUsed = transactions
             .filter(
                 (transaction) =>
+                    transaction?.success || transaction?.success === undefined
+            )
+            .filter(
+                (transaction) =>
+                    transaction.transaction_description === 'GROCERY_PAYMENT' ||
                     transaction.transaction_description ===
-                        'GROCERY_DELIVERY_PAYMENT' ||
-                    transaction.transaction_description ===
-                        'BASIC_DELIVERY_PAYMENT'
+                        'PACKAGE_DELIVERY_PAYMENT'
             )
             .reduce((acc, curr) => acc + curr.amount, 0);
 
-        const transactionHistory = transactions.map((transaction) => ({
+        let transactionHistory = transactions.map((transaction) => ({
             id: transaction.id,
             amount: transaction.amount,
             description: getHumReadableWalletTrxDescription(
                 transaction.transaction_description
             ),
+            success: transaction?.success ?? true,
+            createdAt: transaction.createdAt,
         }));
+
+        transactionHistory = _.orderBy(
+            transactionHistory,
+            ['createdAt'],
+            ['desc']
+        ).slice(0, 3);
 
         res.status(200).json({
             status: 'success',
@@ -1318,19 +1332,46 @@ app.post('/requestForShopping', authenticate, async (req, res) => {
                     parsedTotals.cash_pickup_fee.replace('N$', '')
                 );
 
-                const newRequest = await RequestsModel.create({
-                    id: uuidv4(),
-                    client_id: user_identifier, //the user identifier - requester
-                    payment_method: payment_method, //mobile_money or cash
-                    locations: JSON.parse(locations), //Has the pickup and delivery locations
-                    totals_request: parsedTotals, //Has the cart details in terms of fees
-                    request_documentation: note,
-                    shopping_list: JSON.parse(shopping_list), //! The list of items to shop for
-                    ride_mode: ride_mode.toUpperCase().trim(), //ride, delivery or shopping
-                    security: security_pin, //Will be used to check the request,
-                });
+                const requestId = uuidv4();
+                const paymentId = uuidv4();
 
-                console.log(newRequest);
+                if (req.payment_method === 'wallet') {
+                    await dynamoose.transaction([
+                        RequestsModel.transaction.create({
+                            id: requestId,
+                            transaction_payment_id: paymentId,
+                            client_id: user_identifier, //the user identifier - requester
+                            payment_method: payment_method, //mobile_money or cash
+                            locations: JSON.parse(locations), //Has the pickup and delivery locations
+                            totals_request: parsedTotals, //Has the cart details in terms of fees
+                            request_documentation: note,
+                            shopping_list: JSON.parse(shopping_list), //! The list of items to shop for
+                            ride_mode: ride_mode.toUpperCase().trim(), //ride, delivery or shopping
+                            security: security_pin, //Will be used to check the request,
+                        }),
+                        Payments.transaction.create({
+                            id: paymentId,
+                            user_id: req.user_identifier,
+                            amount: req.totals.total,
+                            currency: 'nad',
+                            transaction_description: 'PACKAGE_DELIVERY_PAYMENT',
+                        }),
+                    ]);
+                } else {
+                    const newRequest = await RequestsModel.create({
+                        id: requestId,
+                        client_id: user_identifier, //the user identifier - requester
+                        payment_method: payment_method, //mobile_money or cash
+                        locations: JSON.parse(locations), //Has the pickup and delivery locations
+                        totals_request: parsedTotals, //Has the cart details in terms of fees
+                        request_documentation: note,
+                        shopping_list: JSON.parse(shopping_list), //! The list of items to shop for
+                        ride_mode: ride_mode.toUpperCase().trim(), //ride, delivery or shopping
+                        security: security_pin, //Will be used to check the request,
+                    });
+
+                    console.log(newRequest);
+                }
 
                 await sendEmail({
                     email: [
@@ -1420,21 +1461,50 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                 }
                 //...
 
-                const newRequest = await RequestsModel.create({
-                    id: uuidv4(),
-                    client_id: req.user_identifier, //the user identifier - requester
-                    payment_method: req.payment_method, //mobile_money or cash
-                    locations: {
-                        pickup: JSON.parse(req.pickup_location), //Has the pickup locations
-                        dropoff: JSON.parse(req.dropOff_data), //The list of recipient/riders and their locations
-                    },
-                    totals_request: req.totals, //Has the cart details in terms of fees
-                    request_documentation: req.note,
-                    ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
-                    security: securityPin,
-                });
+                const requestId = uuidv4();
+                const paymentId = uuidv4();
 
-                console.log(newRequest);
+                if (req.payment_method === 'wallet') {
+                    await dynamoose.transaction([
+                        RequestsModel.transaction.create({
+                            id: requestId,
+                            transaction_payment_id: paymentId,
+                            client_id: req.user_identifier, //the user identifier - requester
+                            payment_method: req.payment_method, //mobile_money or cash or wallet
+                            locations: {
+                                pickup: JSON.parse(req.pickup_location), //Has the pickup locations
+                                dropoff: JSON.parse(req.dropOff_data), //The list of recipient/riders and their locations
+                            },
+                            totals_request: req.totals, //Has the cart details in terms of fees
+                            request_documentation: req.note,
+                            ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
+                            security: securityPin,
+                        }),
+                        Payments.transaction.create({
+                            id: paymentId,
+                            user_id: req.user_identifier,
+                            amount: req.totals.total,
+                            currency: 'nad',
+                            transaction_description: 'PACKAGE_DELIVERY_PAYMENT',
+                        }),
+                    ]);
+                } else {
+                    const newRequest = await RequestsModel.create({
+                        id: requestId,
+                        client_id: req.user_identifier, //the user identifier - requester
+                        payment_method: req.payment_method, //mobile_money or cash
+                        locations: {
+                            pickup: JSON.parse(req.pickup_location), //Has the pickup locations
+                            dropoff: JSON.parse(req.dropOff_data), //The list of recipient/riders and their locations
+                        },
+                        totals_request: req.totals, //Has the cart details in terms of fees
+                        request_documentation: req.note,
+                        ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
+                        security: securityPin,
+                    });
+
+                    console.log(newRequest);
+                }
 
                 await sendEmail({
                     email: [
@@ -1616,6 +1686,18 @@ app.post('/cancel_request_user', authenticate, async (req, res) => {
                         date_cancelled: Date.now(),
                     }
                 );
+
+                //Cancel the payment transaction if any
+                if (requestData?.transaction_payment_id) {
+                    await Payments.update(
+                        {
+                            id: requestData?.transaction_payment_id,
+                        },
+                        {
+                            success: false,
+                        }
+                    );
+                }
 
                 res.send([{ response: 'success' }]);
             } //No request?
