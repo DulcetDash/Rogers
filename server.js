@@ -1306,7 +1306,7 @@ app.post('/requestForShopping', authenticate, async (req, res) => {
 
                 const requestId = uuidv4();
                 const paymentId = uuidv4();
-                const clientId = req.user_identifier;
+                const clientId = user_identifier;
                 const requestTotals = parsedTotals;
 
                 if (req.payment_method === 'wallet') {
