@@ -32,10 +32,10 @@ function parseS3URI(uri) {
  * Presigns an S3 URI to generate a publicly accessible URL.
  *
  * @param {string} uri The S3 URI.
- * @param {number} [expires=7200] The time in seconds until the signed URL expires. Defaults to 2 hours.
+ * @param {number} [expires=86400] The time in seconds until the signed URL expires. Defaults to 24 hours.
  * @returns {Promise<string>} The presigned URL.
  */
-exports.presignS3URL = async (uri, expires = 7200) => {
+exports.presignS3URL = async (uri, expires = 86400) => {
     try {
         return new Promise((resolve, reject) => {
             const parsedURI = parseS3URI(uri);
