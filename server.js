@@ -84,6 +84,7 @@ const authenticate = require('./middlewares/authenticate');
 const lightcheck = require('./middlewares/lightcheck');
 const { generateNewSecurityToken } = require('./Utility/authenticate/Utils');
 const Payments = require('./models/Payments');
+const { getBalance } = require('./Utility/Wallet/Utils');
 
 /**
  * Responsible for sending push notification to devices
@@ -1023,13 +1024,26 @@ app.post('/topup', authenticate, async (req, res) => {
         if (!amount || !userId)
             return res.status(400).json({ error: 'An error occured' });
 
+        const normalAmount = parseInt(amount, 10) / 100;
+
+        if (normalAmount > 5000)
+            return res.status(400).json({
+                error: 'An error occured',
+                message: 'Amount greater than 5000',
+            });
+
         const user = await UserModel.get(userId);
 
         if (!user)
             return res.status(400).json({ error: 'User does not exist' });
 
+        let amountWithoutPFee = parseInt(amount, 10);
+        const processingFee = amountWithoutPFee * 0.05;
+
+        amountWithoutPFee = Math.floor(amountWithoutPFee - processingFee);
+
         const paymentIntent = await stripe.paymentIntents.create({
-            amount: parseInt(amount, 10), // amount in cents
+            amount: amountWithoutPFee, // amount in cents
             currency: 'nad',
             description: `Wallet Top-up for user ${user.email}`,
             customer: user?.stripe_customerId,
@@ -1046,53 +1060,11 @@ app.get('/wallet/balance', authenticate, async (req, res) => {
     try {
         const userId = req.user.id;
 
-        const transactions = await Payments.query('user_id')
-            .eq(userId)
-            .all()
-            .exec();
-
-        const totalTopup = transactions
-            .filter(
-                (transaction) =>
-                    transaction.transaction_description === 'WALLET_TOPUP'
-            )
-            .reduce((acc, curr) => acc + curr.amount, 0);
-
-        const totalUsed = transactions
-            .filter(
-                (transaction) =>
-                    transaction?.success || transaction?.success === undefined
-            )
-            .filter(
-                (transaction) =>
-                    transaction.transaction_description === 'GROCERY_PAYMENT' ||
-                    transaction.transaction_description ===
-                        'PACKAGE_DELIVERY_PAYMENT'
-            )
-            .reduce((acc, curr) => acc + curr.amount, 0);
-
-        let transactionHistory = transactions.map((transaction) => ({
-            id: transaction.id,
-            amount: transaction.amount,
-            description: getHumReadableWalletTrxDescription(
-                transaction.transaction_description
-            ),
-            success: transaction?.success ?? true,
-            createdAt: transaction.createdAt,
-        }));
-
-        transactionHistory = _.orderBy(
-            transactionHistory,
-            ['createdAt'],
-            ['desc']
-        ).slice(0, 3);
+        const balance = await getBalance(userId);
 
         res.status(200).json({
             status: 'success',
-            data: {
-                balance: totalTopup - totalUsed,
-                transactionHistory,
-            },
+            data: balance,
         });
     } catch (error) {
         logger.error(error);
@@ -1334,16 +1306,27 @@ app.post('/requestForShopping', authenticate, async (req, res) => {
 
                 const requestId = uuidv4();
                 const paymentId = uuidv4();
+                const clientId = req.user_identifier;
+                const requestTotals = parsedTotals;
 
                 if (req.payment_method === 'wallet') {
+                    //? Check the balance
+                    const { balance } = await getBalance(clientId);
+                    const requestRequiredTotal = requestTotals;
+
+                    if (balance < requestRequiredTotal)
+                        return res.json({
+                            response: 'unable_to_request_insufficient_balance',
+                        });
+
                     await dynamoose.transaction([
                         RequestsModel.transaction.create({
                             id: requestId,
                             transaction_payment_id: paymentId,
-                            client_id: user_identifier, //the user identifier - requester
+                            client_id: clientId, //the user identifier - requester
                             payment_method: payment_method, //mobile_money or cash
                             locations: JSON.parse(locations), //Has the pickup and delivery locations
-                            totals_request: parsedTotals, //Has the cart details in terms of fees
+                            totals_request: requestTotals, //Has the cart details in terms of fees
                             request_documentation: note,
                             shopping_list: JSON.parse(shopping_list), //! The list of items to shop for
                             ride_mode: ride_mode.toUpperCase().trim(), //ride, delivery or shopping
@@ -1351,8 +1334,8 @@ app.post('/requestForShopping', authenticate, async (req, res) => {
                         }),
                         Payments.transaction.create({
                             id: paymentId,
-                            user_id: req.user_identifier,
-                            amount: req.totals.total,
+                            user_id: clientId,
+                            amount: requestTotals.total,
                             currency: 'nad',
                             transaction_description: 'PACKAGE_DELIVERY_PAYMENT',
                         }),
@@ -1360,10 +1343,10 @@ app.post('/requestForShopping', authenticate, async (req, res) => {
                 } else {
                     const newRequest = await RequestsModel.create({
                         id: requestId,
-                        client_id: user_identifier, //the user identifier - requester
+                        client_id: clientId, //the user identifier - requester
                         payment_method: payment_method, //mobile_money or cash
                         locations: JSON.parse(locations), //Has the pickup and delivery locations
-                        totals_request: parsedTotals, //Has the cart details in terms of fees
+                        totals_request: requestTotals, //Has the cart details in terms of fees
                         request_documentation: note,
                         shopping_list: JSON.parse(shopping_list), //! The list of items to shop for
                         ride_mode: ride_mode.toUpperCase().trim(), //ride, delivery or shopping
@@ -1380,13 +1363,13 @@ app.post('/requestForShopping', authenticate, async (req, res) => {
                     ],
                     fromEmail: 'support@dulcetdash.com',
                     fromName: 'requests@dulcetdash.com',
-                    message: `A new ${ride_mode} request was made by ${user_identifier.slice(
+                    message: `A new ${ride_mode} request was made by ${clientId.slice(
                         0,
                         15
                     )}`,
                     subject: `New ${ride_mode} for N$${
-                        parsedTotals?.service_fee ??
-                        parsedTotals?.shopping_fee ??
+                        requestTotals?.service_fee ??
+                        requestTotals?.shopping_fee ??
                         'Unknown'
                     } request made`,
                 });
@@ -1463,27 +1446,38 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
 
                 const requestId = uuidv4();
                 const paymentId = uuidv4();
+                const clientId = req.user_identifier;
+                const requestTotals = req.totals;
 
                 if (req.payment_method === 'wallet') {
+                    //? Check the balance
+                    const { balance } = await getBalance(clientId);
+                    const requestRequiredTotal = requestTotals;
+
+                    if (balance < requestRequiredTotal)
+                        return res.json({
+                            response: 'unable_to_request_insufficient_balance',
+                        });
+
                     await dynamoose.transaction([
                         RequestsModel.transaction.create({
                             id: requestId,
                             transaction_payment_id: paymentId,
-                            client_id: req.user_identifier, //the user identifier - requester
+                            client_id: clientId, //the user identifier - requester
                             payment_method: req.payment_method, //mobile_money or cash or wallet
                             locations: {
                                 pickup: JSON.parse(req.pickup_location), //Has the pickup locations
                                 dropoff: JSON.parse(req.dropOff_data), //The list of recipient/riders and their locations
                             },
-                            totals_request: req.totals, //Has the cart details in terms of fees
+                            totals_request: requestTotals, //Has the cart details in terms of fees
                             request_documentation: req.note,
                             ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
                             security: securityPin,
                         }),
                         Payments.transaction.create({
                             id: paymentId,
-                            user_id: req.user_identifier,
-                            amount: req.totals.total,
+                            user_id: clientId,
+                            amount: requestTotals.total,
                             currency: 'nad',
                             transaction_description: 'PACKAGE_DELIVERY_PAYMENT',
                         }),
@@ -1491,13 +1485,13 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                 } else {
                     const newRequest = await RequestsModel.create({
                         id: requestId,
-                        client_id: req.user_identifier, //the user identifier - requester
+                        client_id: clientId, //the user identifier - requester
                         payment_method: req.payment_method, //mobile_money or cash
                         locations: {
                             pickup: JSON.parse(req.pickup_location), //Has the pickup locations
                             dropoff: JSON.parse(req.dropOff_data), //The list of recipient/riders and their locations
                         },
-                        totals_request: req.totals, //Has the cart details in terms of fees
+                        totals_request: requestTotals, //Has the cart details in terms of fees
                         request_documentation: req.note,
                         ride_mode: req.ride_mode.toUpperCase().trim(), //ride, delivery or shopping
                         security: securityPin,
@@ -1515,10 +1509,10 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                     fromName: 'requests@dulcetdash.com',
                     message: `A new ${
                         req.ride_mode
-                    } request was made by ${req.user_identifier.slice(0, 15)}`,
+                    } request was made by ${clientId.slice(0, 15)}`,
                     subject: `New ${req.ride_mode} for N$${
-                        req.totals?.delivery_fee ??
-                        req.totals?.shopping_fee ??
+                        requestTotals?.delivery_fee ??
+                        requestTotals?.shopping_fee ??
                         'Unknown'
                     } request made`,
                 });
@@ -1534,8 +1528,8 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                 const message = {
                     title: `New ${req.ride_mode} request`,
                     body: `N$${
-                        req.totals?.delivery_fee ??
-                        req.totals?.shopping_fee ??
+                        requestTotals?.delivery_fee ??
+                        requestTotals?.shopping_fee ??
                         'Unknown'
                     } request made`,
                 };
