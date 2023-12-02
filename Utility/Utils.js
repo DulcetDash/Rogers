@@ -656,10 +656,10 @@ exports.getHumReadableWalletTrxDescription = (descriptor) => {
         case 'WALLET_TOPUP':
             return 'Top-up';
 
-        case 'GROCERY_DELIVERY_PAYMENT':
+        case 'GROCERY_PAYMENT':
             return 'Grocery delivery';
 
-        case 'BASIC_DELIVERY_PAYMENT':
+        case 'PACKAGE_DELIVERY_PAYMENT':
             return 'Package delivery';
 
         default:
