@@ -1335,7 +1335,7 @@ app.post('/requestForShopping', authenticate, async (req, res) => {
                             user_id: clientId,
                             amount: requestTotals.total,
                             currency: 'nad',
-                            transaction_description: 'PACKAGE_DELIVERY_PAYMENT',
+                            transaction_description: 'GROCERY_PAYMENT',
                         }),
                     ]);
                 } else {
