@@ -3,7 +3,6 @@ require('dotenv').config();
 
 const express = require('express');
 const http = require('http');
-const crypto = require('crypto');
 const otpGenerator = require('otp-generator');
 const morgan = require('morgan');
 const { v4: uuidv4 } = require('uuid');
@@ -27,7 +26,6 @@ const {
     batchStoresImageFront,
     addTwoHours,
     timeAgo,
-    getHumReadableWalletTrxDescription,
 } = require('./Utility/Utils');
 const _ = require('lodash');
 
