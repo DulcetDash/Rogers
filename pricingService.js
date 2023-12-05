@@ -13,18 +13,11 @@ const requestAPI = require('request');
 const { promisify, inspect } = require('util');
 const Redis = require('./Utility/redisConnector');
 const client = null;
-var RedisClustr = require('redis-clustr');
 var redisCluster = client;
 const redisGet = null;
 
 //! Attach DynamoDB helper
-const {
-    dynamo_insert,
-    dynamo_update,
-    dynamo_find_query,
-    dynamo_delete,
-    dynamo_get_all,
-} = require('./DynamoServiceManager');
+const { dynamo_find_query } = require('./DynamoServiceManager');
 //....
 var fastFilter = require('fast-filter');
 const escapeStringRegexp = require('escape-string-regexp');
