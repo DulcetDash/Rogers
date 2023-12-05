@@ -259,6 +259,8 @@ const getCatalogueFor = async (body) => {
                     store_fp: storeFp,
                     structured: storeData.structured_shopping,
                 },
+                description: product?.description,
+                options: product?.options,
             };
 
             return tmpData;
@@ -1151,87 +1153,91 @@ app.post('/getCatalogueFor', authenticate, async (req, res) => {
 });
 
 //?3. Search in  the catalogue of a  specific shop
-app.post('/getResultsForKeywords', authenticate, async (req, res) => {
-    try {
-        const {
-            category,
-            subcategory,
-            store_fp: shop_fp,
-            store: product_name,
-            key,
-        } = req.body;
+app.post(
+    '/getResultsForKeywords',
+    // , authenticate
+    async (req, res) => {
+        try {
+            const {
+                category,
+                subcategory,
+                store_fp: shop_fp,
+                store: product_name,
+                key,
+            } = req.body;
 
-        if (key && shop_fp) {
-            const redisKey = `${shop_fp}-${key}-searchedProduct`;
+            if (key && shop_fp) {
+                const redisKey = `${shop_fp}-${key}-searchedProduct`;
 
-            const cachedData = await Redis.get(redisKey);
+                const cachedData = await Redis.get(redisKey);
 
-            let products = cachedData
-                ? JSON.parse(cachedData)
-                : await searchProducts(process.env.CATALOGUE_INDEX, {
-                      shop_fp,
-                      product_name,
-                      product_name: key,
-                      category,
-                      subcategory,
-                  });
+                let products = cachedData
+                    ? JSON.parse(cachedData)
+                    : await searchProducts(process.env.CATALOGUE_INDEX, {
+                          shop_fp,
+                          product_name,
+                          product_name: key,
+                          category,
+                          subcategory,
+                      });
 
-            if (!cachedData && products.length > 0) {
-                await Redis.set(
-                    redisKey,
-                    JSON.stringify(products),
-                    'EX',
-                    1 * 24 * 3600
-                );
-            }
+                if (!cachedData && products.length > 0) {
+                    await Redis.set(
+                        redisKey,
+                        JSON.stringify(products),
+                        'EX',
+                        1 * 24 * 3600
+                    );
+                }
 
-            products = await batchPresignProductsLinks(products);
+                products = await batchPresignProductsLinks(products);
 
-            const reformattedData = products.map((product, index) => {
-                const tmpData = {
-                    ...product,
-                    ...{
-                        product_price: String(product.priceAdjusted),
-                    },
-                    ...{
-                        meta: {
-                            category: product.category,
-                            subcategory: product.subcategory,
-                            store: product.shop_name,
-                            store_fp: shop_fp,
-                            structured: false,
+                const reformattedData = products.map((product, index) => {
+                    const tmpData = {
+                        ...product,
+                        ...{
+                            product_price: String(product.priceAdjusted),
                         },
-                    },
-                };
-                //...
-                return tmpData;
-            });
+                        ...{
+                            meta: {
+                                category: product.category,
+                                subcategory: product.subcategory,
+                                store: product.shop_name,
+                                store_fp: shop_fp,
+                                structured: false,
+                            },
+                        },
+                    };
+                    //...
+                    return tmpData;
+                });
 
-            const privateKeys = [
-                'website_link',
-                'used_link',
-                'local_images_registry',
-                'createdAt',
-                'priceAdjusted',
-            ];
+                const privateKeys = [
+                    'website_link',
+                    'used_link',
+                    'local_images_registry',
+                    'createdAt',
+                    'priceAdjusted',
+                ];
 
-            const safeProducts = _.map(reformattedData, (obj) =>
-                _.omit(obj, privateKeys)
-            );
+                const safeProducts = _.map(reformattedData, (obj) =>
+                    _.omit(obj, privateKeys)
+                );
 
-            res.send({
-                count: reformattedData.length,
-                response: safeProducts,
-            });
-        } //No valid data
-        else {
+                res.send({
+                    count: reformattedData.length,
+                    response: safeProducts,
+                });
+            } //No valid data
+            else {
+                res.send({ response: [] });
+            }
+        } catch (error) {
+            logger.error(error);
             res.send({ response: [] });
         }
-    } catch (error) {
-        logger.error(error);
-        res.send({ response: [] });
     }
-});
+);
 
 //?5. Get location search suggestions
 app.post('/getSearchedLocations', authenticate, async (req, res) => {
