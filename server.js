@@ -26,6 +26,7 @@ const {
     batchStoresImageFront,
     addTwoHours,
     timeAgo,
+    batchPresignProductsOptionsImageLinks,
 } = require('./Utility/Utils');
 const _ = require('lodash');
 
@@ -83,6 +84,9 @@ const lightcheck = require('./middlewares/lightcheck');
 const { generateNewSecurityToken } = require('./Utility/authenticate/Utils');
 const Payments = require('./models/Payments');
 const { getBalance } = require('./Utility/Wallet/Utils');
+const {
+    performCorporateDeliveryAccountAuthOps,
+} = require('./Utility/Account/Utils');
 
 /**
  * Responsible for sending push notification to devices
@@ -243,28 +247,32 @@ const getCatalogueFor = async (body) => {
         productsData = await batchPresignProductsLinks(productsData);
 
         //Reformat the data
-        const reformattedData = productsData.map((product, index) => {
-            const tmpData = {
-                id: product.id,
-                index: index,
-                name: product.product_name,
-                price: String(product.priceAdjusted),
-                currency: product.currency,
-                pictures: product.product_picture,
-                sku: product.sku,
-                meta: {
-                    category: product.category,
-                    subcategory: product.subcategory,
-                    store: product.shop_name,
-                    store_fp: storeFp,
-                    structured: storeData.structured_shopping,
-                },
-                description: product?.description,
-                options: product?.options,
-            };
+        const reformattedData = await Promise.all(
+            productsData.map(async (product, index) => {
+                const tmpData = {
+                    id: product.id,
+                    index: index,
+                    name: product.product_name,
+                    price: String(product.priceAdjusted),
+                    currency: product.currency,
+                    pictures: product.product_picture,
+                    sku: product.sku,
+                    meta: {
+                        category: product.category,
+                        subcategory: product.subcategory,
+                        store: product.shop_name,
+                        store_fp: storeFp,
+                        structured: storeData.structured_shopping,
+                    },
+                    description: product?.description,
+                    options: await batchPresignProductsOptionsImageLinks(
+                        product?.options
+                    ),
+                };
 
-            return tmpData;
-        });
+                return tmpData;
+            })
+        );
 
         return { response: reformattedData, store: storeFp };
     }
@@ -3985,6 +3993,22 @@ app.post('/loginOrChecksForAdmins', async (req, res) => {
     } catch (error) {
         logger.error(error);
         res.send({ response: 'error' });
+    }
+});
+
+/**
+ * PERFORMA AUTHENTICATION OPS ON A CORPORATE DELIVERY A ACCOUNT
+ * ? Responsible for performing auth operations on a delivery account on the web interface.
+ */
+app.post('/performOpsCorporateDeliveryAccount', async (req, res) => {
+    try {
+        const response = await performCorporateDeliveryAccountAuthOps(req);
+
+        res.json(response);
+    } catch (error) {
+        res.status(400).json({
+            response: 'error',
+        });
     }
 });
 

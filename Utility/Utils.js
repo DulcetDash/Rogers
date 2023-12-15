@@ -592,6 +592,45 @@ exports.batchPresignProductsLinks = async (productsData) => {
     return productsData;
 };
 
+exports.batchPresignProductsOptionsImageLinks = async (productsOptions) => {
+    if (!Array.isArray(productsOptions) || !productsOptions)
+        return productsOptions;
+
+    if (!productsOptions[0]?.image) return productsOptions;
+
+    //Create presigned product links for the ones we host (s3://)
+    productsOptions = await Promise.all(
+        productsOptions.map(async (product) => {
+            if (product.image?.[0].includes('s3://')) {
+                const s3URIImage = product.image[0];
+                const cachedPresignedImage = await Redis.get(s3URIImage);
+
+                if (!cachedPresignedImage) {
+                    const presignedURL = await generateCloudfrontSignedUrl(
+                        `${
+                            process.env.DD_PRODUCTS_IMAGES_CLOUDFRONT_LINK
+                        }/${extractS3ImagePath(s3URIImage)}`
+                    );
+
+                    product.image = [presignedURL];
+                    //Cache the presigned URL - Has to be less than presign time
+                    await Redis.set(
+                        s3URIImage,
+                        presignedURL,
+                        'EX',
+                        1 * 24 * 3600
+                    );
+                } else {
+                    product.image = [cachedPresignedImage];
+                }
+            }
+            return product;
+        })
+    );
+
+    return productsOptions;
+};
+
 exports.batchStoresImageFront = async (stores) => {
     //Create presigned product links for the ones we host (s3://)
     stores = await Promise.all(

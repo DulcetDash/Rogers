@@ -39,18 +39,9 @@ function resolveDate() {
     date = moment(date.getTime()).utcOffset(2);
 
     dateObject = date;
-    date =
-        date.year() +
-        '-' +
-        (date.month() + 1) +
-        '-' +
-        date.date() +
-        ' ' +
-        date.hour() +
-        ':' +
-        date.minute() +
-        ':' +
-        date.second();
+    date = `${date.year()}-${
+        date.month() + 1
+    }-${date.date()} ${date.hour()}:${date.minute()}:${date.second()}`;
     chaineDateUTC = new Date(date).toISOString();
 }
 resolveDate();
