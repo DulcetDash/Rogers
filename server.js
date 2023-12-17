@@ -1416,16 +1416,16 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
         req = req.body;
         //! Check for the user identifier, shopping_list and totals
         //Check basic ride or delivery conditions
-        let checkerCondition =
-            req?.ride_mode == 'delivery'
-                ? req?.user_identifier &&
-                  req?.dropOff_data &&
-                  req?.totals &&
-                  req?.pickup_location
-                : req?.user_identifier &&
-                  req?.dropOff_data &&
-                  req?.passengers_number &&
-                  req?.pickup_location;
+        const checkerCondition =
+            req?.ride_mode === 'delivery'
+                ? !!req?.user_identifier &&
+                  !!req?.dropOff_data &&
+                  !!req?.totals &&
+                  !!req?.pickup_location
+                : !!req?.user_identifier &&
+                  !!req?.dropOff_data &&
+                  !!req?.passengers_number &&
+                  !!req?.pickup_location;
 
         if (checkerCondition) {
             let securityPin = otpGenerator.generate(6, {
@@ -1453,16 +1453,20 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
             if (previousRequest.count <= 0) {
                 //No unconfirmed requests
                 //! Perform the conversions
-                req.totals = req?.totals ? JSON.parse(req.totals) : null;
+                req.totals =
+                    req?.totals && typeof req?.totals === 'string'
+                        ? JSON.parse(req.totals)
+                        : req.totals;
+
                 if (req?.totals?.delivery_fee) {
                     req.totals.delivery_fee = parseFloat(
-                        req.totals?.delivery_fee?.replace('N$', '')
+                        String(req.totals?.delivery_fee)?.replace('N$', '')
                     );
                     req.totals.service_fee = parseFloat(
-                        req.totals?.service_fee?.replace('N$', '')
+                        String(req.totals?.service_fee)?.replace('N$', '')
                     );
                     req.totals.total = parseFloat(
-                        req.totals?.total?.replace('N$', '')
+                        String(req.totals?.total)?.replace('N$', '')
                     );
                 }
                 //...
@@ -1489,8 +1493,14 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                             client_id: clientId, //the user identifier - requester
                             payment_method: req.payment_method, //mobile_money or cash or wallet
                             locations: {
-                                pickup: JSON.parse(req.pickup_location), //Has the pickup locations
-                                dropoff: JSON.parse(req.dropOff_data), //The list of recipient/riders and their locations
+                                pickup:
+                                    typeof req.pickup_location === 'string'
+                                        ? JSON.parse(req.pickup_location)
+                                        : req.pickup_location, //Has the pickup locations
+                                dropoff:
+                                    typeof req.dropOff_data === 'string'
+                                        ? JSON.parse(req.dropOff_data)
+                                        : req.dropOff_data, //The list of recipient/riders and their locations
                             },
                             totals_request: requestTotals, //Has the cart details in terms of fees
                             request_documentation: req.note,
