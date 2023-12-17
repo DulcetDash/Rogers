@@ -2,6 +2,7 @@ const _ = require('lodash');
 const Payments = require('../../models/Payments');
 const { getHumReadableWalletTrxDescription } = require('../Utils');
 const { logger } = require('../../LogService');
+const Subscriptions = require('../../models/Subscriptions');
 
 exports.getBalance = async (userId) => {
     try {
@@ -49,6 +50,31 @@ exports.getBalance = async (userId) => {
         return {
             balance: totalTopup - totalUsed,
             transactionHistory,
+        };
+    } catch (error) {
+        logger.error(error);
+        return {
+            balance: 0,
+            transactionHistory: [],
+        };
+    }
+};
+
+exports.getCorporateBalance = async (userId) => {
+    try {
+        const balance = await exports.getBalance(userId);
+        const subscriptions = await Subscriptions.query('user_id')
+            .eq(userId)
+            .filter('active')
+            .eq(true)
+            .exec();
+
+        const subscription = subscriptions[0];
+
+        return {
+            ...balance,
+            isPlan_active: subscription?.active ?? false,
+            subscribed_plan: subscription?.transaction_description ?? '',
         };
     } catch (error) {
         logger.error(error);

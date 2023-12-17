@@ -3,6 +3,10 @@ const otpGenerator = require('otp-generator');
 const bcrypt = require('bcrypt');
 const { logger } = require('../../LogService');
 const UserModel = require('../../models/UserModel');
+const { shouldSendNewSMS } = require('../Utils');
+const { getCorporateBalance } = require('../Wallet/Utils');
+
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 /**
  * @func performCorporateDeliveryAccountAuthOps
@@ -45,7 +49,11 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                     .eq(emailFormatted)
                     .exec();
 
-                if (company.count <= 0) {
+                if (company.count >= 0) {
+                    //? Create stripe user
+                    const stripeCustomer = await stripe.customers.create({
+                        email: emailFormatted,
+                    });
                     const salt = await bcrypt.genSalt(10);
                     const hashedPassword = await bcrypt.hash(password, salt);
 
@@ -55,7 +63,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                         company_name: companyNameFormatted,
                         password: hashedPassword,
                         email: emailFormatted,
-                        phone: phone,
+                        phone_number: phone,
                         name: firstName,
                         surname: lastName,
                         plans: {
@@ -70,13 +78,18 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                                 isIDConfirmed: false,
                             },
                         },
+                        stripe_customerId: stripeCustomer.id,
                     };
 
                     const newCompany = await UserModel.create(accountObj);
 
                     return {
                         response: 'successfully_created',
-                        metadata: newCompany,
+                        metadata: {
+                            company_fp: newCompany.id,
+                            phone: newCompany.phone_number,
+                            ...newCompany,
+                        },
                     };
                 } //Account already exists
 
@@ -102,12 +115,16 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                         response: 'successfully_logged_in',
                         metadata: {
                             company_name: companyData.company_name,
-                            company_fp: companyData.company_fp,
+                            company_fp: companyData.id,
                             email: companyData.email,
-                            phone: companyData.phone,
-                            user_registerer: companyData.user_registerer,
+                            phone: companyData.phone_number,
+                            user_registerer: {
+                                first_name: companyData.name,
+                                last_name: companyData.surname,
+                            },
                             plans: companyData.plans,
                             account: companyData.account,
+                            stripe_customerId: companyData?.stripe_customerId,
                         },
                     };
                 }
@@ -127,22 +144,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
 
                 if (company) {
                     //Company exists
-                    let otp = otpGenerator.generate(5, {
-                        lowerCaseAlphabets: false,
-                        upperCaseAlphabets: false,
-                        specialChars: false,
-                    });
-                    //! --------------
-                    otp = String(otp).length < 5 ? parseInt(otp, 10) * 10 : otp;
-
-                    await UserModel.update(
-                        {
-                            id: companyFp,
-                        },
-                        {
-                            otp,
-                        }
-                    );
+                    await shouldSendNewSMS(company, phone);
 
                     return { response: 'successfully_sent' };
                 }
@@ -225,12 +227,16 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                             response: 'successfully_validated',
                             metadata: {
                                 company_name: company.company_name,
-                                company_fp: company.company_fp,
+                                company_fp: company.id,
                                 email: company.email,
-                                phone: company.phone,
-                                user_registerer: company.user_registerer,
+                                phone: company.phone_number,
+                                user_registerer: {
+                                    first_name: company.name,
+                                    last_name: company.surname,
+                                },
                                 plans: company.plans,
                                 account: company.account,
+                                stripe_customerId: company.stripe_customerId,
                             },
                         };
                     } //Invalid code
@@ -251,9 +257,9 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
             if (companyFp) {
                 //! PLANS QUOTAS
                 const QUOTAS_DESTINATIONS = {
-                    STR: 5,
-                    ITMD: 10,
-                    PR: 15,
+                    Starter: 5,
+                    Intermediate: 10,
+                    Pro: 15,
                     PRSNLD: 15,
                 };
 
@@ -266,17 +272,25 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                             company_name: company.company_name,
                             company_fp: company.id,
                             email: company.email,
-                            phone: company.phone,
-                            user_registerer: company.user_registerer,
-                            plans: company.plans,
+                            phone: company.phone_number,
+                            user_registerer: {
+                                firstName: company.name,
+                                lastName: company.surname,
+                            },
+                            plans: {},
                             account: company.account,
-                            wallet: {},
+                            stripe_customerId: company.stripe_customerId,
                         },
                     };
                     // responseFinal.metadata['wallet'] = body;
+                    const wallet = await getCorporateBalance(companyFp);
+                    responseFinal.metadata.plans = {
+                        ...company.plans,
+                        ...wallet,
+                    };
                     //! Attach the destination quotas
                     responseFinal.metadata.plans.delivery_limit =
-                        QUOTAS_DESTINATIONS[company.plans.subscribed_plan];
+                        QUOTAS_DESTINATIONS[wallet?.subscribed_plan];
 
                     return responseFinal;
                 }

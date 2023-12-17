@@ -1,6 +1,6 @@
 const dynamoose = require('dynamoose');
 
-const paymentsSchema = new dynamoose.Schema(
+const subscriptionsSchema = new dynamoose.Schema(
     {
         id: {
             type: String,
@@ -17,25 +17,33 @@ const paymentsSchema = new dynamoose.Schema(
                 throughput: 'ON_DEMAND',
             },
         },
-        stripe_payment_id: String,
-        subscription_id: String,
         amount: {
             type: Number,
             required: true,
         },
         currency: String,
+        stripe_subscription_id: {
+            type: String,
+            required: true,
+            index: {
+                global: true,
+                rangeKey: 'id',
+                name: 'stripe_subscription_id-index',
+                project: true,
+                throughput: 'ON_DEMAND',
+            },
+        },
         transaction_description: {
             type: String,
-            enum: [
-                'GROCERY_PAYMENT',
-                'PACKAGE_DELIVERY_PAYMENT',
-                'WALLET_TOPUP',
-                'CORPORATE_SUBSCRIPTION',
-            ],
+            // enum: ['STARTER', 'INTERMEDIATE', 'PRO', 'PERSONALIZED'],
         },
-        success: {
+        expiration_date: {
+            type: Date,
+            required: true,
+        },
+        active: {
             type: Boolean,
-            default: true,
+            default: false,
         },
     },
     {
@@ -44,7 +52,7 @@ const paymentsSchema = new dynamoose.Schema(
     }
 );
 
-module.exports = dynamoose.model('Payments', paymentsSchema, {
+module.exports = dynamoose.model('Subscriptions', subscriptionsSchema, {
     throughput: 'ON_DEMAND',
     update: false,
     waitForActive: true,

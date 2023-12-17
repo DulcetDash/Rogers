@@ -17,6 +17,19 @@ const decodedPermaToken = (permaToken) => {
 
 const authenticate = async (req, res, next) => {
     try {
+        //For the delivery platform
+        if (req.headers.authorization) {
+            const token = req.headers.authorization.split(' ')[1];
+            const user = await UserModel.get(token);
+            if (user) {
+                req.user = {
+                    ...user,
+                    isDriver: false,
+                };
+                return next();
+            }
+        }
+
         const { browser, version, os, source } = req.useragent;
 
         const check = `${browser}-${version}-${os}-${source}`;

@@ -68,19 +68,6 @@ const userSchema = new dynamoose.Schema(
                 },
             },
         },
-        plans: {
-            type: Object,
-            schema: {
-                isSubscribed_plan: {
-                    type: Boolean,
-                    default: false,
-                },
-                isPlan_active: {
-                    type: Boolean,
-                    default: false,
-                },
-            },
-        },
         gender: {
             type: String,
             default: 'unknown',
