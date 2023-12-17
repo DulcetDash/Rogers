@@ -30,6 +30,7 @@ const {
     batchPresignProductsOptionsImageLinks,
     shouldSendNewSMS,
     getStripePriceName,
+    getRequestLitteralStatus,
 } = require('./Utility/Utils');
 const _ = require('lodash');
 
@@ -331,6 +332,7 @@ const getRequestDataClient = async (requestData) => {
                         : 'None',
                 },
                 date_requested: shoppingData.createdAt, //The time of the request
+                status: getRequestLitteralStatus(shoppingData), //The status of the request
             };
             //..Get the shopper's infos
             if (shoppingData?.shopper_id !== 'false') {
@@ -1594,7 +1596,7 @@ app.post('/getShoppingData', authenticate, async (req, res) => {
 
         if (user?.id) {
             //! Check if the user id exists
-            let request = await getRequestDataClient(body);
+            const request = await getRequestDataClient(body);
 
             if (user?.company_name) {
                 const accountData =
@@ -1602,8 +1604,11 @@ app.post('/getShoppingData', authenticate, async (req, res) => {
                         company_fp: user.id,
                         op: 'getAccountData',
                     });
-                request = !request ? {} : request;
-                request.accountData = accountData?.metadata;
+
+                return res.json({
+                    accountData: accountData?.metadata,
+                    requests: !request ? [] : request,
+                });
             }
 
             res.json(request);

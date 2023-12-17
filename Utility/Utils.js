@@ -810,3 +810,37 @@ exports.getStripePriceName = async (priceId) => {
         return 'PLAN';
     }
 };
+
+exports.getRequestLitteralStatus = (request) => {
+    if (request?.request_state_vars.isAccepted && !request?.date_cancelled) {
+        return 'accepted';
+    }
+
+    if (
+        request?.request_state_vars?.inRouteToDropoff &&
+        !request?.date_cancelled
+    ) {
+        return 'shipping';
+    }
+
+    if (request?.date_cancelled) {
+        return 'cancelled';
+    }
+
+    if (
+        request?.request_state_vars?.completedDropoff &&
+        !request?.date_cancelled
+    ) {
+        return 'completed';
+    }
+
+    if (!request?.request_state_vars?.isAccepted && !request?.date_cancelled) {
+        return 'pending';
+    }
+
+    if (request?.request_state_vars?.isAccepted && !request?.date_cancelled) {
+        return 'started';
+    }
+
+    return 'pending';
+};
