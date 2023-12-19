@@ -22,6 +22,7 @@ const {
 } = require('./PresignDocs');
 const DriversModel = require('../models/DriversModel');
 const OTPModel = require('../models/OTPModel');
+const emailService = require('./sendEmail');
 
 // Configure AWS with your access and secret key.
 AWS.config.update({
@@ -720,7 +721,12 @@ exports.getHumReadableWalletTrxDescription = (descriptor) => {
  * @param hasAccount: true (is an existing user) or false (do not have an account yet)
  * @param resolve
  */
-exports.shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
+exports.shouldSendNewSMS = async (
+    user,
+    phone_number,
+    isDriver = false,
+    sendEmail = false
+) => {
     const DAILY_THRESHOLD = parseInt(
         process.env.DAILY_SMS_THRESHOLD_PER_USER,
         10
@@ -768,7 +774,18 @@ exports.shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
 
     if (otpData.count <= DAILY_THRESHOLD) {
         //Can still send the SMS
-        await this.sendSMS(message, phone_number);
+        if (!sendEmail) {
+            await this.sendSMS(message, phone_number);
+        } else {
+            //?Send email instead of SMS
+            await emailService.sendEmail({
+                email: user?.email,
+                fromEmail: 'security@dulcetdash.com',
+                fromName: 'DulcetDash',
+                message,
+                subject: 'OTP verification code',
+            });
+        }
 
         await OTPModel.create({
             id: uuidv4(),

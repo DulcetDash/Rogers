@@ -14,3 +14,4 @@ const queueOptions = {
 
 // Email queue
 exports.sendMailQueue = new Queue('emailQueue', queueOptions);
+exports.sendMailQueueSNS = new Queue('emailQueueSNS', queueOptions);

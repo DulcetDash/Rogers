@@ -8,6 +8,17 @@ const { getCorporateBalance } = require('../Wallet/Utils');
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
+//! PLANS QUOTAS
+const QUOTAS_DESTINATIONS = {
+    // Starter: 5,
+    // Intermediate: 10,
+    // Pro: 15,
+    Starter: 5000,
+    Intermediate: 5000,
+    Pro: 5000,
+    PRSNLD: 15,
+};
+
 /**
  * @func performCorporateDeliveryAccountAuthOps
  * Responsible not only for creating but also to handle any type of authentication to the
@@ -49,7 +60,18 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                     .eq(emailFormatted)
                     .exec();
 
-                if (company.count >= 0) {
+                const checkCompanyPhone = await UserModel.query('phone_number')
+                    .eq(phone)
+                    .exec();
+                const checkCompanyName = await UserModel.query('company_name')
+                    .eq(companyNameFormatted)
+                    .exec();
+
+                if (
+                    company.count <= 0 &&
+                    checkCompanyPhone.count <= 0 &&
+                    checkCompanyName.count <= 0
+                ) {
                     //? Create stripe user
                     const stripeCustomer = await stripe.customers.create({
                         email: emailFormatted,
@@ -78,6 +100,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                                 isIDConfirmed: false,
                             },
                         },
+                        selected_industry: selectedIndustry,
                         stripe_customerId: stripeCustomer.id,
                     };
 
@@ -111,7 +134,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                 if (company.count > 0) {
                     const companyData = company[0];
 
-                    return {
+                    const responseFinal = {
                         response: 'successfully_logged_in',
                         metadata: {
                             company_name: companyData.company_name,
@@ -122,11 +145,24 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                                 first_name: companyData.name,
                                 last_name: companyData.surname,
                             },
-                            plans: companyData.plans,
+                            plans: {},
                             account: companyData.account,
                             stripe_customerId: companyData?.stripe_customerId,
                         },
                     };
+
+                    const wallet = await getCorporateBalance(companyFp);
+                    responseFinal.metadata.plans = {
+                        ...company.plans,
+                        ...wallet,
+                    };
+                    //! Attach the destination quotas
+                    responseFinal.metadata.plans.delivery_limit =
+                        wallet?.subscribed_plan
+                            ? QUOTAS_DESTINATIONS[wallet?.subscribed_plan]
+                            : 5000;
+
+                    return responseFinal;
                 }
 
                 return {
@@ -144,7 +180,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
 
                 if (company) {
                     //Company exists
-                    await shouldSendNewSMS(company, phone);
+                    await shouldSendNewSMS(company, phone, false, true);
 
                     return { response: 'successfully_sent' };
                 }
@@ -161,34 +197,50 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
         //? UPDATE PHONE NUMBER
         if (/updatePhoneNumber/i.test(op)) {
             //Change the phone number
-            if (companyFp && phone) {
+            if (companyFp && email) {
                 //Check if the company exists
                 const company = await UserModel.get(companyFp);
 
                 if (company) {
                     //Company exists
                     //? Update the comapny's phone
-                    await UserModel.update(
+                    const updatedCompany = await UserModel.update(
                         {
                             id: companyFp,
                         },
                         {
-                            phone,
+                            email,
                         }
                     );
 
-                    return {
+                    const responseFinal = {
                         response: 'successfully_updated',
                         metadata: {
-                            company_name: company.company_name,
-                            company_fp: company.company_fp,
-                            email: company.email,
-                            phone: company.phone,
-                            user_registerer: company.user_registerer,
-                            plans: company.plans,
-                            account: company.account,
+                            company_name: updatedCompany.company_name,
+                            company_fp: updatedCompany.company_fp,
+                            email: updatedCompany.email,
+                            phone: updatedCompany.phone,
+                            user_registerer: {
+                                first_name: updatedCompany.name,
+                                last_name: updatedCompany.surname,
+                            },
+                            plans: {},
+                            account: updatedCompany.account,
                         },
                     };
+
+                    const wallet = await getCorporateBalance(companyFp);
+                    responseFinal.metadata.plans = {
+                        ...company.plans,
+                        ...wallet,
+                    };
+                    //! Attach the destination quotas
+                    responseFinal.metadata.plans.delivery_limit =
+                        wallet?.subscribed_plan
+                            ? QUOTAS_DESTINATIONS[wallet?.subscribed_plan]
+                            : 5000;
+
+                    return responseFinal;
                 }
 
                 return { response: 'error' };
@@ -223,7 +275,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                             }
                         );
 
-                        return {
+                        const responseFinal = {
                             response: 'successfully_validated',
                             metadata: {
                                 company_name: company.company_name,
@@ -234,11 +286,24 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                                     first_name: company.name,
                                     last_name: company.surname,
                                 },
-                                plans: company.plans,
+                                plans: {},
                                 account: company.account,
                                 stripe_customerId: company.stripe_customerId,
                             },
                         };
+
+                        const wallet = await getCorporateBalance(companyFp);
+                        responseFinal.metadata.plans = {
+                            ...company.plans,
+                            ...wallet,
+                        };
+                        //! Attach the destination quotas
+                        responseFinal.metadata.plans.delivery_limit =
+                            wallet?.subscribed_plan
+                                ? QUOTAS_DESTINATIONS[wallet?.subscribed_plan]
+                                : 5000;
+
+                        return responseFinal;
                     } //Invalid code
 
                     return { response: 'invalid_code' };
@@ -255,17 +320,6 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
         if (/getAccountData/i.test(inputData.op)) {
             //Get the account details
             if (companyFp) {
-                //! PLANS QUOTAS
-                const QUOTAS_DESTINATIONS = {
-                    // Starter: 5,
-                    // Intermediate: 10,
-                    // Pro: 15,
-                    Starter: 5000,
-                    Intermediate: 5000,
-                    Pro: 5000,
-                    PRSNLD: 15,
-                };
-
                 const company = await UserModel.get(companyFp);
 
                 if (company) {
@@ -285,7 +339,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                             stripe_customerId: company.stripe_customerId,
                         },
                     };
-                    // responseFinal.metadata['wallet'] = body;
+
                     const wallet = await getCorporateBalance(companyFp);
                     responseFinal.metadata.plans = {
                         ...company.plans,
