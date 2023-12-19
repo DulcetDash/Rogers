@@ -1,26 +1,10 @@
-import nodemailer, { Transporter, SendMailOptions } from 'nodemailer';
-
 require('dotenv').config();
 /* eslint-disable import/no-extraneous-dependencies */
 const sgMail = require('@sendgrid/mail');
-const { sendMailQueue, sendMailQueueSNS } = require('./bullJobs');
+const { sendMailQueue } = require('./bullJobs');
 
 // Set the SendGrid API Key
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-
-const transport = nodemailer.createTransport({
-    host: process.env.AWS_EMAIL_HOST,
-    port: process.env.AWS_EMAIL_PORT,
-    auth: {
-        user: process.env.AWS_EMAIL_USERNAME,
-        pass: process.env.AWS_EMAIL_PASSWORD,
-    },
-});
-
-//AWS SES
-sendMailQueueSNS.process(async (job) => {
-    await transport.sendMail(job.data);
-});
 
 // Process the email jobs in the queue
 sendMailQueue.process(async (job) => {
@@ -99,18 +83,6 @@ sendMailQueue.on('failed', (job, error) => {
     retryEmailJobs(job, error);
 });
 
-// Event listener when a job is completed
-sendMailQueueSNS.on('global:completed', async (jobId, result) => {
-    console.log(`Job completed with ID ${jobId}`);
-    await getAndRemoveEmailJob(jobId);
-});
-
-// Event listener when a job fails
-sendMailQueueSNS.on('failed', (job, error) => {
-    console.log(`Job failed with ID ${job.id} and error: ${error}`);
-    retryEmailJobs(job, error);
-});
-
 // Function to add an email to the queue
 exports.sendEmail = ({
     email,
@@ -132,43 +104,4 @@ exports.sendEmail = ({
         dynamicTemplateData,
         attachments,
     });
-};
-
-/**
- * Sends an email using AWS SES
- * @param options - Email options including subject, message, and recipient email
- * @param fromEmail - Sender email address (default: 'security@dulcetdash.com')
- * @param useHTML - Whether to send the email as HTML (default: true)
- * @param attachments - Email attachments (default: [])
- * @param replyTo - Reply-to email address (default: '')
- */
-exports.sendMailSES = async ({
-    options,
-    fromEmail = 'security@dulcetdash.com',
-    useHTML = true,
-    attachments = [],
-    replyTo = '',
-}) => {
-    const mailOptions = {
-        from: `DulcetDash <${fromEmail.toLowerCase()}>`,
-        to: options.email,
-        subject: options.subject,
-        attachments,
-    };
-
-    if (useHTML) {
-        mailOptions.html = options.message;
-    } else {
-        mailOptions.text = options.message;
-    }
-
-    if (replyTo) {
-        mailOptions.replyTo = replyTo;
-    }
-
-    if (attachments.length > 0) {
-        await transport.sendMail(mailOptions);
-    } else {
-        sendMailQueueSNS.add(mailOptions);
-    }
 };
