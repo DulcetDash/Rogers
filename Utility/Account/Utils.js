@@ -257,9 +257,12 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
             if (companyFp) {
                 //! PLANS QUOTAS
                 const QUOTAS_DESTINATIONS = {
-                    Starter: 5,
-                    Intermediate: 10,
-                    Pro: 15,
+                    // Starter: 5,
+                    // Intermediate: 10,
+                    // Pro: 15,
+                    Starter: 5000,
+                    Intermediate: 5000,
+                    Pro: 5000,
                     PRSNLD: 15,
                 };
 
@@ -290,7 +293,9 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                     };
                     //! Attach the destination quotas
                     responseFinal.metadata.plans.delivery_limit =
-                        QUOTAS_DESTINATIONS[wallet?.subscribed_plan];
+                        wallet?.subscribed_plan
+                            ? QUOTAS_DESTINATIONS[wallet?.subscribed_plan]
+                            : 5000;
 
                     return responseFinal;
                 }

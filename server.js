@@ -292,7 +292,7 @@ const getCatalogueFor = async (body) => {
  * @param requestData: user_identifier mainly
  * @param resolve
  */
-const getRequestDataClient = async (requestData) => {
+const getRequestDataClient = async (requestData, isCompany = false) => {
     const { user_identifier } = requestData;
 
     const requests = await RequestsModel.query('client_id')
@@ -306,97 +306,93 @@ const getRequestDataClient = async (requestData) => {
         .exec();
 
     if (requests.count > 0) {
-        const shoppingData = requests[0];
-
         //!1. SHOPPING DATA or DELIVERY DATA
-        if (
-            shoppingData?.ride_mode.toUpperCase() === 'SHOPPING' ||
-            shoppingData?.ride_mode.toUpperCase() === 'DELIVERY'
-        ) {
-            //Has a pending shopping
-            const RETURN_DATA_TEMPLATE = {
-                ride_mode: shoppingData?.ride_mode.toUpperCase(),
-                request_fp: shoppingData.id,
-                client_id: requestData.user_identifier, //the user identifier - requester
-                driver_details: {}, //Will hold the details of the shopper
-                shopping_list: shoppingData.shopping_list, //The list of items to shop for
-                payment_method: shoppingData.payment_method, //mobile_money or cash
-                trip_locations: shoppingData.locations, //Has the pickup and delivery locations
-                totals_request: shoppingData.totals_request, //Has the cart details in terms of fees
-                request_type: shoppingData.request_type, //scheduled or immediate
-                state_vars: shoppingData.request_state_vars,
-                ewallet_details: {
-                    phone: '+264856997167',
-                    security: shoppingData?.security
-                        ? shoppingData.security
-                        : 'None',
-                },
-                date_requested: shoppingData.createdAt, //The time of the request
-                status: getRequestLitteralStatus(shoppingData), //The status of the request
-            };
-            //..Get the shopper's infos
-            if (shoppingData?.shopper_id !== 'false') {
-                const shopper = await DriversModel.query('id')
-                    .eq(shoppingData.shopper_id)
-                    .exec();
-                if (shopper.count > 0) {
-                    //Has a shopper
-                    const driverData = shopper[0];
-                    const driverDocs = await DriversApplicationsModel.get(
-                        driverData.id
-                    );
+        const parsedRequests = await Promise.all(
+            requests.map(async (request) => {
+                //Has a pending shopping
+                const RETURN_DATA_TEMPLATE = {
+                    ride_mode: request?.ride_mode.toUpperCase(),
+                    request_fp: request.id,
+                    client_id: requestData.user_identifier, //the user identifier - requester
+                    driver_details: {}, //Will hold the details of the shopper
+                    shopping_list: request.shopping_list, //The list of items to shop for
+                    payment_method: request.payment_method, //mobile_money or cash
+                    trip_locations: request.locations, //Has the pickup and delivery locations
+                    totals_request: request.totals_request, //Has the cart details in terms of fees
+                    request_type: request.request_type, //scheduled or immediate
+                    state_vars: request.request_state_vars,
+                    ewallet_details: {
+                        phone: '+264856997167',
+                        security: request?.security ? request.security : 'None',
+                    },
+                    date_requested: request.createdAt, //The time of the request
+                    status: getRequestLitteralStatus(request), //The status of the request
+                };
+                //..Get the shopper's infos
+                if (request?.shopper_id !== 'false') {
+                    const shopper = await DriversModel.query('id')
+                        .eq(request.shopper_id)
+                        .exec();
+                    if (shopper.count > 0) {
+                        //Has a shopper
+                        const driverData = shopper[0];
+                        const driverDocs = await DriversApplicationsModel.get(
+                            driverData.id
+                        );
 
-                    let driverProfile = await Redis.get(
-                        driverDocs.documents.driver_photo
-                    );
-
-                    if (!driverProfile) {
-                        driverProfile = await presignS3URL(
+                        let driverProfile = await Redis.get(
                             driverDocs.documents.driver_photo
                         );
-                        await Redis.set(
-                            driverDocs.documents.driver_photo,
-                            driverProfile,
-                            'EX',
-                            35 * 60
-                        );
-                    }
 
-                    RETURN_DATA_TEMPLATE.driver_details = {
-                        name: driverData.name,
-                        picture: driverProfile,
-                        rating: driverData?.rating ?? 5,
-                        phone: driverData.phone_number,
-                        vehicle: {
-                            picture: await presignS3URL(
-                                driverDocs?.documents?.vehicle_photo
-                            ),
-                            brand: driverDocs?.vehicle_details?.brand_name,
-                            plate_no: driverDocs?.vehicle_details?.plate_number,
-                            color: driverDocs?.vehicle_details?.color,
-                            taxi_number: null,
-                        },
-                    };
-                } //No shoppers yet
-                else {
+                        if (!driverProfile) {
+                            driverProfile = await presignS3URL(
+                                driverDocs.documents.driver_photo
+                            );
+                            await Redis.set(
+                                driverDocs.documents.driver_photo,
+                                driverProfile,
+                                'EX',
+                                35 * 60
+                            );
+                        }
+
+                        RETURN_DATA_TEMPLATE.driver_details = {
+                            name: driverData.name,
+                            picture: driverProfile,
+                            rating: driverData?.rating ?? 5,
+                            phone: driverData.phone_number,
+                            vehicle: {
+                                picture: await presignS3URL(
+                                    driverDocs?.documents?.vehicle_photo
+                                ),
+                                brand: driverDocs?.vehicle_details?.brand_name,
+                                plate_no:
+                                    driverDocs?.vehicle_details?.plate_number,
+                                color: driverDocs?.vehicle_details?.color,
+                                taxi_number: null,
+                            },
+                        };
+                    } //No shoppers yet
+                    else {
+                        RETURN_DATA_TEMPLATE.driver_details = {
+                            name: null,
+                            phone: null,
+                            picture: null,
+                        };
+                    }
+                } else {
                     RETURN_DATA_TEMPLATE.driver_details = {
                         name: null,
                         phone: null,
                         picture: null,
                     };
                 }
-            } else {
-                RETURN_DATA_TEMPLATE.driver_details = {
-                    name: null,
-                    phone: null,
-                    picture: null,
-                };
-            }
 
-            return [RETURN_DATA_TEMPLATE];
-        }
+                return RETURN_DATA_TEMPLATE;
+            })
+        );
 
-        return false;
+        return isCompany ? parsedRequests : parsedRequests[0];
     }
     //No pending shoppings
 
@@ -1419,6 +1415,7 @@ app.post('/requestForShopping', authenticate, async (req, res) => {
 //?6. Request for delivery or ride
 app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
     try {
+        const { user } = req;
         req = req.body;
         //! Check for the user identifier, shopping_list and totals
         //Check basic ride or delivery conditions
@@ -1456,7 +1453,7 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                 .exists()
                 .exec();
 
-            if (previousRequest.count <= 0) {
+            if (previousRequest.count <= 0 || user?.company_name) {
                 //No unconfirmed requests
                 //! Perform the conversions
                 req.totals =
@@ -1487,7 +1484,10 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                     const { balance } = await getBalance(clientId);
                     const requestRequiredTotal = requestTotals;
 
-                    if (balance < requestRequiredTotal)
+                    if (
+                        balance < requestRequiredTotal.total ||
+                        !requestRequiredTotal?.total
+                    )
                         return res.json({
                             response: 'unable_to_request_insufficient_balance',
                         });
@@ -1600,7 +1600,10 @@ app.post('/getShoppingData', authenticate, async (req, res) => {
 
         if (user?.id) {
             //! Check if the user id exists
-            const request = await getRequestDataClient(body);
+            const request = await getRequestDataClient(
+                body,
+                !!user?.company_name
+            );
 
             if (user?.company_name) {
                 const accountData =
