@@ -362,18 +362,19 @@ const getRequestDataClient = async (requestData) => {
                         );
                     }
 
-                    console.log(driverDocs);
-
                     RETURN_DATA_TEMPLATE.driver_details = {
                         name: driverData.name,
                         picture: driverProfile,
                         rating: driverData?.rating ?? 5,
                         phone: driverData.phone_number,
                         vehicle: {
-                            picture: driverData.taxi_picture,
-                            brand: driverData.car_brand,
-                            plate_no: driverData.plate_number,
-                            taxi_number: driverData.taxi_number,
+                            picture: await presignS3URL(
+                                driverDocs?.documents?.vehicle_photo
+                            ),
+                            brand: driverDocs?.vehicle_details?.brand_name,
+                            plate_no: driverDocs?.vehicle_details?.plate_number,
+                            color: driverDocs?.vehicle_details?.color,
+                            taxi_number: null,
                         },
                     };
                 } //No shoppers yet
@@ -525,6 +526,7 @@ const getRequestListDataUsers = async (user_identifier) => {
                 request_type: request.ride_mode,
                 date_requested: request.date_requested,
                 locations: request.locations,
+                totals: request.totals_request,
                 shopping_list:
                     request.ride_mode.toLowerCase() === 'shopping'
                         ? request.shopping_list
@@ -1671,7 +1673,8 @@ app.post('/submitRiderOrClientRating', authenticate, async (req, res) => {
         if (!requestId || !rating || !badges || !userId)
             return res.send({ response: 'error' });
 
-        const parsedBadges = JSON.parse(badges);
+        const parsedBadges =
+            typeof badges === 'string' ? JSON.parse(badges) : badges;
 
         const RATING_DATA = {
             rating: parseFloat(rating),
@@ -4071,123 +4074,75 @@ app.get('/prices', authenticate, async (req, res) => {
     }
 });
 
-app.post(
-    '/subscription',
-    // authenticate,
-    async (req, res) => {
-        const { customerId, priceId, paymentMethodId } = req.body;
+app.post('/subscription', authenticate, async (req, res) => {
+    const { customerId, priceId, paymentMethodId } = req.body;
 
-        let user = await UserModel.query('stripe_customerId')
-            .eq(customerId)
-            .exec();
+    let user = await UserModel.query('stripe_customerId').eq(customerId).exec();
 
-        if (user.count <= 0)
-            res.status(500).send({ error: { message: 'User not found' } });
+    if (user.count <= 0)
+        res.status(500).send({ error: { message: 'User not found' } });
 
-        user = user[0];
+    user = user[0];
 
-        try {
-            // Retrieve the existing subscriptions for the customer
-            const subscriptions = await stripe.subscriptions.list({
-                customer: customerId,
-                status: 'active',
-            });
+    try {
+        // Retrieve the existing subscriptions for the customer
+        const subscriptions = await stripe.subscriptions.list({
+            customer: customerId,
+            status: 'active',
+        });
 
-            let subscription;
+        let subscription;
 
-            if (paymentMethodId) {
-                subscription = subscriptions.data[0];
+        if (paymentMethodId) {
+            subscription = subscriptions.data[0];
 
-                if (subscription?.id) {
-                    await stripe.subscriptions.update(subscription.id, {
-                        items: [
-                            {
-                                id: subscription.items.data[0].id,
-                                price: priceId,
-                            },
-                        ],
-                        default_payment_method: paymentMethodId,
-                        payment_behavior: 'default_incomplete',
-                        proration_behavior: 'none',
-                    });
-                } else {
-                    //Create new one
-                    await stripe.subscriptions.create({
-                        customer: customerId,
-                        items: [
-                            {
-                                price: priceId,
-                            },
-                        ],
-                        expand: ['latest_invoice.payment_intent'],
-                        cancel_at_period_end: false,
-                        default_payment_method: paymentMethodId,
-                        metadata: { userId: user.id },
-                    });
-                }
-
-                return res.json({
-                    status: 'success',
-                    state: 'paidWithPaymentId',
+            if (subscription?.id) {
+                await stripe.subscriptions.update(subscription.id, {
+                    items: [
+                        {
+                            id: subscription.items.data[0].id,
+                            price: priceId,
+                        },
+                    ],
+                    default_payment_method: paymentMethodId,
+                    payment_behavior: 'default_incomplete',
+                    proration_behavior: 'none',
+                });
+            } else {
+                //Create new one
+                await stripe.subscriptions.create({
+                    customer: customerId,
+                    items: [
+                        {
+                            price: priceId,
+                        },
+                    ],
+                    expand: ['latest_invoice.payment_intent'],
+                    cancel_at_period_end: false,
+                    default_payment_method: paymentMethodId,
+                    metadata: { userId: user.id },
                 });
             }
 
-            // If an active subscription exists, update it
-            if (subscriptions.data.length > 0) {
-                subscription = subscriptions.data[0];
+            return res.json({
+                status: 'success',
+                state: 'paidWithPaymentId',
+            });
+        }
 
-                subscription = await stripe.subscriptions.retrieve(
-                    subscription.id,
-                    {
-                        expand: ['default_payment_method'],
-                    }
-                );
-                const paymentMethod = subscription.default_payment_method;
+        // If an active subscription exists, update it
+        if (subscriptions.data.length > 0) {
+            subscription = subscriptions.data[0];
 
-                if (!paymentMethod) {
-                    subscription = await stripe.subscriptions.create({
-                        customer: customerId,
-                        items: [
-                            {
-                                price: priceId,
-                            },
-                        ],
-                        payment_behavior: 'default_incomplete',
-                        expand: ['latest_invoice.payment_intent'],
-                        cancel_at_period_end: false,
-                        payment_settings: {
-                            save_default_payment_method: 'on_subscription',
-                        },
-                        metadata: { userId: user.id },
-                    });
-                } else {
-                    subscription = await stripe.subscriptions.create({
-                        customer: customerId,
-                        items: [
-                            {
-                                price: priceId,
-                            },
-                        ],
-                        payment_behavior: 'default_incomplete',
-                        expand: ['latest_invoice.payment_intent'],
-                        cancel_at_period_end: false,
-                        payment_settings: {
-                            save_default_payment_method: 'on_subscription',
-                        },
-                        metadata: { userId: user.id },
-                    });
-
-                    return res.json({
-                        status: 'success',
-                        state: 'alreadyHaveSubscriptionGivePaymentChoice',
-                        clientSecret:
-                            subscription.latest_invoice.payment_intent
-                                .client_secret,
-                    });
+            subscription = await stripe.subscriptions.retrieve(
+                subscription.id,
+                {
+                    expand: ['default_payment_method'],
                 }
-            }
-            // If no active subscription exists, create a new one
-            else {
+            );
+            const paymentMethod = subscription.default_payment_method;
+
+            if (!paymentMethod) {
                 subscription = await stripe.subscriptions.create({
                     customer: customerId,
                     items: [
@@ -4203,60 +4158,122 @@ app.post(
                     },
                     metadata: { userId: user.id },
                 });
+            } else {
+                subscription = await stripe.subscriptions.create({
+                    customer: customerId,
+                    items: [
+                        {
+                            price: priceId,
+                        },
+                    ],
+                    payment_behavior: 'default_incomplete',
+                    expand: ['latest_invoice.payment_intent'],
+                    cancel_at_period_end: false,
+                    payment_settings: {
+                        save_default_payment_method: 'on_subscription',
+                    },
+                    metadata: { userId: user.id },
+                });
+
+                return res.json({
+                    status: 'success',
+                    state: 'alreadyHaveSubscriptionGivePaymentChoice',
+                    clientSecret:
+                        subscription.latest_invoice.payment_intent
+                            .client_secret,
+                });
+            }
+        }
+        // If no active subscription exists, create a new one
+        else {
+            subscription = await stripe.subscriptions.create({
+                customer: customerId,
+                items: [
+                    {
+                        price: priceId,
+                    },
+                ],
+                payment_behavior: 'default_incomplete',
+                expand: ['latest_invoice.payment_intent'],
+                cancel_at_period_end: false,
+                payment_settings: {
+                    save_default_payment_method: 'on_subscription',
+                },
+                metadata: { userId: user.id },
+            });
+        }
+
+        // Response structure similar to the provided one
+        if (subscription.status === 'active') {
+            // Fetching the new price
+            const newPrice = await stripe.prices.retrieve(priceId);
+            const newPriceLookupKey = newPrice.lookup_key;
+            let upgradedOrDowngraded = null;
+
+            // Determine if it's an upgrade or downgrade by comparing amounts
+            const currentAmount = subscription.items.data[0].price.unit_amount;
+            const newAmount = newPrice.unit_amount;
+
+            if (newAmount > currentAmount) {
+                upgradedOrDowngraded = 'upgraded';
+            } else if (newAmount < currentAmount) {
+                upgradedOrDowngraded = 'downgraded';
+            } else {
+                upgradedOrDowngraded = 'same';
             }
 
-            // Response structure similar to the provided one
-            if (subscription.status === 'active') {
-                // Fetching the new price
-                const newPrice = await stripe.prices.retrieve(priceId);
-                const newPriceLookupKey = newPrice.lookup_key;
-                let upgradedOrDowngraded = null;
-
-                // Determine if it's an upgrade or downgrade by comparing amounts
-                const currentAmount =
-                    subscription.items.data[0].price.unit_amount;
-                const newAmount = newPrice.unit_amount;
-
-                if (newAmount > currentAmount) {
-                    upgradedOrDowngraded = 'upgraded';
-                } else if (newAmount < currentAmount) {
-                    upgradedOrDowngraded = 'downgraded';
-                } else {
-                    upgradedOrDowngraded = 'same';
-                }
-
-                // Responding to the client
+            // Responding to the client
+            res.status(200).json({
+                status: 'success',
+                subscription,
+                upgradedOrDowngraded,
+                newPriceLookupKey,
+            });
+        } else {
+            // Check if there's a pending setup intent
+            if (subscription.pending_setup_intent) {
+                const setupIntent = await stripe.setupIntents.retrieve(
+                    subscription.pending_setup_intent
+                );
                 res.status(200).json({
                     status: 'success',
-                    subscription,
-                    upgradedOrDowngraded,
-                    newPriceLookupKey,
+                    setupIntentClientSecret: setupIntent.client_secret,
                 });
             } else {
-                // Check if there's a pending setup intent
-                if (subscription.pending_setup_intent) {
-                    const setupIntent = await stripe.setupIntents.retrieve(
-                        subscription.pending_setup_intent
-                    );
-                    res.status(200).json({
-                        status: 'success',
-                        setupIntentClientSecret: setupIntent.client_secret,
-                    });
-                } else {
-                    res.status(200).json({
-                        status: 'success',
-                        subscriptionId: subscription.id,
-                        clientSecret:
-                            subscription.latest_invoice.payment_intent
-                                .client_secret,
-                    });
-                }
+                res.status(200).json({
+                    status: 'success',
+                    subscriptionId: subscription.id,
+                    clientSecret:
+                        subscription.latest_invoice.payment_intent
+                            .client_secret,
+                });
             }
-        } catch (err) {
-            console.log(err);
-            res.status(500).send({ error: { message: err.message } });
         }
+    } catch (err) {
+        console.log(err);
+        res.status(500).send({ error: { message: err.message } });
     }
-);
+});
+
+app.post('/oneoff_payment', authenticate, async (req, res) => {
+    try {
+        const { price } = req.body;
+        const { user } = req;
+
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount: price * 100, // amount in cents
+            currency: 'nad',
+            customer: user?.stripe_customerId,
+        });
+
+        res.json({
+            status: 'success',
+            clientSecret: paymentIntent.client_secret,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Internal Server Error');
+    }
+});
 
 server.listen(process.env.SERVER_MOTHER_PORT);

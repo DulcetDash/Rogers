@@ -1321,8 +1321,10 @@ const reverseGeocodeUserLocation = async (
 ) => {
     const geocodingData = await reverseGeocoderExec(latitude, longitude);
 
-    if (!geocodingData?.coordinates) {
-        geocodingData.coordinates = [latitude, longitude];
+    if (geocodingData !== false) {
+        if (!geocodingData?.coordinates) {
+            geocodingData.coordinates = [latitude, longitude];
+        }
     }
 
     return geocodingData;

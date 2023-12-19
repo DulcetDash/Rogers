@@ -812,13 +812,19 @@ exports.getStripePriceName = async (priceId) => {
 };
 
 exports.getRequestLitteralStatus = (request) => {
-    if (request?.request_state_vars.isAccepted && !request?.date_cancelled) {
+    if (
+        request?.request_state_vars.isAccepted &&
+        !request?.request_state_vars?.inRouteToDropoff &&
+        !request?.date_cancelled &&
+        !request?.request_state_vars?.completedDropoff
+    ) {
         return 'started';
     }
 
     if (
         request?.request_state_vars?.inRouteToDropoff &&
-        !request?.date_cancelled
+        !request?.date_cancelled &&
+        !request?.request_state_vars?.completedDropoff
     ) {
         return 'shipping';
     }
@@ -829,7 +835,8 @@ exports.getRequestLitteralStatus = (request) => {
 
     if (
         request?.request_state_vars?.completedDropoff &&
-        !request?.date_cancelled
+        !request?.date_cancelled &&
+        request?.request_state_vars?.completedDropoff
     ) {
         return 'completed';
     }
