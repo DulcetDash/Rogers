@@ -1319,16 +1319,11 @@ const reverseGeocodeUserLocation = async (
     longitude,
     user_fingerprint
 ) => {
-    //Form the redis key
-    let redisKey = user_fingerprint + '-reverseGeocodeKey';
-
-    const cachedData = await Redis.get(redisKey);
-
-    if (cachedData) {
-        return JSON.parse(cachedData);
-    }
-
     const geocodingData = await reverseGeocoderExec(latitude, longitude);
+
+    if (!geocodingData?.coordinates) {
+        geocodingData.coordinates = [latitude, longitude];
+    }
 
     return geocodingData;
 };

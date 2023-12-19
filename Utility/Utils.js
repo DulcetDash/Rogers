@@ -813,7 +813,7 @@ exports.getStripePriceName = async (priceId) => {
 
 exports.getRequestLitteralStatus = (request) => {
     if (request?.request_state_vars.isAccepted && !request?.date_cancelled) {
-        return 'accepted';
+        return 'started';
     }
 
     if (
@@ -836,10 +836,6 @@ exports.getRequestLitteralStatus = (request) => {
 
     if (!request?.request_state_vars?.isAccepted && !request?.date_cancelled) {
         return 'pending';
-    }
-
-    if (request?.request_state_vars?.isAccepted && !request?.date_cancelled) {
-        return 'started';
     }
 
     return 'pending';

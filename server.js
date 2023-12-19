@@ -362,6 +362,8 @@ const getRequestDataClient = async (requestData) => {
                         );
                     }
 
+                    console.log(driverDocs);
+
                     RETURN_DATA_TEMPLATE.driver_details = {
                         name: driverData.name,
                         picture: driverProfile,
@@ -2354,8 +2356,9 @@ app.post('/geocode_this_point', authenticate, async (req, res) => {
                 userId
             );
 
-            res.json(location);
+            return res.json(location);
         }
+        res.json(false);
     } catch (error) {
         console.error(error);
         res.json(false);
