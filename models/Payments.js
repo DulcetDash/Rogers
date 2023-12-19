@@ -31,6 +31,7 @@ const paymentsSchema = new dynamoose.Schema(
                 'PACKAGE_DELIVERY_PAYMENT',
                 'WALLET_TOPUP',
                 'CORPORATE_SUBSCRIPTION',
+                'SIGNUP_CREDITS',
             ],
         },
         success: {

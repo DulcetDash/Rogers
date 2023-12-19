@@ -84,7 +84,7 @@ sendMailQueue.on('failed', (job, error) => {
 });
 
 // Function to add an email to the queue
-exports.sendEmail = ({
+exports.sendEmail = async ({
     email,
     fromEmail,
     fromName,

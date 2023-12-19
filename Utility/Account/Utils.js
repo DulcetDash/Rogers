@@ -4,7 +4,11 @@ const bcrypt = require('bcrypt');
 const { logger } = require('../../LogService');
 const UserModel = require('../../models/UserModel');
 const { shouldSendNewSMS } = require('../Utils');
-const { getCorporateBalance } = require('../Wallet/Utils');
+const {
+    getCorporateBalance,
+    giveFreeSignupCredits,
+} = require('../Wallet/Utils');
+const { sendEmail } = require('../sendEmail');
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
@@ -105,6 +109,20 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                     };
 
                     const newCompany = await UserModel.create(accountObj);
+
+                    //? Give free signup credits
+                    await giveFreeSignupCredits(companyId);
+
+                    await sendEmail({
+                        email: emailFormatted,
+                        fromName: 'DulcetDash',
+                        fromEmail: 'no-reply@dulcetdash.com',
+                        subject: 'N$100 in Credits for 2 Free Deliveries!',
+                        templateId: 'd-b31e9d567bf44028a84f0e172bfd9b11',
+                        dynamicTemplateData: {
+                            customer_name: companyNameFormatted,
+                        },
+                    });
 
                     return {
                         response: 'successfully_created',
