@@ -863,7 +863,7 @@ const corsOptions = {
     //     'https://83g3kkzu8r.us-east-1.awsapprunner.com/',
     // ],
     origin: '*',
-    credentials: true,
+    credentials: false,
 };
 
 app.use(cors(corsOptions));
