@@ -851,6 +851,15 @@ function sendTargetedPushNotifications({ request_type, fare, resolve }) {
 logger.info('[*] Elasticsearch connected');
 logger.info('[+] DulcetDash service active');
 
+const corsOptions = {
+    origin: [
+        'http://localhost:3000',
+        /\.dulcetdash\.com/,
+        'https://83g3kkzu8r.us-east-1.awsapprunner.com/',
+    ],
+    credentials: true,
+};
+
 app.use(useragent.express());
 app.use(morgan('dev'));
 
@@ -1035,7 +1044,7 @@ app.use(
             extended: true,
         })
     )
-    .use(cors())
+    .use(cors(corsOptions))
     .use(helmet());
 
 app.post('/topup', authenticate, async (req, res) => {
