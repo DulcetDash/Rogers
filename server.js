@@ -851,19 +851,41 @@ function sendTargetedPushNotifications({ request_type, fare, resolve }) {
 logger.info('[*] Elasticsearch connected');
 logger.info('[+] DulcetDash service active');
 
+// const corsOptions = {
+//     // origin: [
+//     //     'http://localhost:3000',
+//     //     /\.dulcetdash\.com/,
+//     //     'https://business.dulcetdash.com/',
+//     //     'business.dulcetdash.com/',
+//     //     'business.dulcetdash.com/*',
+//     //     'www.business.dulcetdash.com/',
+//     //     'www.business.dulcetdash.com',
+//     //     'https://83g3kkzu8r.us-east-1.awsapprunner.com/',
+//     // ],
+//     origin: '*',
+//     credentials: false,
+// };
+
+const whitelist = [
+    'http://localhost:3000',
+    // /\.dulcetdash\.com/,
+    'https://business.dulcetdash.com/',
+    'business.dulcetdash.com/',
+    'business.dulcetdash.com/*',
+    'www.business.dulcetdash.com/',
+    'www.business.dulcetdash.com',
+    'https://83g3kkzu8r.us-east-1.awsapprunner.com/',
+];
+
 const corsOptions = {
-    // origin: [
-    //     'http://localhost:3000',
-    //     /\.dulcetdash\.com/,
-    //     'https://business.dulcetdash.com/',
-    //     'business.dulcetdash.com/',
-    //     'business.dulcetdash.com/*',
-    //     'www.business.dulcetdash.com/',
-    //     'www.business.dulcetdash.com',
-    //     'https://83g3kkzu8r.us-east-1.awsapprunner.com/',
-    // ],
-    origin: '*',
-    credentials: false,
+    origin: function (origin, callback) {
+        if (!origin || whitelist.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
 };
 
 app.use(cors(corsOptions));
