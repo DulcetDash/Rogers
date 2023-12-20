@@ -226,12 +226,10 @@ const initializeFreshGetOfLocations = async (
 
         //TODO: could allocate the country dynamically for scale.
         let urlRequest = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${query}&key=${process.env.GOOGLE_API_KEY}&components=country:na&language=en&radius=${conventionalSearchRadius}&limit=1000`;
-        logger.error(urlRequest);
 
         const searches = await axios.get(urlRequest);
 
         const body = searches?.data;
-        logger.error(body);
 
         if (body?.predictions && body?.predictions?.length > 0) {
             let searchResults = (
@@ -615,18 +613,20 @@ const getLocationList_five = async (
     const cachedData = await Redis.get(keyREDIS);
 
     if (cachedData && JSON.parse(cachedData)?.result) {
-        const cachedProcessed = JSON.parse(cachedData);
-        //Exceptions check
-        cachedProcessed.result = cachedProcessed.result.map((location) => {
-            location.suburb = applySuburbsExceptions(
-                location.location_name,
-                location.suburb
-            );
-            return location;
-        });
-        //!Update search record time
-        cachedProcessed.search_timestamp = timestamp;
-        return cachedProcessed;
+        if (JSON.parse(cachedData)?.result.length > 0) {
+            const cachedProcessed = JSON.parse(cachedData);
+            //Exceptions check
+            cachedProcessed.result = cachedProcessed.result.map((location) => {
+                location.suburb = applySuburbsExceptions(
+                    location.location_name,
+                    location.suburb
+                );
+                return location;
+            });
+            //!Update search record time
+            cachedProcessed.search_timestamp = timestamp;
+            return cachedProcessed;
+        }
     }
 
     //? 1. Check if it was written in dynamo
@@ -637,6 +637,8 @@ const getLocationList_five = async (
         .filter('state')
         .eq(trailingData.state.replace(/ Region/i, '').trim())
         .exec();
+
+    console.log(previousSearch);
 
     if (previousSearch.count > 0) {
         const finalSearchResults = {
