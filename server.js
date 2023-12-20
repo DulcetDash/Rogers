@@ -865,6 +865,8 @@ const corsOptions = {
     credentials: true,
 };
 
+app.use(cors(corsOptions));
+
 app.use(useragent.express());
 app.use(morgan('dev'));
 
@@ -1049,7 +1051,6 @@ app.use(
             extended: true,
         })
     )
-    .use(cors(corsOptions))
     .use(helmet());
 
 app.post('/topup', authenticate, async (req, res) => {
