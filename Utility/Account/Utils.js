@@ -169,7 +169,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                         },
                     };
 
-                    const wallet = await getCorporateBalance(companyFp);
+                    const wallet = await getCorporateBalance(company.id);
                     responseFinal.metadata.plans = {
                         ...company.plans,
                         ...wallet,
@@ -235,7 +235,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                         response: 'successfully_updated',
                         metadata: {
                             company_name: updatedCompany.company_name,
-                            company_fp: updatedCompany.company_fp,
+                            company_fp: updatedCompany.id,
                             email: updatedCompany.email,
                             phone: updatedCompany.phone,
                             user_registerer: {
@@ -247,7 +247,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                         },
                     };
 
-                    const wallet = await getCorporateBalance(companyFp);
+                    const wallet = await getCorporateBalance(updatedCompany.id);
                     responseFinal.metadata.plans = {
                         ...company.plans,
                         ...wallet,
@@ -310,7 +310,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                             },
                         };
 
-                        const wallet = await getCorporateBalance(companyFp);
+                        const wallet = await getCorporateBalance(company.id);
                         responseFinal.metadata.plans = {
                             ...company.plans,
                             ...wallet,
@@ -358,7 +358,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                         },
                     };
 
-                    const wallet = await getCorporateBalance(companyFp);
+                    const wallet = await getCorporateBalance(company.id);
                     responseFinal.metadata.plans = {
                         ...company.plans,
                         ...wallet,

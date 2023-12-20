@@ -81,7 +81,6 @@ const {
     goOnline_offlineDrivers,
 } = require('./serverAccounts');
 const AdminsModel = require('./models/AdminsModel');
-const sendEmail = require('./Utility/sendEmail');
 const DriversApplicationsModel = require('./models/DriversApplicationsModel');
 const authenticate = require('./middlewares/authenticate');
 const lightcheck = require('./middlewares/lightcheck');
@@ -92,6 +91,7 @@ const {
     performCorporateDeliveryAccountAuthOps,
 } = require('./Utility/Account/Utils');
 const Subscriptions = require('./models/Subscriptions');
+const { sendEmail } = require('./Utility/sendEmail');
 
 /**
  * Responsible for sending push notification to devices
@@ -1579,7 +1579,7 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                     message
                 );
 
-                res.json({ response: 'successful' });
+                return res.json({ response: 'successful' });
             } //Has a pending request
             else {
                 res.json({ response: 'has_a_pending_shopping' });
