@@ -855,6 +855,11 @@ const corsOptions = {
     origin: [
         'http://localhost:3000',
         /\.dulcetdash\.com/,
+        'https://business.dulcetdash.com/',
+        'business.dulcetdash.com/',
+        'business.dulcetdash.com/*',
+        'www.business.dulcetdash.com/',
+        'www.business.dulcetdash.com',
         'https://83g3kkzu8r.us-east-1.awsapprunner.com/',
     ],
     credentials: true,
