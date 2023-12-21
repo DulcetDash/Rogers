@@ -881,19 +881,16 @@ const whitelist = [
 app.use(cookieParser());
 
 const corsOptions = {
-    // origin: function (origin, callback) {
-    //     if (!origin || whitelist.indexOf(origin) !== -1) {
-    //         callback(null, true);
-    //     } else {
-    //         callback(new Error('Not allowed by CORS'));
-    //     }
-    // },
-    // credentials: true,
-    origin: whitelist,
+    origin: function (origin, callback) {
+        if (whitelist.indexOf(origin) !== -1 || !origin) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true,
-    // optionSuccessStatus: 200,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTION',
-    optionsSuccessStatus: 204, // Respond to preflight requests with 204 No Content
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    optionsSuccessStatus: 204,
     allowedHeaders: 'Content-Type,Authorization',
 };
 
