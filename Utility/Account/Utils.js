@@ -175,9 +175,9 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                         },
                     };
 
-                    const wallet = await getCorporateBalance(company.id);
+                    const wallet = await getCorporateBalance(companyData.id);
                     responseFinal.metadata.plans = {
-                        ...company.plans,
+                        ...companyData.plans,
                         ...wallet,
                     };
                     //! Attach the destination quotas
@@ -255,7 +255,7 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
 
                     const wallet = await getCorporateBalance(updatedCompany.id);
                     responseFinal.metadata.plans = {
-                        ...company.plans,
+                        ...updatedCompany.plans,
                         ...wallet,
                     };
                     //! Attach the destination quotas

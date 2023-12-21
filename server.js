@@ -122,7 +122,10 @@ const corsOptions = {
 // app.use(cors(corsOptions));
 app.use(
     cors({
-        origin: process.env.EVIRONMENT === 'dev' ? '*' : /\.dulcetdash\.com/,
+        origin:
+            process.env.EVIRONMENT === 'dev'
+                ? 'http://localhost:3000'
+                : /\.dulcetdash\.com/,
         credentials: true,
     })
 );
