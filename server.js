@@ -120,7 +120,12 @@ const corsOptions = {
 };
 
 // app.use(cors(corsOptions));
-app.use(cors({ origin: /\.dulcetdash\.com/, credentials: true }));
+app.use(
+    cors({
+        origin: process.env.EVIRONMENT === 'dev' ? '*' : /\.dulcetdash\.com/,
+        credentials: true,
+    })
+);
 
 /**
  * Responsible for sending push notification to devices
@@ -1127,9 +1132,11 @@ app.get('/wallet/balance', authenticate, async (req, res) => {
 //Get the main ones (4) and the new ones (X)
 app.post('/getStores', authenticate, async (req, res) => {
     try {
-        const stores = await getStores();
+        //! Disabled shopping for now
+        // const stores = await getStores();
 
-        res.json(stores);
+        res.send({ response: [] });
+        // res.json(stores);
     } catch (error) {
         logger.error(error);
         res.send({ response: [] });
