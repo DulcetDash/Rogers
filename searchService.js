@@ -2108,6 +2108,18 @@ exports.getUserLocationInfos = async (latitude, longitude, userId) => {
                     : 'Unknown city'
             );
             result['isCity_supported'] = true;
+
+            //Add suburb from district if none
+            if (!result?.suburb && result?.district) {
+                result['suburb'] = result?.district;
+            }
+
+            //Add location name from street name if none
+            if (!result?.location_name && result?.street) {
+                result['location_name'] = result?.street;
+                result['street_name'] = result?.street;
+            }
+
             //! Replace Samora Machel Constituency by Wanaheda
             if (
                 result.suburb !== undefined &&
@@ -2138,7 +2150,7 @@ exports.getSearchedLocations = async (query) => {
         //..
         logger.info(query);
         //Update search timestamp
-        let search_timestamp = new Date().getTime();
+        const search_timestamp = new Date().getTime();
         state =
             state !== undefined
                 ? state.replace(/ Region/i, '').trim()
@@ -2151,6 +2163,16 @@ exports.getSearchedLocations = async (query) => {
             search_timestamp,
             query
         );
+
+        //Add suburb as district if not found
+        if (result?.result) {
+            result.result = result.result.map((location) => {
+                if (!location?.suburb && location?.district) {
+                    location['suburb'] = location.district;
+                }
+                return location;
+            });
+        }
 
         return result;
     } catch (error) {
