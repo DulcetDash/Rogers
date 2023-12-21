@@ -11,6 +11,7 @@ const https = require('https');
 const Redis = require('./Utility/redisConnector');
 const bcrypt = require('bcrypt');
 const bodyParser = require('body-parser');
+const cookieParser = require('cookie-parser');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const useragent = require('express-useragent');
 
@@ -877,6 +878,8 @@ const whitelist = [
     'https://83g3kkzu8r.us-east-1.awsapprunner.com/',
 ];
 
+app.use(cookieParser());
+
 const corsOptions = {
     // origin: function (origin, callback) {
     //     if (!origin || whitelist.indexOf(origin) !== -1) {
@@ -886,9 +889,9 @@ const corsOptions = {
     //     }
     // },
     // credentials: true,
-    origin: '*',
-    credentials: true, //access-control-allow-credentials:true
-    optionSuccessStatus: 200,
+    origin: whitelist,
+    credentials: true,
+    // optionSuccessStatus: 200,
 };
 
 app.use(cors(corsOptions));
