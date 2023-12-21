@@ -119,8 +119,8 @@ const corsOptions = {
     allowedHeaders: 'Content-Type,Authorization',
 };
 
-app.use(cors(corsOptions));
-// app.use(cors({ origin: '*', credentials: true }));
+// app.use(cors(corsOptions));
+app.use(cors({ origin: '*', credentials: true }));
 
 /**
  * Responsible for sending push notification to devices
