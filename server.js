@@ -120,7 +120,7 @@ const corsOptions = {
 };
 
 // app.use(cors(corsOptions));
-app.use(cors({ origin: '*', credentials: true }));
+app.use(cors({ origin: /\.dulcetdash\.com/, credentials: true }));
 
 /**
  * Responsible for sending push notification to devices
