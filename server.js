@@ -892,6 +892,9 @@ const corsOptions = {
     origin: whitelist,
     credentials: true,
     // optionSuccessStatus: 200,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    optionsSuccessStatus: 204, // Respond to preflight requests with 204 No Content
+    allowedHeaders: 'Content-Type,Authorization',
 };
 
 app.use(cors(corsOptions));
