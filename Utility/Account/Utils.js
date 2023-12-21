@@ -152,6 +152,12 @@ exports.performCorporateDeliveryAccountAuthOps = async (inputData) => {
                 if (company.count > 0) {
                     const companyData = company[0];
 
+                    if (!companyData?.company_name) {
+                        return {
+                            response: 'error_logging_in_notFoundAccount',
+                        };
+                    }
+
                     const responseFinal = {
                         response: 'successfully_logged_in',
                         metadata: {
