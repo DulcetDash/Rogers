@@ -94,6 +94,34 @@ const {
 const Subscriptions = require('./models/Subscriptions');
 const { sendEmail } = require('./Utility/sendEmail');
 
+const whitelist = [
+    'http://localhost:3000',
+    // /\.dulcetdash\.com/,
+    'https://business.dulcetdash.com/',
+    'business.dulcetdash.com/',
+    'business.dulcetdash.com/*',
+    'www.business.dulcetdash.com/',
+    'www.business.dulcetdash.com',
+    'https://83g3kkzu8r.us-east-1.awsapprunner.com/',
+];
+
+const corsOptions = {
+    origin: function (origin, callback) {
+        if (whitelist.indexOf(origin) !== -1 || !origin) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    optionsSuccessStatus: 204,
+    allowedHeaders: 'Content-Type,Authorization',
+};
+
+// app.use(cors(corsOptions));
+app.use(cors({ origin: '*', credentials: true }));
+
 /**
  * Responsible for sending push notification to devices
  */
@@ -852,49 +880,7 @@ function sendTargetedPushNotifications({ request_type, fare, resolve }) {
 logger.info('[*] Elasticsearch connected');
 logger.info('[+] DulcetDash service active');
 
-// const corsOptions = {
-//     // origin: [
-//     //     'http://localhost:3000',
-//     //     /\.dulcetdash\.com/,
-//     //     'https://business.dulcetdash.com/',
-//     //     'business.dulcetdash.com/',
-//     //     'business.dulcetdash.com/*',
-//     //     'www.business.dulcetdash.com/',
-//     //     'www.business.dulcetdash.com',
-//     //     'https://83g3kkzu8r.us-east-1.awsapprunner.com/',
-//     // ],
-//     origin: '*',
-//     credentials: false,
-// };
-
-const whitelist = [
-    'http://localhost:3000',
-    // /\.dulcetdash\.com/,
-    'https://business.dulcetdash.com/',
-    'business.dulcetdash.com/',
-    'business.dulcetdash.com/*',
-    'www.business.dulcetdash.com/',
-    'www.business.dulcetdash.com',
-    'https://83g3kkzu8r.us-east-1.awsapprunner.com/',
-];
-
 app.use(cookieParser());
-
-const corsOptions = {
-    origin: function (origin, callback) {
-        if (whitelist.indexOf(origin) !== -1 || !origin) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    credentials: true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    optionsSuccessStatus: 204,
-    allowedHeaders: 'Content-Type,Authorization',
-};
-
-app.use(cors(corsOptions));
 
 app.use(useragent.express());
 app.use(morgan('dev'));
