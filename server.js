@@ -1136,10 +1136,9 @@ app.get('/wallet/balance', authenticate, async (req, res) => {
 app.post('/getStores', authenticate, async (req, res) => {
     try {
         //! Disabled shopping for now
-        // const stores = await getStores();
+        const stores = await getStores();
 
-        res.send({ response: [] });
-        // res.json(stores);
+        res.json(stores);
     } catch (error) {
         logger.error(error);
         res.send({ response: [] });
@@ -1671,7 +1670,7 @@ app.post('/getShoppingData', authenticate, async (req, res) => {
 
 //?6. Get the route snapshot for the ride
 //? EFFIENCY A
-app.post('/getRouteToDestinationSnapshot', authenticate, function (req, res) {
+app.post('/getRouteToDestinationSnapshot', authenticate, (req, res) => {
     let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
 
     requestAPI.post(
@@ -1687,7 +1686,7 @@ app.post('/getRouteToDestinationSnapshot', authenticate, function (req, res) {
 });
 
 //?7. Get the fares
-app.post('/computeFares', authenticate, function (req, res) {
+app.post('/computeFares', authenticate, (req, res) => {
     let urlRequest = `http://localhost:${process.env.PRICING_SERVICE_PORT}/computeFares`;
 
     requestAPI.post(
@@ -2309,7 +2308,7 @@ app.post('/registerCourier_ppline', lightcheck, async (req, res) => {
  * For the rides driver registration
  */
 
-app.post('/registerDriver_ppline', lightcheck, function (req, res) {
+app.post('/registerDriver_ppline', lightcheck, (req, res) => {
     logger.info(String(req.body).length);
     let url =
         `${
@@ -2337,7 +2336,7 @@ app.post('/registerDriver_ppline', lightcheck, function (req, res) {
     });
 });
 
-app.post('/update_requestsGraph', authenticate, function (req, res) {
+app.post('/update_requestsGraph', authenticate, (req, res) => {
     logger.info(req);
     req = req.body;
 
@@ -2401,6 +2400,12 @@ app.post('/geocode_this_point', authenticate, async (req, res) => {
                 longitude,
                 userId
             );
+
+            //? Add/Remove additional services
+            // More services: wallet
+            if (!location?.supported_services) {
+                location.supported_services = [];
+            }
 
             return res.json(location);
         }

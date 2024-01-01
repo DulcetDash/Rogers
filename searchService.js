@@ -2097,17 +2097,21 @@ exports.getUserLocationInfos = async (latitude, longitude, userId) => {
         );
 
         if (result) {
-            //! SUPPORTED CITIES
-            let SUPPORTED_CITIES = ['WINDHOEK', 'SWAKOPMUND', 'WALVIS BAY'];
+            //! SUPPORTED CITIES & SERVICES
+            const SUPPORTED_CITIES = {
+                windhoek: [
+                    'delivery',
+                    // 'shopping'
+                ],
+            };
             //? Attach the supported city state
-            result['isCity_supported'] = SUPPORTED_CITIES.includes(
-                result.city !== undefined && result.city !== null
-                    ? result.city.trim().toUpperCase()
-                    : result.name !== undefined && result.name !== null
-                    ? result.name.trim().toUpperCase()
-                    : 'Unknown city'
-            );
-            result['isCity_supported'] = true;
+
+            result['isCity_supported'] =
+                !!SUPPORTED_CITIES[result.city.trim().toLowerCase()];
+
+            result['supported_services'] = result?.isCity_supported
+                ? SUPPORTED_CITIES[result.city.trim().toLowerCase()]
+                : [];
 
             //Add suburb from district if none
             if (!result?.suburb && result?.district) {
@@ -2128,13 +2132,12 @@ exports.getUserLocationInfos = async (latitude, longitude, userId) => {
             ) {
                 result.suburb = 'Wanaheda';
                 return result;
-            } else {
-                return result;
             }
+
+            return result;
         } //False returned
-        else {
-            return false;
-        }
+
+        return false;
     } catch (error) {
         console.error(error);
         return false;
