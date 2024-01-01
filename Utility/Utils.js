@@ -13,11 +13,15 @@ const UserModel = require('../models/UserModel');
 const { getItinaryInformation } = require('./Maps/Utils');
 const { logger } = require('../LogService');
 const Redis = require('./redisConnector');
+const otpGenerator = require('otp-generator');
+const { v4: uuidv4 } = require('uuid');
 const {
     presignS3URL,
     extractS3ImagePath,
     generateCloudfrontSignedUrl,
 } = require('./PresignDocs');
+const DriversModel = require('../models/DriversModel');
+const OTPModel = require('../models/OTPModel');
 
 // Configure AWS with your access and secret key.
 AWS.config.update({
@@ -28,6 +32,8 @@ AWS.config.update({
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
+
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 // Extract hours and minutes
 function extractTime(timeStr) {
@@ -592,6 +598,45 @@ exports.batchPresignProductsLinks = async (productsData) => {
     return productsData;
 };
 
+exports.batchPresignProductsOptionsImageLinks = async (productsOptions) => {
+    if (!Array.isArray(productsOptions) || !productsOptions)
+        return productsOptions;
+
+    if (!productsOptions[0]?.image) return productsOptions;
+
+    //Create presigned product links for the ones we host (s3://)
+    productsOptions = await Promise.all(
+        productsOptions.map(async (product) => {
+            if (product.image?.[0].includes('s3://')) {
+                const s3URIImage = product.image[0];
+                const cachedPresignedImage = await Redis.get(s3URIImage);
+
+                if (!cachedPresignedImage) {
+                    const presignedURL = await generateCloudfrontSignedUrl(
+                        `${
+                            process.env.DD_PRODUCTS_IMAGES_CLOUDFRONT_LINK
+                        }/${extractS3ImagePath(s3URIImage)}`
+                    );
+
+                    product.image = [presignedURL];
+                    //Cache the presigned URL - Has to be less than presign time
+                    await Redis.set(
+                        s3URIImage,
+                        presignedURL,
+                        'EX',
+                        1 * 24 * 3600
+                    );
+                } else {
+                    product.image = [cachedPresignedImage];
+                }
+            }
+            return product;
+        })
+    );
+
+    return productsOptions;
+};
+
 exports.batchStoresImageFront = async (stores) => {
     //Create presigned product links for the ones we host (s3://)
     stores = await Promise.all(
@@ -664,5 +709,104 @@ exports.getHumReadableWalletTrxDescription = (descriptor) => {
 
         default:
             return 'Transaction';
+    }
+};
+
+/**
+ * @func shouldSendNewSMS
+ * Responsible for figuring out if the system is allowed to send new SMS to a specific number
+ * based on the daily limit that the number has ~ 10SMS per day.
+ * @param req: the request data containing the user's phone number : ATTACH THE _id if HAS AN ACCOUNT
+ * @param hasAccount: true (is an existing user) or false (do not have an account yet)
+ * @param resolve
+ */
+exports.shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
+    const DAILY_THRESHOLD = parseInt(
+        process.env.DAILY_SMS_THRESHOLD_PER_USER,
+        10
+    );
+
+    const onlyDigitsPhone = phone_number.replace('+', '').trim();
+    let otp = otpGenerator.generate(5, {
+        lowerCaseAlphabets: false,
+        upperCaseAlphabets: false,
+        specialChars: false,
+    });
+    //! --------------
+    //let otp = 55576;
+    otp = /(264856997167|264815600469)/i.test(onlyDigitsPhone)
+        ? 55576
+        : String(otp).length < 5
+        ? parseInt(otp, 10) * 10
+        : otp;
+    const message = `Your DulcetDash code is ${otp}. Never share this code.`;
+
+    if (!user) {
+        logger.warn(message);
+
+        // await this.sendSMS(message, phone_number);
+
+        //New user
+        await OTPModel.create({
+            id: uuidv4(),
+            phone_number: phone_number,
+            otp: parseInt(otp, 10),
+        });
+
+        return true;
+    } //Existing user
+
+    logger.error(message);
+    const startOfDay = moment().startOf('day').valueOf(); // Start of today
+    const endOfDay = moment().endOf('day').valueOf(); // End of today
+
+    const otpData = await OTPModel.query('phone_number')
+        .eq(user.phone_number)
+        .filter('createdAt')
+        .between(startOfDay, endOfDay)
+        .exec();
+
+    if (otpData.count <= DAILY_THRESHOLD) {
+        //Can still send the SMS
+        await this.sendSMS(message, phone_number);
+
+        await OTPModel.create({
+            id: uuidv4(),
+            phone_number: user.phone_number,
+            otp: parseInt(otp, 10),
+        });
+
+        if (!isDriver) {
+            await UserModel.update(
+                { id: user.id },
+                {
+                    otp: parseInt(otp, 10),
+                }
+            );
+        } //Driver
+        else {
+            await DriversModel.update(
+                { id: user.id },
+                {
+                    otp: parseInt(otp, 10),
+                }
+            );
+        }
+
+        return true;
+    }
+
+    //!Exceeded the daily SMS request
+    console.log('SMS LIMIT EXCEEDED for ', phone_number);
+    return false;
+};
+
+exports.getStripePriceName = async (priceId) => {
+    try {
+        const price = await stripe.prices.retrieve(priceId);
+        return price.product ? price.product.name : 'PLAN';
+    } catch (error) {
+        console.error('Error retrieving Stripe price:', error.message);
+        return 'PLAN';
     }
 };

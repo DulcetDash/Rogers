@@ -1,4 +1,5 @@
 const dynamoose = require('dynamoose');
+const { Schema } = require('dynamoose/dist/Schema');
 
 const userSchema = new dynamoose.Schema(
     {
@@ -28,14 +29,51 @@ const userSchema = new dynamoose.Schema(
             type: String,
             default: 'half',
         }, //half (default), full, none
-        email: String,
+        email: {
+            type: String,
+            required: true,
+            index: {
+                global: true,
+                rangeKey: 'id',
+                name: 'email-index',
+                project: true,
+                throughput: 'ON_DEMAND',
+            },
+        },
+        selected_industry: String,
+        company_name: String,
+        account: {
+            type: Object,
+            schema: {
+                registration_state: {
+                    type: String,
+                    default: 'notFull',
+                }, //'notFull'
+                confirmations: {
+                    type: Object,
+                    schema: {
+                        isPhoneConfirmed: {
+                            type: Boolean,
+                            default: false,
+                        },
+                        isEmailConfirmed: {
+                            type: Boolean,
+                            default: false,
+                        },
+                        isIDConfirmed: {
+                            type: Boolean,
+                            default: false,
+                        },
+                    },
+                },
+            },
+        },
         gender: {
             type: String,
             default: 'unknown',
         }, //unknown, male, female
         name: String,
         surname: String,
-        password: String,
         is_policies_accepted: {
             type: Boolean,
             default: false,
@@ -74,6 +112,7 @@ const userSchema = new dynamoose.Schema(
             },
         },
         oneSignalUserId: String,
+        password: String,
         stripe_customerId: {
             type: String,
             default: null,

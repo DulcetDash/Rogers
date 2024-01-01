@@ -1,3 +1,4 @@
+/* eslint-disable no-lonely-if */
 require('newrelic');
 require('dotenv').config();
 
@@ -26,6 +27,9 @@ const {
     batchStoresImageFront,
     addTwoHours,
     timeAgo,
+    batchPresignProductsOptionsImageLinks,
+    shouldSendNewSMS,
+    getStripePriceName,
 } = require('./Utility/Utils');
 const _ = require('lodash');
 
@@ -83,6 +87,10 @@ const lightcheck = require('./middlewares/lightcheck');
 const { generateNewSecurityToken } = require('./Utility/authenticate/Utils');
 const Payments = require('./models/Payments');
 const { getBalance } = require('./Utility/Wallet/Utils');
+const {
+    performCorporateDeliveryAccountAuthOps,
+} = require('./Utility/Account/Utils');
+const Subscriptions = require('./models/Subscriptions');
 
 /**
  * Responsible for sending push notification to devices
@@ -243,26 +251,32 @@ const getCatalogueFor = async (body) => {
         productsData = await batchPresignProductsLinks(productsData);
 
         //Reformat the data
-        const reformattedData = productsData.map((product, index) => {
-            const tmpData = {
-                id: product.id,
-                index: index,
-                name: product.product_name,
-                price: String(product.priceAdjusted),
-                currency: product.currency,
-                pictures: product.product_picture,
-                sku: product.sku,
-                meta: {
-                    category: product.category,
-                    subcategory: product.subcategory,
-                    store: product.shop_name,
-                    store_fp: storeFp,
-                    structured: storeData.structured_shopping,
-                },
-            };
+        const reformattedData = await Promise.all(
+            productsData.map(async (product, index) => {
+                const tmpData = {
+                    id: product.id,
+                    index: index,
+                    name: product.product_name,
+                    price: String(product.priceAdjusted),
+                    currency: product.currency,
+                    pictures: product.product_picture,
+                    sku: product.sku,
+                    meta: {
+                        category: product.category,
+                        subcategory: product.subcategory,
+                        store: product.shop_name,
+                        store_fp: storeFp,
+                        structured: storeData.structured_shopping,
+                    },
+                    description: product?.description,
+                    options: await batchPresignProductsOptionsImageLinks(
+                        product?.options
+                    ),
+                };
 
-            return tmpData;
-        });
+                return tmpData;
+            })
+        );
 
         return { response: reformattedData, store: storeFp };
     }
@@ -381,95 +395,6 @@ const getRequestDataClient = async (requestData) => {
     }
     //No pending shoppings
 
-    return false;
-};
-
-/**
- * @func shouldSendNewSMS
- * Responsible for figuring out if the system is allowed to send new SMS to a specific number
- * based on the daily limit that the number has ~ 10SMS per day.
- * @param req: the request data containing the user's phone number : ATTACH THE _id if HAS AN ACCOUNT
- * @param hasAccount: true (is an existing user) or false (do not have an account yet)
- * @param resolve
- */
-const shouldSendNewSMS = async (user, phone_number, isDriver = false) => {
-    const DAILY_THRESHOLD = parseInt(
-        process.env.DAILY_SMS_THRESHOLD_PER_USER,
-        10
-    );
-
-    const onlyDigitsPhone = phone_number.replace('+', '').trim();
-    let otp = otpGenerator.generate(5, {
-        lowerCaseAlphabets: false,
-        upperCaseAlphabets: false,
-        specialChars: false,
-    });
-    //! --------------
-    //let otp = 55576;
-    otp = /(264856997167|264815600469)/i.test(onlyDigitsPhone)
-        ? 55576
-        : String(otp).length < 5
-        ? parseInt(otp, 10) * 10
-        : otp;
-    const message = `Your DulcetDash code is ${otp}. Never share this code.`;
-
-    if (!user) {
-        logger.warn(message);
-
-        await sendSMS(message, phone_number);
-
-        //New user
-        await OTPModel.create({
-            id: uuidv4(),
-            phone_number: phone_number,
-            otp: parseInt(otp, 10),
-        });
-
-        return true;
-    } //Existing user
-
-    logger.error(message);
-    const startOfDay = moment().startOf('day').valueOf(); // Start of today
-    const endOfDay = moment().endOf('day').valueOf(); // End of today
-
-    const otpData = await OTPModel.query('phone_number')
-        .eq(user.phone_number)
-        .filter('createdAt')
-        .between(startOfDay, endOfDay)
-        .exec();
-
-    if (otpData.count <= DAILY_THRESHOLD) {
-        //Can still send the SMS
-        await sendSMS(message, phone_number);
-
-        await OTPModel.create({
-            id: uuidv4(),
-            phone_number: user.phone_number,
-            otp: parseInt(otp, 10),
-        });
-
-        if (!isDriver) {
-            await UserModel.update(
-                { id: user.id },
-                {
-                    otp: parseInt(otp, 10),
-                }
-            );
-        } //Driver
-        else {
-            await DriversModel.update(
-                { id: user.id },
-                {
-                    otp: parseInt(otp, 10),
-                }
-            );
-        }
-
-        return true;
-    }
-
-    //!Exceeded the daily SMS request
-    console.log('SMS LIMIT EXCEEDED for ', phone_number);
     return false;
 };
 
@@ -939,7 +864,7 @@ app.post('/webhook', bodyParser.raw({ type: '*/*' }), async (req, res) => {
             process.env.STRIPE_WEBHOOK_SECRET
         );
     } catch (err) {
-        console.error(err);
+        // console.error(err);
         res.status(400).send(`Webhook Error: ${err.message}`);
         return;
     }
@@ -958,6 +883,8 @@ app.post('/webhook', bodyParser.raw({ type: '*/*' }), async (req, res) => {
             currency,
         } = event.data.object;
 
+        let metaData = event.data;
+
         switch (event.type) {
             case 'charge.succeeded':
                 if (
@@ -974,15 +901,109 @@ app.post('/webhook', bodyParser.raw({ type: '*/*' }), async (req, res) => {
 
                     user = user[0];
 
+                    //If the user is a company get the corresponding subscription for the payment
+                    let subscriptionId = event.data?.object?.subscription;
+                    if (user?.company_name) {
+                        const subscription = await Subscriptions.query(
+                            'user_id'
+                        )
+                            .eq(user.id)
+                            .filter('active')
+                            .eq(true)
+                            .exec();
+
+                        if (subscription.count > 0) {
+                            subscriptionId = subscription[0].id;
+                        }
+                    }
+
                     //Update the payment
                     await Payments.create({
                         id: uuidv4(),
                         user_id: user.id,
                         stripe_payment_id: stripePaymentId,
+                        subscription_id: subscriptionId,
                         amount: amount_captured / 100,
                         transaction_description: 'WALLET_TOPUP',
                         currency,
                     });
+                }
+
+                break;
+
+            case 'invoice.payment_succeeded':
+                metaData = metaData?.object;
+                if (metaData?.object === 'invoice' && metaData.paid) {
+                    // logger.warn(event.type);
+                    // console.log(metaData.lines.data[0]);
+                    let user = await UserModel.query('stripe_customerId')
+                        .eq(metaData?.customer)
+                        .exec();
+
+                    if (user.count <= 0) break;
+
+                    user = user[0];
+
+                    const subscriptionId = uuidv4();
+                    const stripeSubscriptionId = metaData.subscription;
+                    const amount = metaData.amount_paid / 100;
+                    const { currency: transactionCurrency, period_end } =
+                        metaData;
+                    const priceName = metaData.lines.data[0].plan?.nickname;
+
+                    //Check if this subscription already exists
+                    const subscription = await Subscriptions.query(
+                        'stripe_subscription_id'
+                    )
+                        .eq(stripeSubscriptionId)
+                        .exec();
+
+                    if (subscription.count > 0) {
+                        //Update the subscription
+                        await Subscriptions.update(
+                            {
+                                id: subscription[0].id,
+                            },
+                            {
+                                amount,
+                                currency: transactionCurrency,
+                                transaction_description: priceName,
+                                expiration_date: new Date(period_end * 1000),
+                                active: true,
+                            }
+                        );
+                    } else {
+                        //Set all the subscriptions for this user to active -> false
+                        const oldSubscriptions = await Subscriptions.query(
+                            'user_id'
+                        )
+                            .eq(user.id)
+                            .exec();
+
+                        await Promise.all(
+                            oldSubscriptions.map(async (sub) => {
+                                await Subscriptions.update(
+                                    {
+                                        id: sub.id,
+                                    },
+                                    {
+                                        active: false,
+                                    }
+                                );
+                            })
+                        );
+
+                        await Subscriptions.create({
+                            id: subscriptionId,
+                            user_id: user?.id,
+                            amount,
+                            currency: transactionCurrency,
+                            stripe_subscription_id: stripeSubscriptionId,
+                            transaction_description: priceName,
+                            expiration_date: new Date(period_end * 1000),
+                            active: true,
+                        });
+                    }
                 }
 
                 break;
@@ -1151,87 +1172,91 @@ app.post('/getCatalogueFor', authenticate, async (req, res) => {
 });
 
 //?3. Search in  the catalogue of a  specific shop
-app.post('/getResultsForKeywords', authenticate, async (req, res) => {
-    try {
-        const {
-            category,
-            subcategory,
-            store_fp: shop_fp,
-            store: product_name,
-            key,
-        } = req.body;
+app.post(
+    '/getResultsForKeywords',
+    // , authenticate
+    async (req, res) => {
+        try {
+            const {
+                category,
+                subcategory,
+                store_fp: shop_fp,
+                store: product_name,
+                key,
+            } = req.body;
 
-        if (key && shop_fp) {
-            const redisKey = `${shop_fp}-${key}-searchedProduct`;
+            if (key && shop_fp) {
+                const redisKey = `${shop_fp}-${key}-searchedProduct`;
 
-            const cachedData = await Redis.get(redisKey);
+                const cachedData = await Redis.get(redisKey);
 
-            let products = cachedData
-                ? JSON.parse(cachedData)
-                : await searchProducts(process.env.CATALOGUE_INDEX, {
-                      shop_fp,
-                      product_name,
-                      product_name: key,
-                      category,
-                      subcategory,
-                  });
+                let products = cachedData
+                    ? JSON.parse(cachedData)
+                    : await searchProducts(process.env.CATALOGUE_INDEX, {
+                          shop_fp,
+                          product_name,
+                          product_name: key,
+                          category,
+                          subcategory,
+                      });
 
-            if (!cachedData && products.length > 0) {
-                await Redis.set(
-                    redisKey,
-                    JSON.stringify(products),
-                    'EX',
-                    1 * 24 * 3600
-                );
-            }
+                if (!cachedData && products.length > 0) {
+                    await Redis.set(
+                        redisKey,
+                        JSON.stringify(products),
+                        'EX',
+                        1 * 24 * 3600
+                    );
+                }
 
-            products = await batchPresignProductsLinks(products);
+                products = await batchPresignProductsLinks(products);
 
-            const reformattedData = products.map((product, index) => {
-                const tmpData = {
-                    ...product,
-                    ...{
-                        product_price: String(product.priceAdjusted),
-                    },
-                    ...{
-                        meta: {
-                            category: product.category,
-                            subcategory: product.subcategory,
-                            store: product.shop_name,
-                            store_fp: shop_fp,
-                            structured: false,
+                const reformattedData = products.map((product, index) => {
+                    const tmpData = {
+                        ...product,
+                        ...{
+                            product_price: String(product.priceAdjusted),
                         },
-                    },
-                };
-                //...
-                return tmpData;
-            });
+                        ...{
+                            meta: {
+                                category: product.category,
+                                subcategory: product.subcategory,
+                                store: product.shop_name,
+                                store_fp: shop_fp,
+                                structured: false,
+                            },
+                        },
+                    };
+                    //...
+                    return tmpData;
+                });
 
-            const privateKeys = [
-                'website_link',
-                'used_link',
-                'local_images_registry',
-                'createdAt',
-                'priceAdjusted',
-            ];
+                const privateKeys = [
+                    'website_link',
+                    'used_link',
+                    'local_images_registry',
+                    'createdAt',
+                    'priceAdjusted',
+                ];
 
-            const safeProducts = _.map(reformattedData, (obj) =>
-                _.omit(obj, privateKeys)
-            );
+                const safeProducts = _.map(reformattedData, (obj) =>
+                    _.omit(obj, privateKeys)
+                );
 
-            res.send({
-                count: reformattedData.length,
-                response: safeProducts,
-            });
-        } //No valid data
-        else {
+                res.send({
+                    count: reformattedData.length,
+                    response: safeProducts,
+                });
+            } //No valid data
+            else {
+                res.send({ response: [] });
+            }
+        } catch (error) {
+            logger.error(error);
             res.send({ response: [] });
         }
-    } catch (error) {
-        logger.error(error);
-        res.send({ response: [] });
     }
-});
+);
 
 //?5. Get location search suggestions
 app.post('/getSearchedLocations', authenticate, async (req, res) => {
@@ -1555,11 +1580,21 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
 //?7. Get the current shopping data - client
 app.post('/getShoppingData', authenticate, async (req, res) => {
     try {
-        req = req.body;
+        const { user, body } = req;
 
-        if (req.user_identifier !== undefined && req.user_identifier !== null) {
+        if (user?.id) {
             //! Check if the user id exists
-            const request = await getRequestDataClient(req);
+            let request = await getRequestDataClient(body);
+
+            if (user?.company_name) {
+                const accountData =
+                    await performCorporateDeliveryAccountAuthOps({
+                        company_fp: user.id,
+                        op: 'getAccountData',
+                    });
+                request = !request ? {} : request;
+                request.accountData = accountData?.metadata;
+            }
 
             res.json(request);
         } //Missing data
@@ -3981,5 +4016,229 @@ app.post('/loginOrChecksForAdmins', async (req, res) => {
         res.send({ response: 'error' });
     }
 });
+
+/**
+ * PERFORMA AUTHENTICATION OPS ON A CORPORATE DELIVERY A ACCOUNT
+ * ? Responsible for performing auth operations on a delivery account on the web interface.
+ */
+app.post('/performOpsCorporateDeliveryAccount', async (req, res) => {
+    try {
+        const response = await performCorporateDeliveryAccountAuthOps(req.body);
+
+        res.json(response);
+    } catch (error) {
+        res.status(400).json({
+            response: 'error',
+        });
+    }
+});
+
+//PAYMENT
+app.get('/prices', authenticate, async (req, res) => {
+    try {
+        const prices = await stripe.prices.list({ limit: 5 });
+
+        const filteredPrices = prices.data.map((price) => ({
+            id: price?.id,
+            lookupKey: price?.lookup_key,
+            price: price.unit_amount / 100,
+        }));
+
+        res.send({
+            status: 'success',
+            data: filteredPrices,
+        });
+    } catch (err) {
+        res.status(500).send({ error: { message: err.message } });
+    }
+});
+
+app.post(
+    '/subscription',
+    // authenticate,
+    async (req, res) => {
+        const { customerId, priceId, paymentMethodId } = req.body;
+
+        let user = await UserModel.query('stripe_customerId')
+            .eq(customerId)
+            .exec();
+
+        if (user.count <= 0)
+            res.status(500).send({ error: { message: 'User not found' } });
+
+        user = user[0];
+
+        try {
+            // Retrieve the existing subscriptions for the customer
+            const subscriptions = await stripe.subscriptions.list({
+                customer: customerId,
+                status: 'active',
+            });
+
+            let subscription;
+
+            if (paymentMethodId) {
+                subscription = subscriptions.data[0];
+
+                if (subscription?.id) {
+                    await stripe.subscriptions.update(subscription.id, {
+                        items: [
+                            {
+                                id: subscription.items.data[0].id,
+                                price: priceId,
+                            },
+                        ],
+                        default_payment_method: paymentMethodId,
+                        payment_behavior: 'default_incomplete',
+                        proration_behavior: 'none',
+                    });
+                } else {
+                    //Create new one
+                    await stripe.subscriptions.create({
+                        customer: customerId,
+                        items: [
+                            {
+                                price: priceId,
+                            },
+                        ],
+                        expand: ['latest_invoice.payment_intent'],
+                        cancel_at_period_end: false,
+                        default_payment_method: paymentMethodId,
+                        metadata: { userId: user.id },
+                    });
+                }
+
+                return res.json({
+                    status: 'success',
+                    state: 'paidWithPaymentId',
+                });
+            }
+
+            // If an active subscription exists, update it
+            if (subscriptions.data.length > 0) {
+                subscription = subscriptions.data[0];
+
+                subscription = await stripe.subscriptions.retrieve(
+                    subscription.id,
+                    {
+                        expand: ['default_payment_method'],
+                    }
+                );
+                const paymentMethod = subscription.default_payment_method;
+
+                if (!paymentMethod) {
+                    subscription = await stripe.subscriptions.create({
+                        customer: customerId,
+                        items: [
+                            {
+                                price: priceId,
+                            },
+                        ],
+                        payment_behavior: 'default_incomplete',
+                        expand: ['latest_invoice.payment_intent'],
+                        cancel_at_period_end: false,
+                        payment_settings: {
+                            save_default_payment_method: 'on_subscription',
+                        },
+                        metadata: { userId: user.id },
+                    });
+                } else {
+                    subscription = await stripe.subscriptions.create({
+                        customer: customerId,
+                        items: [
+                            {
+                                price: priceId,
+                            },
+                        ],
+                        payment_behavior: 'default_incomplete',
+                        expand: ['latest_invoice.payment_intent'],
+                        cancel_at_period_end: false,
+                        payment_settings: {
+                            save_default_payment_method: 'on_subscription',
+                        },
+                        metadata: { userId: user.id },
+                    });
+
+                    return res.json({
+                        status: 'success',
+                        state: 'alreadyHaveSubscriptionGivePaymentChoice',
+                        clientSecret:
+                            subscription.latest_invoice.payment_intent
+                                .client_secret,
+                    });
+                }
+            }
+            // If no active subscription exists, create a new one
+            else {
+                subscription = await stripe.subscriptions.create({
+                    customer: customerId,
+                    items: [
+                        {
+                            price: priceId,
+                        },
+                    ],
+                    payment_behavior: 'default_incomplete',
+                    expand: ['latest_invoice.payment_intent'],
+                    cancel_at_period_end: false,
+                    payment_settings: {
+                        save_default_payment_method: 'on_subscription',
+                    },
+                    metadata: { userId: user.id },
+                });
+            }
+
+            // Response structure similar to the provided one
+            if (subscription.status === 'active') {
+                // Fetching the new price
+                const newPrice = await stripe.prices.retrieve(priceId);
+                const newPriceLookupKey = newPrice.lookup_key;
+                let upgradedOrDowngraded = null;
+
+                // Determine if it's an upgrade or downgrade by comparing amounts
+                const currentAmount =
+                    subscription.items.data[0].price.unit_amount;
+                const newAmount = newPrice.unit_amount;
+
+                if (newAmount > currentAmount) {
+                    upgradedOrDowngraded = 'upgraded';
+                } else if (newAmount < currentAmount) {
+                    upgradedOrDowngraded = 'downgraded';
+                } else {
+                    upgradedOrDowngraded = 'same';
+                }
+
+                // Responding to the client
+                res.status(200).json({
+                    status: 'success',
+                    subscription,
+                    upgradedOrDowngraded,
+                    newPriceLookupKey,
+                });
+            } else {
+                // Check if there's a pending setup intent
+                if (subscription.pending_setup_intent) {
+                    const setupIntent = await stripe.setupIntents.retrieve(
+                        subscription.pending_setup_intent
+                    );
+                    res.status(200).json({
+                        status: 'success',
+                        setupIntentClientSecret: setupIntent.client_secret,
+                    });
+                } else {
+                    res.status(200).json({
+                        status: 'success',
+                        subscriptionId: subscription.id,
+                        clientSecret:
+                            subscription.latest_invoice.payment_intent
+                                .client_secret,
+                    });
+                }
+            }
+        } catch (err) {
+            console.log(err);
+            res.status(500).send({ error: { message: err.message } });
+        }
+    }
+);
 
 server.listen(process.env.SERVER_MOTHER_PORT);
