@@ -84,7 +84,7 @@ sendMailQueue.on('failed', (job, error) => {
 });
 
 // Function to add an email to the queue
-const sendEmail = ({
+exports.sendEmail = async ({
     email,
     fromEmail,
     fromName,
@@ -105,5 +105,3 @@ const sendEmail = ({
         attachments,
     });
 };
-
-module.exports = sendEmail;

@@ -11,6 +11,7 @@ const https = require('https');
 const Redis = require('./Utility/redisConnector');
 const bcrypt = require('bcrypt');
 const bodyParser = require('body-parser');
+const cookieParser = require('cookie-parser');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const useragent = require('express-useragent');
 
@@ -30,6 +31,7 @@ const {
     batchPresignProductsOptionsImageLinks,
     shouldSendNewSMS,
     getStripePriceName,
+    getRequestLitteralStatus,
 } = require('./Utility/Utils');
 const _ = require('lodash');
 
@@ -80,7 +82,6 @@ const {
     goOnline_offlineDrivers,
 } = require('./serverAccounts');
 const AdminsModel = require('./models/AdminsModel');
-const sendEmail = require('./Utility/sendEmail');
 const DriversApplicationsModel = require('./models/DriversApplicationsModel');
 const authenticate = require('./middlewares/authenticate');
 const lightcheck = require('./middlewares/lightcheck');
@@ -91,6 +92,43 @@ const {
     performCorporateDeliveryAccountAuthOps,
 } = require('./Utility/Account/Utils');
 const Subscriptions = require('./models/Subscriptions');
+const { sendEmail } = require('./Utility/sendEmail');
+
+const whitelist = [
+    'http://localhost:3000',
+    // /\.dulcetdash\.com/,
+    'https://business.dulcetdash.com/',
+    'business.dulcetdash.com/',
+    'business.dulcetdash.com/*',
+    'www.business.dulcetdash.com/',
+    'www.business.dulcetdash.com',
+    'https://83g3kkzu8r.us-east-1.awsapprunner.com/',
+];
+
+const corsOptions = {
+    origin: function (origin, callback) {
+        if (whitelist.indexOf(origin) !== -1 || !origin) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    optionsSuccessStatus: 204,
+    allowedHeaders: 'Content-Type,Authorization',
+};
+
+// app.use(cors(corsOptions));
+app.use(
+    cors({
+        origin:
+            process.env.EVIRONMENT === 'dev'
+                ? 'http://localhost:3000'
+                : /\.dulcetdash\.com/,
+        credentials: true,
+    })
+);
 
 /**
  * Responsible for sending push notification to devices
@@ -291,7 +329,7 @@ const getCatalogueFor = async (body) => {
  * @param requestData: user_identifier mainly
  * @param resolve
  */
-const getRequestDataClient = async (requestData) => {
+const getRequestDataClient = async (requestData, isCompany = false) => {
     const { user_identifier } = requestData;
 
     const requests = await RequestsModel.query('client_id')
@@ -305,93 +343,93 @@ const getRequestDataClient = async (requestData) => {
         .exec();
 
     if (requests.count > 0) {
-        const shoppingData = requests[0];
-
         //!1. SHOPPING DATA or DELIVERY DATA
-        if (
-            shoppingData?.ride_mode.toUpperCase() === 'SHOPPING' ||
-            shoppingData?.ride_mode.toUpperCase() === 'DELIVERY'
-        ) {
-            //Has a pending shopping
-            const RETURN_DATA_TEMPLATE = {
-                ride_mode: shoppingData?.ride_mode.toUpperCase(),
-                request_fp: shoppingData.id,
-                client_id: requestData.user_identifier, //the user identifier - requester
-                driver_details: {}, //Will hold the details of the shopper
-                shopping_list: shoppingData.shopping_list, //The list of items to shop for
-                payment_method: shoppingData.payment_method, //mobile_money or cash
-                trip_locations: shoppingData.locations, //Has the pickup and delivery locations
-                totals_request: shoppingData.totals_request, //Has the cart details in terms of fees
-                request_type: shoppingData.request_type, //scheduled or immediate
-                state_vars: shoppingData.request_state_vars,
-                ewallet_details: {
-                    phone: '+264856997167',
-                    security: shoppingData?.security
-                        ? shoppingData.security
-                        : 'None',
-                },
-                date_requested: shoppingData.createdAt, //The time of the request
-            };
-            //..Get the shopper's infos
-            if (shoppingData?.shopper_id !== 'false') {
-                const shopper = await DriversModel.query('id')
-                    .eq(shoppingData.shopper_id)
-                    .exec();
-                if (shopper.count > 0) {
-                    //Has a shopper
-                    const driverData = shopper[0];
-                    const driverDocs = await DriversApplicationsModel.get(
-                        driverData.id
-                    );
+        const parsedRequests = await Promise.all(
+            requests.map(async (request) => {
+                //Has a pending shopping
+                const RETURN_DATA_TEMPLATE = {
+                    ride_mode: request?.ride_mode.toUpperCase(),
+                    request_fp: request.id,
+                    client_id: requestData.user_identifier, //the user identifier - requester
+                    driver_details: {}, //Will hold the details of the shopper
+                    shopping_list: request.shopping_list, //The list of items to shop for
+                    payment_method: request.payment_method, //mobile_money or cash
+                    trip_locations: request.locations, //Has the pickup and delivery locations
+                    totals_request: request.totals_request, //Has the cart details in terms of fees
+                    request_type: request.request_type, //scheduled or immediate
+                    state_vars: request.request_state_vars,
+                    ewallet_details: {
+                        phone: '+264856997167',
+                        security: request?.security ? request.security : 'None',
+                    },
+                    date_requested: request.createdAt, //The time of the request
+                    status: getRequestLitteralStatus(request), //The status of the request
+                };
+                //..Get the shopper's infos
+                if (request?.shopper_id !== 'false') {
+                    const shopper = await DriversModel.query('id')
+                        .eq(request.shopper_id)
+                        .exec();
+                    if (shopper.count > 0) {
+                        //Has a shopper
+                        const driverData = shopper[0];
+                        const driverDocs = await DriversApplicationsModel.get(
+                            driverData.id
+                        );
 
-                    let driverProfile = await Redis.get(
-                        driverDocs.documents.driver_photo
-                    );
-
-                    if (!driverProfile) {
-                        driverProfile = await presignS3URL(
+                        let driverProfile = await Redis.get(
                             driverDocs.documents.driver_photo
                         );
-                        await Redis.set(
-                            driverDocs.documents.driver_photo,
-                            driverProfile,
-                            'EX',
-                            35 * 60
-                        );
-                    }
 
-                    RETURN_DATA_TEMPLATE.driver_details = {
-                        name: driverData.name,
-                        picture: driverProfile,
-                        rating: driverData?.rating ?? 5,
-                        phone: driverData.phone_number,
-                        vehicle: {
-                            picture: driverData.taxi_picture,
-                            brand: driverData.car_brand,
-                            plate_no: driverData.plate_number,
-                            taxi_number: driverData.taxi_number,
-                        },
-                    };
-                } //No shoppers yet
-                else {
+                        if (!driverProfile) {
+                            driverProfile = await presignS3URL(
+                                driverDocs.documents.driver_photo
+                            );
+                            await Redis.set(
+                                driverDocs.documents.driver_photo,
+                                driverProfile,
+                                'EX',
+                                35 * 60
+                            );
+                        }
+
+                        RETURN_DATA_TEMPLATE.driver_details = {
+                            name: driverData.name,
+                            picture: driverProfile,
+                            rating: driverData?.rating ?? 5,
+                            phone: driverData.phone_number,
+                            vehicle: {
+                                picture: await presignS3URL(
+                                    driverDocs?.documents?.vehicle_photo
+                                ),
+                                brand: driverDocs?.vehicle_details?.brand_name,
+                                plate_no:
+                                    driverDocs?.vehicle_details?.plate_number,
+                                color: driverDocs?.vehicle_details?.color,
+                                taxi_number: null,
+                            },
+                        };
+                    } //No shoppers yet
+                    else {
+                        RETURN_DATA_TEMPLATE.driver_details = {
+                            name: null,
+                            phone: null,
+                            picture: null,
+                        };
+                    }
+                } else {
                     RETURN_DATA_TEMPLATE.driver_details = {
                         name: null,
                         phone: null,
                         picture: null,
                     };
                 }
-            } else {
-                RETURN_DATA_TEMPLATE.driver_details = {
-                    name: null,
-                    phone: null,
-                    picture: null,
-                };
-            }
 
-            return [RETURN_DATA_TEMPLATE];
-        }
+                return RETURN_DATA_TEMPLATE;
+            })
+        );
 
-        return false;
+        return isCompany ? parsedRequests : parsedRequests[0];
     }
     //No pending shoppings
 
@@ -521,6 +559,7 @@ const getRequestListDataUsers = async (user_identifier) => {
                 request_type: request.ride_mode,
                 date_requested: request.date_requested,
                 locations: request.locations,
+                totals: request.totals_request,
                 shopping_list:
                     request.ride_mode.toLowerCase() === 'shopping'
                         ? request.shopping_list
@@ -849,6 +888,8 @@ function sendTargetedPushNotifications({ request_type, fare, resolve }) {
 logger.info('[*] Elasticsearch connected');
 logger.info('[+] DulcetDash service active');
 
+app.use(cookieParser());
+
 app.use(useragent.express());
 app.use(morgan('dev'));
 
@@ -1033,7 +1074,6 @@ app.use(
             extended: true,
         })
     )
-    .use(cors())
     .use(helmet());
 
 app.post('/topup', authenticate, async (req, res) => {
@@ -1095,6 +1135,7 @@ app.get('/wallet/balance', authenticate, async (req, res) => {
 //Get the main ones (4) and the new ones (X)
 app.post('/getStores', authenticate, async (req, res) => {
     try {
+        //! Disabled shopping for now
         const stores = await getStores();
 
         res.json(stores);
@@ -1413,19 +1454,20 @@ app.post('/requestForShopping', authenticate, async (req, res) => {
 //?6. Request for delivery or ride
 app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
     try {
+        const { user } = req;
         req = req.body;
         //! Check for the user identifier, shopping_list and totals
         //Check basic ride or delivery conditions
-        let checkerCondition =
-            req?.ride_mode == 'delivery'
-                ? req?.user_identifier &&
-                  req?.dropOff_data &&
-                  req?.totals &&
-                  req?.pickup_location
-                : req?.user_identifier &&
-                  req?.dropOff_data &&
-                  req?.passengers_number &&
-                  req?.pickup_location;
+        const checkerCondition =
+            req?.ride_mode === 'delivery'
+                ? !!req?.user_identifier &&
+                  !!req?.dropOff_data &&
+                  !!req?.totals &&
+                  !!req?.pickup_location
+                : !!req?.user_identifier &&
+                  !!req?.dropOff_data &&
+                  !!req?.passengers_number &&
+                  !!req?.pickup_location;
 
         if (checkerCondition) {
             let securityPin = otpGenerator.generate(6, {
@@ -1450,19 +1492,23 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                 .exists()
                 .exec();
 
-            if (previousRequest.count <= 0) {
+            if (previousRequest.count <= 0 || user?.company_name) {
                 //No unconfirmed requests
                 //! Perform the conversions
-                req.totals = req?.totals ? JSON.parse(req.totals) : null;
+                req.totals =
+                    req?.totals && typeof req?.totals === 'string'
+                        ? JSON.parse(req.totals)
+                        : req.totals;
+
                 if (req?.totals?.delivery_fee) {
                     req.totals.delivery_fee = parseFloat(
-                        req.totals?.delivery_fee?.replace('N$', '')
+                        String(req.totals?.delivery_fee)?.replace('N$', '')
                     );
                     req.totals.service_fee = parseFloat(
-                        req.totals?.service_fee?.replace('N$', '')
+                        String(req.totals?.service_fee)?.replace('N$', '')
                     );
                     req.totals.total = parseFloat(
-                        req.totals?.total?.replace('N$', '')
+                        String(req.totals?.total)?.replace('N$', '')
                     );
                 }
                 //...
@@ -1477,7 +1523,10 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                     const { balance } = await getBalance(clientId);
                     const requestRequiredTotal = requestTotals;
 
-                    if (balance < requestRequiredTotal)
+                    if (
+                        balance < requestRequiredTotal.total ||
+                        !requestRequiredTotal?.total
+                    )
                         return res.json({
                             response: 'unable_to_request_insufficient_balance',
                         });
@@ -1489,8 +1538,14 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                             client_id: clientId, //the user identifier - requester
                             payment_method: req.payment_method, //mobile_money or cash or wallet
                             locations: {
-                                pickup: JSON.parse(req.pickup_location), //Has the pickup locations
-                                dropoff: JSON.parse(req.dropOff_data), //The list of recipient/riders and their locations
+                                pickup:
+                                    typeof req.pickup_location === 'string'
+                                        ? JSON.parse(req.pickup_location)
+                                        : req.pickup_location, //Has the pickup locations
+                                dropoff:
+                                    typeof req.dropOff_data === 'string'
+                                        ? JSON.parse(req.dropOff_data)
+                                        : req.dropOff_data, //The list of recipient/riders and their locations
                             },
                             totals_request: requestTotals, //Has the cart details in terms of fees
                             request_documentation: req.note,
@@ -1563,7 +1618,7 @@ app.post('/requestForRideOrDelivery', authenticate, async (req, res) => {
                     message
                 );
 
-                res.json({ response: 'successful' });
+                return res.json({ response: 'successful' });
             } //Has a pending request
             else {
                 res.json({ response: 'has_a_pending_shopping' });
@@ -1584,7 +1639,10 @@ app.post('/getShoppingData', authenticate, async (req, res) => {
 
         if (user?.id) {
             //! Check if the user id exists
-            let request = await getRequestDataClient(body);
+            const request = await getRequestDataClient(
+                body,
+                !!user?.company_name
+            );
 
             if (user?.company_name) {
                 const accountData =
@@ -1592,8 +1650,11 @@ app.post('/getShoppingData', authenticate, async (req, res) => {
                         company_fp: user.id,
                         op: 'getAccountData',
                     });
-                request = !request ? {} : request;
-                request.accountData = accountData?.metadata;
+
+                return res.json({
+                    accountData: accountData?.metadata,
+                    requests: !request ? [] : request,
+                });
             }
 
             res.json(request);
@@ -1609,7 +1670,7 @@ app.post('/getShoppingData', authenticate, async (req, res) => {
 
 //?6. Get the route snapshot for the ride
 //? EFFIENCY A
-app.post('/getRouteToDestinationSnapshot', authenticate, function (req, res) {
+app.post('/getRouteToDestinationSnapshot', authenticate, (req, res) => {
     let urlRequest = `http://localhost:${process.env.SEARCH_SERVICE_PORT}/getRouteToDestinationSnapshot`;
 
     requestAPI.post(
@@ -1625,7 +1686,7 @@ app.post('/getRouteToDestinationSnapshot', authenticate, function (req, res) {
 });
 
 //?7. Get the fares
-app.post('/computeFares', authenticate, function (req, res) {
+app.post('/computeFares', authenticate, (req, res) => {
     let urlRequest = `http://localhost:${process.env.PRICING_SERVICE_PORT}/computeFares`;
 
     requestAPI.post(
@@ -1654,7 +1715,8 @@ app.post('/submitRiderOrClientRating', authenticate, async (req, res) => {
         if (!requestId || !rating || !badges || !userId)
             return res.send({ response: 'error' });
 
-        const parsedBadges = JSON.parse(badges);
+        const parsedBadges =
+            typeof badges === 'string' ? JSON.parse(badges) : badges;
 
         const RATING_DATA = {
             rating: parseFloat(rating),
@@ -2246,7 +2308,7 @@ app.post('/registerCourier_ppline', lightcheck, async (req, res) => {
  * For the rides driver registration
  */
 
-app.post('/registerDriver_ppline', lightcheck, function (req, res) {
+app.post('/registerDriver_ppline', lightcheck, (req, res) => {
     logger.info(String(req.body).length);
     let url =
         `${
@@ -2274,7 +2336,7 @@ app.post('/registerDriver_ppline', lightcheck, function (req, res) {
     });
 });
 
-app.post('/update_requestsGraph', authenticate, function (req, res) {
+app.post('/update_requestsGraph', authenticate, (req, res) => {
     logger.info(req);
     req = req.body;
 
@@ -2339,8 +2401,15 @@ app.post('/geocode_this_point', authenticate, async (req, res) => {
                 userId
             );
 
-            res.json(location);
+            //? Add/Remove additional services
+            // More services: wallet
+            if (!location?.supported_services) {
+                location.supported_services = [];
+            }
+
+            return res.json(location);
         }
+        res.json(false);
     } catch (error) {
         console.error(error);
         res.json(false);
@@ -4053,123 +4122,75 @@ app.get('/prices', authenticate, async (req, res) => {
     }
 });
 
-app.post(
-    '/subscription',
-    // authenticate,
-    async (req, res) => {
-        const { customerId, priceId, paymentMethodId } = req.body;
+app.post('/subscription', authenticate, async (req, res) => {
+    const { customerId, priceId, paymentMethodId } = req.body;
 
-        let user = await UserModel.query('stripe_customerId')
-            .eq(customerId)
-            .exec();
+    let user = await UserModel.query('stripe_customerId').eq(customerId).exec();
 
-        if (user.count <= 0)
-            res.status(500).send({ error: { message: 'User not found' } });
+    if (user.count <= 0)
+        res.status(500).send({ error: { message: 'User not found' } });
 
-        user = user[0];
+    user = user[0];
 
-        try {
-            // Retrieve the existing subscriptions for the customer
-            const subscriptions = await stripe.subscriptions.list({
-                customer: customerId,
-                status: 'active',
-            });
+    try {
+        // Retrieve the existing subscriptions for the customer
+        const subscriptions = await stripe.subscriptions.list({
+            customer: customerId,
+            status: 'active',
+        });
 
-            let subscription;
+        let subscription;
 
-            if (paymentMethodId) {
-                subscription = subscriptions.data[0];
+        if (paymentMethodId) {
+            subscription = subscriptions.data[0];
 
-                if (subscription?.id) {
-                    await stripe.subscriptions.update(subscription.id, {
-                        items: [
-                            {
-                                id: subscription.items.data[0].id,
-                                price: priceId,
-                            },
-                        ],
-                        default_payment_method: paymentMethodId,
-                        payment_behavior: 'default_incomplete',
-                        proration_behavior: 'none',
-                    });
-                } else {
-                    //Create new one
-                    await stripe.subscriptions.create({
-                        customer: customerId,
-                        items: [
-                            {
-                                price: priceId,
-                            },
-                        ],
-                        expand: ['latest_invoice.payment_intent'],
-                        cancel_at_period_end: false,
-                        default_payment_method: paymentMethodId,
-                        metadata: { userId: user.id },
-                    });
-                }
-
-                return res.json({
-                    status: 'success',
-                    state: 'paidWithPaymentId',
+            if (subscription?.id) {
+                await stripe.subscriptions.update(subscription.id, {
+                    items: [
+                        {
+                            id: subscription.items.data[0].id,
+                            price: priceId,
+                        },
+                    ],
+                    default_payment_method: paymentMethodId,
+                    payment_behavior: 'default_incomplete',
+                    proration_behavior: 'none',
+                });
+            } else {
+                //Create new one
+                await stripe.subscriptions.create({
+                    customer: customerId,
+                    items: [
+                        {
+                            price: priceId,
+                        },
+                    ],
+                    expand: ['latest_invoice.payment_intent'],
+                    cancel_at_period_end: false,
+                    default_payment_method: paymentMethodId,
+                    metadata: { userId: user.id },
                 });
             }
 
-            // If an active subscription exists, update it
-            if (subscriptions.data.length > 0) {
-                subscription = subscriptions.data[0];
+            return res.json({
+                status: 'success',
+                state: 'paidWithPaymentId',
+            });
+        }
 
-                subscription = await stripe.subscriptions.retrieve(
-                    subscription.id,
-                    {
-                        expand: ['default_payment_method'],
-                    }
-                );
-                const paymentMethod = subscription.default_payment_method;
+        // If an active subscription exists, update it
+        if (subscriptions.data.length > 0) {
+            subscription = subscriptions.data[0];
 
-                if (!paymentMethod) {
-                    subscription = await stripe.subscriptions.create({
-                        customer: customerId,
-                        items: [
-                            {
-                                price: priceId,
-                            },
-                        ],
-                        payment_behavior: 'default_incomplete',
-                        expand: ['latest_invoice.payment_intent'],
-                        cancel_at_period_end: false,
-                        payment_settings: {
-                            save_default_payment_method: 'on_subscription',
-                        },
-                        metadata: { userId: user.id },
-                    });
-                } else {
-                    subscription = await stripe.subscriptions.create({
-                        customer: customerId,
-                        items: [
-                            {
-                                price: priceId,
-                            },
-                        ],
-                        payment_behavior: 'default_incomplete',
-                        expand: ['latest_invoice.payment_intent'],
-                        cancel_at_period_end: false,
-                        payment_settings: {
-                            save_default_payment_method: 'on_subscription',
-                        },
-                        metadata: { userId: user.id },
-                    });
-
-                    return res.json({
-                        status: 'success',
-                        state: 'alreadyHaveSubscriptionGivePaymentChoice',
-                        clientSecret:
-                            subscription.latest_invoice.payment_intent
-                                .client_secret,
-                    });
+            subscription = await stripe.subscriptions.retrieve(
+                subscription.id,
+                {
+                    expand: ['default_payment_method'],
                 }
-            }
-            // If no active subscription exists, create a new one
-            else {
+            );
+            const paymentMethod = subscription.default_payment_method;
+
+            if (!paymentMethod) {
                 subscription = await stripe.subscriptions.create({
                     customer: customerId,
                     items: [
@@ -4185,60 +4206,122 @@ app.post(
                     },
                     metadata: { userId: user.id },
                 });
+            } else {
+                subscription = await stripe.subscriptions.create({
+                    customer: customerId,
+                    items: [
+                        {
+                            price: priceId,
+                        },
+                    ],
+                    payment_behavior: 'default_incomplete',
+                    expand: ['latest_invoice.payment_intent'],
+                    cancel_at_period_end: false,
+                    payment_settings: {
+                        save_default_payment_method: 'on_subscription',
+                    },
+                    metadata: { userId: user.id },
+                });
+
+                return res.json({
+                    status: 'success',
+                    state: 'alreadyHaveSubscriptionGivePaymentChoice',
+                    clientSecret:
+                        subscription.latest_invoice.payment_intent
+                            .client_secret,
+                });
+            }
+        }
+        // If no active subscription exists, create a new one
+        else {
+            subscription = await stripe.subscriptions.create({
+                customer: customerId,
+                items: [
+                    {
+                        price: priceId,
+                    },
+                ],
+                payment_behavior: 'default_incomplete',
+                expand: ['latest_invoice.payment_intent'],
+                cancel_at_period_end: false,
+                payment_settings: {
+                    save_default_payment_method: 'on_subscription',
+                },
+                metadata: { userId: user.id },
+            });
+        }
+
+        // Response structure similar to the provided one
+        if (subscription.status === 'active') {
+            // Fetching the new price
+            const newPrice = await stripe.prices.retrieve(priceId);
+            const newPriceLookupKey = newPrice.lookup_key;
+            let upgradedOrDowngraded = null;
+
+            // Determine if it's an upgrade or downgrade by comparing amounts
+            const currentAmount = subscription.items.data[0].price.unit_amount;
+            const newAmount = newPrice.unit_amount;
+
+            if (newAmount > currentAmount) {
+                upgradedOrDowngraded = 'upgraded';
+            } else if (newAmount < currentAmount) {
+                upgradedOrDowngraded = 'downgraded';
+            } else {
+                upgradedOrDowngraded = 'same';
             }
 
-            // Response structure similar to the provided one
-            if (subscription.status === 'active') {
-                // Fetching the new price
-                const newPrice = await stripe.prices.retrieve(priceId);
-                const newPriceLookupKey = newPrice.lookup_key;
-                let upgradedOrDowngraded = null;
-
-                // Determine if it's an upgrade or downgrade by comparing amounts
-                const currentAmount =
-                    subscription.items.data[0].price.unit_amount;
-                const newAmount = newPrice.unit_amount;
-
-                if (newAmount > currentAmount) {
-                    upgradedOrDowngraded = 'upgraded';
-                } else if (newAmount < currentAmount) {
-                    upgradedOrDowngraded = 'downgraded';
-                } else {
-                    upgradedOrDowngraded = 'same';
-                }
-
-                // Responding to the client
+            // Responding to the client
+            res.status(200).json({
+                status: 'success',
+                subscription,
+                upgradedOrDowngraded,
+                newPriceLookupKey,
+            });
+        } else {
+            // Check if there's a pending setup intent
+            if (subscription.pending_setup_intent) {
+                const setupIntent = await stripe.setupIntents.retrieve(
+                    subscription.pending_setup_intent
+                );
                 res.status(200).json({
                     status: 'success',
-                    subscription,
-                    upgradedOrDowngraded,
-                    newPriceLookupKey,
+                    setupIntentClientSecret: setupIntent.client_secret,
                 });
             } else {
-                // Check if there's a pending setup intent
-                if (subscription.pending_setup_intent) {
-                    const setupIntent = await stripe.setupIntents.retrieve(
-                        subscription.pending_setup_intent
-                    );
-                    res.status(200).json({
-                        status: 'success',
-                        setupIntentClientSecret: setupIntent.client_secret,
-                    });
-                } else {
-                    res.status(200).json({
-                        status: 'success',
-                        subscriptionId: subscription.id,
-                        clientSecret:
-                            subscription.latest_invoice.payment_intent
-                                .client_secret,
-                    });
-                }
+                res.status(200).json({
+                    status: 'success',
+                    subscriptionId: subscription.id,
+                    clientSecret:
+                        subscription.latest_invoice.payment_intent
+                            .client_secret,
+                });
             }
-        } catch (err) {
-            console.log(err);
-            res.status(500).send({ error: { message: err.message } });
         }
+    } catch (err) {
+        console.log(err);
+        res.status(500).send({ error: { message: err.message } });
     }
-);
+});
+
+app.post('/oneoff_payment', authenticate, async (req, res) => {
+    try {
+        const { price } = req.body;
+        const { user } = req;
+
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount: price * 100, // amount in cents
+            currency: 'nad',
+            customer: user?.stripe_customerId,
+        });
+
+        res.json({
+            status: 'success',
+            clientSecret: paymentIntent.client_secret,
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send('Internal Server Error');
+    }
+});
 
 server.listen(process.env.SERVER_MOTHER_PORT);

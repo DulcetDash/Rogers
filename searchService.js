@@ -226,12 +226,10 @@ const initializeFreshGetOfLocations = async (
 
         //TODO: could allocate the country dynamically for scale.
         let urlRequest = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${query}&key=${process.env.GOOGLE_API_KEY}&components=country:na&language=en&radius=${conventionalSearchRadius}&limit=1000`;
-        logger.error(urlRequest);
 
         const searches = await axios.get(urlRequest);
 
         const body = searches?.data;
-        logger.error(body);
 
         if (body?.predictions && body?.predictions?.length > 0) {
             let searchResults = (
@@ -615,18 +613,20 @@ const getLocationList_five = async (
     const cachedData = await Redis.get(keyREDIS);
 
     if (cachedData && JSON.parse(cachedData)?.result) {
-        const cachedProcessed = JSON.parse(cachedData);
-        //Exceptions check
-        cachedProcessed.result = cachedProcessed.result.map((location) => {
-            location.suburb = applySuburbsExceptions(
-                location.location_name,
-                location.suburb
-            );
-            return location;
-        });
-        //!Update search record time
-        cachedProcessed.search_timestamp = timestamp;
-        return cachedProcessed;
+        if (JSON.parse(cachedData)?.result.length > 0) {
+            const cachedProcessed = JSON.parse(cachedData);
+            //Exceptions check
+            cachedProcessed.result = cachedProcessed.result.map((location) => {
+                location.suburb = applySuburbsExceptions(
+                    location.location_name,
+                    location.suburb
+                );
+                return location;
+            });
+            //!Update search record time
+            cachedProcessed.search_timestamp = timestamp;
+            return cachedProcessed;
+        }
     }
 
     //? 1. Check if it was written in dynamo
@@ -637,6 +637,8 @@ const getLocationList_five = async (
         .filter('state')
         .eq(trailingData.state.replace(/ Region/i, '').trim())
         .exec();
+
+    console.log(previousSearch);
 
     if (previousSearch.count > 0) {
         const finalSearchResults = {
@@ -1319,16 +1321,13 @@ const reverseGeocodeUserLocation = async (
     longitude,
     user_fingerprint
 ) => {
-    //Form the redis key
-    let redisKey = user_fingerprint + '-reverseGeocodeKey';
-
-    const cachedData = await Redis.get(redisKey);
-
-    if (cachedData) {
-        return JSON.parse(cachedData);
-    }
-
     const geocodingData = await reverseGeocoderExec(latitude, longitude);
+
+    if (geocodingData !== false) {
+        if (!geocodingData?.coordinates) {
+            geocodingData.coordinates = [latitude, longitude];
+        }
+    }
 
     return geocodingData;
 };
@@ -2098,17 +2097,33 @@ exports.getUserLocationInfos = async (latitude, longitude, userId) => {
         );
 
         if (result) {
-            //! SUPPORTED CITIES
-            let SUPPORTED_CITIES = ['WINDHOEK', 'SWAKOPMUND', 'WALVIS BAY'];
+            //! SUPPORTED CITIES & SERVICES
+            const SUPPORTED_CITIES = {
+                windhoek: [
+                    'delivery',
+                    // 'shopping'
+                ],
+            };
             //? Attach the supported city state
-            result['isCity_supported'] = SUPPORTED_CITIES.includes(
-                result.city !== undefined && result.city !== null
-                    ? result.city.trim().toUpperCase()
-                    : result.name !== undefined && result.name !== null
-                    ? result.name.trim().toUpperCase()
-                    : 'Unknown city'
-            );
-            result['isCity_supported'] = true;
+
+            result['isCity_supported'] =
+                !!SUPPORTED_CITIES[result.city.trim().toLowerCase()];
+
+            result['supported_services'] = result?.isCity_supported
+                ? SUPPORTED_CITIES[result.city.trim().toLowerCase()]
+                : [];
+
+            //Add suburb from district if none
+            if (!result?.suburb && result?.district) {
+                result['suburb'] = result?.district;
+            }
+
+            //Add location name from street name if none
+            if (!result?.location_name && result?.street) {
+                result['location_name'] = result?.street;
+                result['street_name'] = result?.street;
+            }
+
             //! Replace Samora Machel Constituency by Wanaheda
             if (
                 result.suburb !== undefined &&
@@ -2117,13 +2132,12 @@ exports.getUserLocationInfos = async (latitude, longitude, userId) => {
             ) {
                 result.suburb = 'Wanaheda';
                 return result;
-            } else {
-                return result;
             }
+
+            return result;
         } //False returned
-        else {
-            return false;
-        }
+
+        return false;
     } catch (error) {
         console.error(error);
         return false;
@@ -2139,7 +2153,7 @@ exports.getSearchedLocations = async (query) => {
         //..
         logger.info(query);
         //Update search timestamp
-        let search_timestamp = new Date().getTime();
+        const search_timestamp = new Date().getTime();
         state =
             state !== undefined
                 ? state.replace(/ Region/i, '').trim()
@@ -2152,6 +2166,16 @@ exports.getSearchedLocations = async (query) => {
             search_timestamp,
             query
         );
+
+        //Add suburb as district if not found
+        if (result?.result) {
+            result.result = result.result.map((location) => {
+                if (!location?.suburb && location?.district) {
+                    location['suburb'] = location.district;
+                }
+                return location;
+            });
+        }
 
         return result;
     } catch (error) {

@@ -1,4 +1,6 @@
 const _ = require('lodash');
+const { v4: uuidv4 } = require('uuid');
+
 const Payments = require('../../models/Payments');
 const { getHumReadableWalletTrxDescription } = require('../Utils');
 const { logger } = require('../../LogService');
@@ -14,7 +16,8 @@ exports.getBalance = async (userId) => {
         const totalTopup = transactions
             .filter(
                 (transaction) =>
-                    transaction.transaction_description === 'WALLET_TOPUP'
+                    transaction.transaction_description === 'WALLET_TOPUP' ||
+                    transaction.transaction_description === 'SIGNUP_CREDITS'
             )
             .reduce((acc, curr) => acc + curr.amount, 0);
 
@@ -83,4 +86,18 @@ exports.getCorporateBalance = async (userId) => {
             transactionHistory: [],
         };
     }
+};
+
+exports.giveFreeSignupCredits = async (userId) => {
+    const amount = 100;
+
+    const payment = new Payments({
+        id: uuidv4(),
+        user_id: userId,
+        amount,
+        currency: 'nad',
+        transaction_description: 'SIGNUP_CREDITS',
+    });
+
+    return await payment.save();
 };

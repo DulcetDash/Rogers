@@ -41,7 +41,17 @@ const userSchema = new dynamoose.Schema(
             },
         },
         selected_industry: String,
-        company_name: String,
+        company_name: {
+            type: String,
+            required: false,
+            index: {
+                global: true,
+                rangeKey: 'id',
+                name: 'company_name-index',
+                project: true,
+                throughput: 'ON_DEMAND',
+            },
+        },
         account: {
             type: Object,
             schema: {
