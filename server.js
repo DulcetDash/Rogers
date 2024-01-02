@@ -32,6 +32,7 @@ const {
     shouldSendNewSMS,
     getStripePriceName,
     getRequestLitteralStatus,
+    checkImageUrl,
 } = require('./Utility/Utils');
 const _ = require('lodash');
 
@@ -94,37 +95,11 @@ const {
 const Subscriptions = require('./models/Subscriptions');
 const { sendEmail } = require('./Utility/sendEmail');
 
-const whitelist = [
-    'http://localhost:3000',
-    // /\.dulcetdash\.com/,
-    'https://business.dulcetdash.com/',
-    'business.dulcetdash.com/',
-    'business.dulcetdash.com/*',
-    'www.business.dulcetdash.com/',
-    'www.business.dulcetdash.com',
-    'https://83g3kkzu8r.us-east-1.awsapprunner.com/',
-];
-
-const corsOptions = {
-    origin: function (origin, callback) {
-        if (whitelist.indexOf(origin) !== -1 || !origin) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    credentials: true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    optionsSuccessStatus: 204,
-    allowedHeaders: 'Content-Type,Authorization',
-};
-
-// app.use(cors(corsOptions));
 app.use(
     cors({
         origin:
             process.env.EVIRONMENT === 'dev'
-                ? 'http://localhost:3000'
+                ? ['http://localhost:3000', 'http://localhost:61257']
                 : /\.dulcetdash\.com/,
         credentials: true,
     })
@@ -229,7 +204,16 @@ const getStores = async () => {
  * @param resolve
  */
 const getCatalogueFor = async (body) => {
-    const { store: storeFp, category, subcategory, structured } = body;
+    const {
+        store: storeFp,
+        category,
+        subcategory,
+        structured,
+        doubleCheckImage,
+        getAllItems,
+    } = body;
+    const shouldDoubleCheckImage = !!doubleCheckImage;
+    const shouldGetAllItems = !!getAllItems;
 
     const shop = await StoreModel.get(storeFp);
 
@@ -283,10 +267,15 @@ const getCatalogueFor = async (body) => {
         );
 
         //?Limit all the results to 200 products
-        productsData = productsData.slice(paginationStart, paginationEnd);
+        if (!shouldGetAllItems) {
+            productsData = productsData.slice(paginationStart, paginationEnd);
+        }
 
         //Create presigned product links for the ones we host (s3://)
-        productsData = await batchPresignProductsLinks(productsData);
+        productsData = await batchPresignProductsLinks(
+            productsData,
+            shouldDoubleCheckImage
+        );
 
         //Reformat the data
         const reformattedData = await Promise.all(
@@ -1212,92 +1201,152 @@ app.post('/getCatalogueFor', authenticate, async (req, res) => {
     }
 });
 
-//?3. Search in  the catalogue of a  specific shop
-app.post(
-    '/getResultsForKeywords',
-    // , authenticate
-    async (req, res) => {
-        try {
-            const {
-                category,
-                subcategory,
-                store_fp: shop_fp,
-                store: product_name,
-                key,
-            } = req.body;
+app.post('/getProducts', async (req, res) => {
+    try {
+        const { selectedStore: userSelectedStore, productType } = req.body;
 
-            if (key && shop_fp) {
-                const redisKey = `${shop_fp}-${key}-searchedProduct`;
+        logger.warn(req.body);
 
-                const cachedData = await Redis.get(redisKey);
+        //1. Get the list of all the shops
+        const stores = (await StoreModel.scan().exec()).map((store) => ({
+            id: store.id,
+            value: store?.id,
+            label: store?.friendly_name,
+            description: store?.description,
+            publish: store?.publish,
+        }));
 
-                let products = cachedData
-                    ? JSON.parse(cachedData)
-                    : await searchProducts(process.env.CATALOGUE_INDEX, {
-                          shop_fp,
-                          product_name,
-                          product_name: key,
-                          category,
-                          subcategory,
-                      });
+        // logger.info(stores);
 
-                if (!cachedData && products.length > 0) {
-                    await Redis.set(
-                        redisKey,
-                        JSON.stringify(products),
-                        'EX',
-                        1 * 24 * 3600
+        const selectedStore = userSelectedStore ?? stores[0]?.id;
+
+        const products = await getCatalogueFor({
+            store: selectedStore,
+            doubleCheckImage: true,
+            getAllItems: true,
+        });
+
+        let slicedProducts = products?.response?.slice(0, 500);
+
+        if (productType === 'pictureless') {
+            slicedProducts = await Promise.all(
+                slicedProducts.map(async (product) => {
+                    const isImageAvailable = await checkImageUrl(
+                        product.pictures[0]
                     );
-                }
 
-                products = await batchPresignProductsLinks(products);
+                    product.pictures = [
+                        !isImageAvailable ? 'false' : product.pictures[0],
+                    ];
 
-                const reformattedData = products.map((product, index) => {
-                    const tmpData = {
-                        ...product,
-                        ...{
-                            product_price: String(product.priceAdjusted),
-                        },
-                        ...{
-                            meta: {
-                                category: product.category,
-                                subcategory: product.subcategory,
-                                store: product.shop_name,
-                                store_fp: shop_fp,
-                                structured: false,
-                            },
-                        },
-                    };
-                    //...
-                    return tmpData;
-                });
+                    return product;
+                })
+            );
 
-                const privateKeys = [
-                    'website_link',
-                    'used_link',
-                    'local_images_registry',
-                    'createdAt',
-                    'priceAdjusted',
-                ];
+            slicedProducts = slicedProducts.filter(
+                (product) =>
+                    !product?.pictures?.[0] ||
+                    product?.pictures?.[0] === 'false'
+            );
+        }
 
-                const safeProducts = _.map(reformattedData, (obj) =>
-                    _.omit(obj, privateKeys)
+        res.json({
+            status: 'success',
+            data: {
+                stores,
+                totalProducts: products?.response?.length ?? 0,
+                products: slicedProducts,
+                selectedStore: products?.store,
+            },
+        });
+    } catch (error) {
+        logger.error(error);
+        res.send({ status: 'fail', data: {} });
+    }
+});
+
+//?3. Search in  the catalogue of a  specific shop
+app.post('/getResultsForKeywords', authenticate, async (req, res) => {
+    try {
+        const {
+            category,
+            subcategory,
+            store_fp: shop_fp,
+            store: product_name,
+            key,
+        } = req.body;
+
+        if (key && shop_fp) {
+            const redisKey = `${shop_fp}-${key}-searchedProduct`;
+
+            const cachedData = await Redis.get(redisKey);
+
+            let products = cachedData
+                ? JSON.parse(cachedData)
+                : await searchProducts(process.env.CATALOGUE_INDEX, {
+                      shop_fp,
+                      product_name,
+                      product_name: key,
+                      category,
+                      subcategory,
+                  });
+
+            if (!cachedData && products.length > 0) {
+                await Redis.set(
+                    redisKey,
+                    JSON.stringify(products),
+                    'EX',
+                    1 * 24 * 3600
                 );
-
-                res.send({
-                    count: reformattedData.length,
-                    response: safeProducts,
-                });
-            } //No valid data
-            else {
-                res.send({ response: [] });
             }
-        } catch (error) {
-            logger.error(error);
+
+            products = await batchPresignProductsLinks(products);
+
+            const reformattedData = products.map((product, index) => {
+                const tmpData = {
+                    ...product,
+                    ...{
+                        product_price: String(product.priceAdjusted),
+                    },
+                    ...{
+                        meta: {
+                            category: product.category,
+                            subcategory: product.subcategory,
+                            store: product.shop_name,
+                            store_fp: shop_fp,
+                            structured: false,
+                        },
+                    },
+                };
+                //...
+                return tmpData;
+            });
+
+            const privateKeys = [
+                'website_link',
+                'used_link',
+                'local_images_registry',
+                'createdAt',
+                'priceAdjusted',
+            ];
+
+            const safeProducts = _.map(reformattedData, (obj) =>
+                _.omit(obj, privateKeys)
+            );
+
+            res.send({
+                count: reformattedData.length,
+                response: safeProducts,
+            });
+        } //No valid data
+        else {
             res.send({ response: [] });
         }
+    } catch (error) {
+        logger.error(error);
+        res.send({ response: [] });
     }
-);
+});
 
 //?5. Get location search suggestions
 app.post('/getSearchedLocations', authenticate, async (req, res) => {
@@ -2403,7 +2452,7 @@ app.post('/geocode_this_point', authenticate, async (req, res) => {
 
             //? Add/Remove additional services
             // More services: wallet
-            if (!location?.supported_services) {
+            if (location !== false && !location?.supported_services) {
                 location.supported_services = [];
             }
 
@@ -2789,7 +2838,7 @@ app.post(
  * event: declineRequest_driver
  * Decline any request from the driver's side.
  */
-app.post('/declineRequest_driver', authenticate, function (req, res) {
+app.post('/declineRequest_driver', authenticate, async (req, res) => {
     //logger.info(req);
     req = req.body;
     if (
@@ -3996,21 +4045,21 @@ app.post('/loginOrChecksForAdmins', async (req, res) => {
                 return res.send({ response: 'incorrect_credentials' });
 
             //Generate the otp - 8-digits
-            let otp = otpGenerator.generate(8, {
+            let generatedOtp = otpGenerator.generate(8, {
                 lowerCaseAlphabets: false,
                 upperCaseAlphabets: false,
                 specialChars: false,
             });
-            otp =
-                String(otp).length < 8
-                    ? parseInt(otp, 10) * 10
-                    : parseInt(otp, 10);
+            generatedOtp =
+                String(generatedOtp).length < 8
+                    ? parseInt(generatedOtp, 10) * 10
+                    : parseInt(generatedOtp, 10);
 
             //Update security PIN
             await AdminsModel.update(
                 { id: adminData.id },
                 {
-                    security_pin: otp,
+                    security_pin: generatedOtp,
                 }
             );
 
@@ -4021,7 +4070,7 @@ app.post('/loginOrChecksForAdmins', async (req, res) => {
                 fromEmail: 'support@dulcetdash.com',
                 fromName: 'DulcetDash - Cesar',
                 subject: 'Admin Verification Code',
-                message: `Hi Admin\n\n Verification code: ${otp}`,
+                message: `Hi Admin\n\n Verification code: ${generatedOtp}`,
             });
 
             //?DONE
@@ -4035,7 +4084,7 @@ app.post('/loginOrChecksForAdmins', async (req, res) => {
             });
         } //Check logins with OTP for login
         else {
-            otp = parseInt(otp.trim());
+            otp = parseInt(otp.trim(), 10);
             email = email.trim();
             password = password.trim();
             adminId = adminId.trim();

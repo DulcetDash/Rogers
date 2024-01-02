@@ -2099,10 +2099,7 @@ exports.getUserLocationInfos = async (latitude, longitude, userId) => {
         if (result) {
             //! SUPPORTED CITIES & SERVICES
             const SUPPORTED_CITIES = {
-                windhoek: [
-                    'delivery',
-                    // 'shopping'
-                ],
+                windhoek: ['delivery', 'shopping'],
             };
             //? Attach the supported city state
 

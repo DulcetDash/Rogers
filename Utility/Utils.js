@@ -6,9 +6,9 @@ const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 const moment = require('moment');
+const axios = require('axios');
 const { ESClient } = require('./ESClient');
 const AWS = require('aws-sdk');
-const { default: axios } = require('axios');
 const UserModel = require('../models/UserModel');
 const { getItinaryInformation } = require('./Maps/Utils');
 const { logger } = require('../LogService');
@@ -565,7 +565,10 @@ exports.getDailyAmountDriverRedisKey = (driverId) => {
     return `dailyAmount-${now.getDay()}-${now.getMonth()}-${now.getFullYear()}-${driverId}`;
 };
 
-exports.batchPresignProductsLinks = async (productsData) => {
+exports.batchPresignProductsLinks = async (
+    productsData,
+    shouldDoubleCheckImage = false
+) => {
     //Create presigned product links for the ones we host (s3://)
     productsData = await Promise.all(
         productsData.map(async (product) => {
@@ -581,6 +584,7 @@ exports.batchPresignProductsLinks = async (productsData) => {
                     );
 
                     product.product_picture = [presignedURL];
+
                     //Cache the presigned URL - Has to be less than presign time
                     await Redis.set(
                         s3URIImage,
@@ -588,9 +592,12 @@ exports.batchPresignProductsLinks = async (productsData) => {
                         'EX',
                         1 * 24 * 3600
                     );
-                } else {
-                    product.product_picture = [cachedPresignedImage];
+
+                    return product;
                 }
+
+                product.product_picture = [cachedPresignedImage];
+                return product;
             }
             return product;
         })
@@ -863,4 +870,16 @@ exports.getRequestLitteralStatus = (request) => {
     }
 
     return 'pending';
+};
+
+exports.checkImageUrl = async (url) => {
+    try {
+        const response = await axios.get(url, {
+            responseType: 'stream',
+        });
+
+        return response.headers['content-type'].startsWith('image/');
+    } catch (error) {
+        return false;
+    }
 };
