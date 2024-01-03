@@ -3,10 +3,13 @@ const _ = require('lodash');
 require('dotenv').config();
 
 const dayjs = require('dayjs');
+const async = require('async');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 const moment = require('moment');
 const axios = require('axios');
+const { promisify } = require('util');
+const fs = require('fs');
 const { ESClient } = require('./ESClient');
 const AWS = require('aws-sdk');
 const UserModel = require('../models/UserModel');
@@ -874,12 +877,81 @@ exports.getRequestLitteralStatus = (request) => {
 
 exports.checkImageUrl = async (url) => {
     try {
-        const response = await axios.get(url, {
-            responseType: 'stream',
+        const redisKey = `${url}-checkedImage`;
+        const cachedPresignedImage = await Redis.get(redisKey);
+
+        if (!cachedPresignedImage) {
+            logger.warn('No cached image found');
+            const response = await axios.get(url, {
+                responseType: 'stream',
+            });
+
+            const isImageValid =
+                response.headers['content-type'].startsWith('image/');
+
+            await Redis.set(
+                redisKey,
+                isImageValid ? url : 'false',
+                'EX',
+                1 * 24 * 3600
+            );
+
+            logger.info('Image cached');
+
+            return isImageValid;
+        }
+
+        logger.info('Cached image found');
+        return cachedPresignedImage !== 'false';
+    } catch (error) {
+        logger.error(`Error:${url}`);
+        return false;
+    }
+};
+
+exports.checkAllImages = async (products) => {
+    const limit = 10; // Adjust the concurrency limit as needed
+
+    return async.mapLimit(products, limit, async (product) => {
+        const isImageAvailable = await exports.checkImageUrl(
+            product.pictures[0]
+        );
+
+        product.pictures = [!isImageAvailable ? 'false' : product.pictures[0]];
+        return product;
+    });
+};
+
+exports.uploadFileToS3FromMulter = async ({
+    file,
+    bucketName,
+    objectKey,
+    // imageType = 'jpeg',
+}) => {
+    const s3 = new AWS.S3();
+    const uploadAsync = promisify(s3.upload.bind(s3));
+
+    try {
+        // Set up S3 upload parameters
+        const params = {
+            Bucket: bucketName, // S3 Bucket name
+            Key: `${objectKey}/${file.originalname}`, // File name you want to save as
+            Body: fs.createReadStream(file.path),
+            ContentType: file.mimetype,
+            // ACL: 'public-read', // Adjust the ACL according to your needs
+        };
+
+        // Uploading file to S3 using async/await
+        const data = await uploadAsync(params);
+
+        console.log({
+            message: 'File uploaded successfully!',
+            data: data.Location,
         });
 
-        return response.headers['content-type'].startsWith('image/');
+        return `s3://${bucketName}/${objectKey}/${file.originalname}`;
     } catch (error) {
+        console.error('Error in uploading file:', error);
         return false;
     }
 };

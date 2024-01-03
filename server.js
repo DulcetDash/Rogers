@@ -12,6 +12,7 @@ const Redis = require('./Utility/redisConnector');
 const bcrypt = require('bcrypt');
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
+const multer = require('multer');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const useragent = require('express-useragent');
 
@@ -33,7 +34,14 @@ const {
     getStripePriceName,
     getRequestLitteralStatus,
     checkImageUrl,
+    checkAllImages,
+    uploadFileToS3FromMulter,
 } = require('./Utility/Utils');
+const {
+    presignS3URL,
+    extractS3ImagePath,
+    generateCloudfrontSignedUrl,
+} = require('./Utility/PresignDocs');
 const _ = require('lodash');
 
 const dynamoose = require('dynamoose');
@@ -74,7 +82,6 @@ const {
 const RequestsModel = require('./models/RequestsModel');
 const DriversModel = require('./models/DriversModel');
 const StoreModel = require('./models/StoreModel');
-const { presignS3URL } = require('./Utility/PresignDocs');
 const { storeTimeStatus, searchProducts } = require('./Utility/Utils');
 const CatalogueModel = require('./models/CatalogueModel');
 const {
@@ -209,10 +216,9 @@ const getCatalogueFor = async (body) => {
         category,
         subcategory,
         structured,
-        doubleCheckImage,
         getAllItems,
+        customPageSize,
     } = body;
-    const shouldDoubleCheckImage = !!doubleCheckImage;
     const shouldGetAllItems = !!getAllItems;
 
     const shop = await StoreModel.get(storeFp);
@@ -234,7 +240,7 @@ const getCatalogueFor = async (body) => {
     );
 
     const pageNumber = body?.pageNumber ? parseInt(body?.pageNumber, 10) : 1;
-    const pageSize = 200;
+    const pageSize = customPageSize ?? 200;
 
     const paginationStart = (pageNumber - 1) * pageSize;
     const paginationEnd = pageNumber * pageSize;
@@ -262,20 +268,20 @@ const getCatalogueFor = async (body) => {
     }
 
     if (productsData?.count > 0 || productsData?.length > 0) {
-        productsData = shuffle(
-            paginationStart > productsData.length ? [] : productsData
-        );
-
         //?Limit all the results to 200 products
-        if (!shouldGetAllItems) {
-            productsData = productsData.slice(paginationStart, paginationEnd);
-        }
+        console.log('Number of products : ', productsData.length);
+        console.log(paginationStart, paginationEnd);
+        productsData = productsData.slice(paginationStart, paginationEnd);
+
+        console.log('SLiced products number : ', productsData.length);
+
+        productsData = shuffle(
+            // paginationStart > productsData.length ? [] :
+            productsData
+        );
 
         //Create presigned product links for the ones we host (s3://)
-        productsData = await batchPresignProductsLinks(
-            productsData,
-            shouldDoubleCheckImage
-        );
+        productsData = await batchPresignProductsLinks(productsData);
 
         //Reformat the data
         const reformattedData = await Promise.all(
@@ -1051,6 +1057,9 @@ app.post('/webhook', bodyParser.raw({ type: '*/*' }), async (req, res) => {
     res.send();
 });
 
+// Configure Multer
+const upload = multer({ dest: 'uploads/' });
+
 app.use(
     express.json({
         limit: '1000mb',
@@ -1201,9 +1210,58 @@ app.post('/getCatalogueFor', authenticate, async (req, res) => {
     }
 });
 
+app.post('/uploadProductPicture', upload.single('image'), async (req, res) => {
+    const { file } = req;
+    const { storeId, productId } = req.body;
+
+    console.log(productId);
+
+    if (!storeId || !productId)
+        return res
+            .status(400)
+            .json({ status: 'Error', message: 'Missing essential Id' });
+
+    const bucketName = 'products-images-catalogue-dd';
+    const objectKey = `${storeId}/${productId}`;
+
+    const newProductImage = await uploadFileToS3FromMulter({
+        file,
+        bucketName,
+        objectKey,
+    });
+
+    await CatalogueModel.update(
+        {
+            id: productId,
+        },
+        {
+            product_picture: [newProductImage],
+        }
+    );
+
+    const presignedURL = await generateCloudfrontSignedUrl(
+        `${process.env.DD_PRODUCTS_IMAGES_CLOUDFRONT_LINK}/${extractS3ImagePath(
+            newProductImage
+        )}`
+    );
+
+    await Redis.del(`${storeId}-catalogue`);
+
+    return res.json({
+        status: 'success',
+        data: {
+            updatedImage: presignedURL,
+        },
+    });
+});
+
 app.post('/getProducts', async (req, res) => {
     try {
-        const { selectedStore: userSelectedStore, productType } = req.body;
+        const {
+            selectedStore: userSelectedStore,
+            productType,
+            pageNumber,
+        } = req.body;
 
         logger.warn(req.body);
 
@@ -1223,38 +1281,35 @@ app.post('/getProducts', async (req, res) => {
         const products = await getCatalogueFor({
             store: selectedStore,
             doubleCheckImage: true,
-            getAllItems: true,
+            pageNumber,
+            customPageSize: 500,
         });
 
-        let slicedProducts = products?.response?.slice(0, 500);
+        let productsResponse = products?.response;
 
         if (productType === 'pictureless') {
-            slicedProducts = await Promise.all(
-                slicedProducts.map(async (product) => {
-                    const isImageAvailable = await checkImageUrl(
-                        product.pictures[0]
-                    );
+            productsResponse = await checkAllImages(productsResponse);
 
-                    product.pictures = [
-                        !isImageAvailable ? 'false' : product.pictures[0],
-                    ];
-
-                    return product;
-                })
-            );
-
-            slicedProducts = slicedProducts.filter(
+            console.log('Products checked', productsResponse.length);
+            productsResponse = productsResponse.filter(
                 (product) =>
-                    !product?.pictures?.[0] ||
-                    product?.pictures?.[0] === 'false'
+                    !product?.pictures?.[0] || product?.pictures[0] === 'false'
+            );
+            console.log(
+                'Products with invalid images',
+                productsResponse.length
             );
         }
+
+        // console.log(products);
+
+        const slicedProducts = productsResponse;
 
         res.json({
             status: 'success',
             data: {
                 stores,
-                totalProducts: products?.response?.length ?? 0,
+                totalProducts: productsResponse?.length ?? 0,
                 products: slicedProducts,
                 selectedStore: products?.store,
             },
@@ -1285,7 +1340,6 @@ app.post('/getResultsForKeywords', authenticate, async (req, res) => {
                 ? JSON.parse(cachedData)
                 : await searchProducts(process.env.CATALOGUE_INDEX, {
                       shop_fp,
-                      product_name,
                       product_name: key,
                       category,
                       subcategory,
