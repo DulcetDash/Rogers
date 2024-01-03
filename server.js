@@ -1214,8 +1214,6 @@ app.post('/uploadProductPicture', upload.single('image'), async (req, res) => {
     const { file } = req;
     const { storeId, productId } = req.body;
 
-    console.log(productId);
-
     if (!storeId || !productId)
         return res
             .status(400)

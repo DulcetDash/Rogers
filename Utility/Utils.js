@@ -922,12 +922,7 @@ exports.checkAllImages = async (products) => {
     });
 };
 
-exports.uploadFileToS3FromMulter = async ({
-    file,
-    bucketName,
-    objectKey,
-    // imageType = 'jpeg',
-}) => {
+exports.uploadFileToS3FromMulter = async ({ file, bucketName, objectKey }) => {
     const s3 = new AWS.S3();
     const uploadAsync = promisify(s3.upload.bind(s3));
 
@@ -938,7 +933,6 @@ exports.uploadFileToS3FromMulter = async ({
             Key: `${objectKey}/${file.originalname}`, // File name you want to save as
             Body: fs.createReadStream(file.path),
             ContentType: file.mimetype,
-            // ACL: 'public-read', // Adjust the ACL according to your needs
         };
 
         // Uploading file to S3 using async/await
