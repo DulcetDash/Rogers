@@ -949,6 +949,8 @@ exports.uploadFileToS3FromMulter = async ({
             data: data.Location,
         });
 
+        fs.unlinkSync(file.path);
+
         return `s3://${bucketName}/${objectKey}/${file.originalname}`;
     } catch (error) {
         console.error('Error in uploading file:', error);
