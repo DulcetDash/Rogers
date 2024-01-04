@@ -710,7 +710,7 @@ function generateGraphDataFromRequestsData({ requestData }) {
         .filter(
             (el) =>
                 isDateWithinTheLastXDays({
-                    dateString: el.date_requested,
+                    dateString: el?.date_requested,
                     dayLimit: limitDays,
                 }).check
         )
