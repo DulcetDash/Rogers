@@ -109,7 +109,7 @@ app.use(
         origin:
             process.env.EVIRONMENT === 'dev'
                 ? ['http://localhost:3000', 'http://localhost:61257']
-                : /\.dulcetdash\.com/,
+                : [/\.dulcetdash\.com/, /\.cesar\.dulcetdash\.com/],
         credentials: true,
     })
 );
