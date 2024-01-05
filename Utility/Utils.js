@@ -955,3 +955,53 @@ exports.uploadFileToS3FromMulter = async ({ file, bucketName, objectKey }) => {
         return false;
     }
 };
+
+exports.checkBlurriness = async (url) => {
+    try {
+        const redisKey = `${url}-checkedBlurryImage`;
+        let cachedBlurryCheckedImage = await Redis.get(redisKey);
+
+        if (!cachedBlurryCheckedImage) {
+            logger.warn('No cached image found');
+            const response = await axios.post(
+                'http://18.204.117.172:7575/check',
+                {
+                    imageUrl: url,
+                }
+            );
+
+            if (response.data?.message) {
+                await Redis.set(
+                    redisKey,
+                    JSON.stringify(response.data),
+                    'EX',
+                    1 * 24 * 3600
+                );
+
+                logger.info('Image cached');
+                logger.info(response.data);
+                return response.data;
+            }
+
+            return null;
+        }
+
+        logger.info('Cached image found');
+        return JSON.parse(cachedBlurryCheckedImage);
+    } catch (error) {
+        logger.error(error);
+        return null;
+    }
+};
+
+exports.checkAllImagesBluriness = async (products) => {
+    const limit = 10; // Adjust the concurrency limit as needed
+
+    return async.mapLimit(products, limit, async (product) => {
+        const blurriness = await exports.checkBlurriness(product.pictures[0]);
+
+        product.isBlurry = !blurriness ? false : blurriness?.blurScore > 1.5;
+
+        return product;
+    });
+};

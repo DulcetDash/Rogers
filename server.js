@@ -36,6 +36,8 @@ const {
     checkImageUrl,
     checkAllImages,
     uploadFileToS3FromMulter,
+    checkBlurriness,
+    checkAllImagesBluriness,
 } = require('./Utility/Utils');
 const {
     presignS3URL,
@@ -271,6 +273,7 @@ const getCatalogueFor = async (body) => {
         //?Limit all the results to 200 products
         console.log('Number of products : ', productsData.length);
         console.log(paginationStart, paginationEnd);
+
         productsData = productsData.slice(paginationStart, paginationEnd);
 
         console.log('SLiced products number : ', productsData.length);
@@ -1172,8 +1175,6 @@ app.post('/uploadProductPicture', upload.single('image'), async (req, res) => {
         )}`
     );
 
-    await Redis.del(`${storeId}-catalogue`);
-
     return res.json({
         status: 'success',
         data: {
@@ -1205,27 +1206,52 @@ app.post('/getProducts', async (req, res) => {
 
         const selectedStore = userSelectedStore ?? stores[0]?.id;
 
-        const products = await getCatalogueFor({
-            store: selectedStore,
-            doubleCheckImage: true,
-            pageNumber,
-            customPageSize: 500,
-        });
+        let productsResponse = null;
+        let products = null;
 
-        let productsResponse = products?.response;
+        if (productType !== 'blurry') {
+            products = await getCatalogueFor({
+                store: selectedStore,
+                doubleCheckImage: true,
+                pageNumber,
+                customPageSize: 1500,
+            });
 
-        if (productType === 'pictureless') {
-            productsResponse = await checkAllImages(productsResponse);
+            productsResponse = products?.response;
+
+            if (productType === 'pictureless') {
+                productsResponse = await checkAllImages(productsResponse);
+
+                console.log('Products checked', productsResponse.length);
+                productsResponse = productsResponse.filter(
+                    (product) =>
+                        !product?.pictures?.[0] ||
+                        product?.pictures[0] === 'false'
+                );
+                console.log(
+                    'Products with invalid images',
+                    productsResponse.length
+                );
+            }
+        }
+
+        if (productType === 'blurry') {
+            products = await getCatalogueFor({
+                store: selectedStore,
+                doubleCheckImage: true,
+                pageNumber,
+                customPageSize: 15000,
+            });
+
+            productsResponse = products?.response;
+
+            productsResponse = await checkAllImagesBluriness(productsResponse);
 
             console.log('Products checked', productsResponse.length);
             productsResponse = productsResponse.filter(
-                (product) =>
-                    !product?.pictures?.[0] || product?.pictures[0] === 'false'
+                (product) => product?.isBlurry
             );
-            console.log(
-                'Products with invalid images',
-                productsResponse.length
-            );
+            console.log('Products with blurry images', productsResponse.length);
         }
 
         // console.log(products);
