@@ -926,11 +926,15 @@ exports.uploadFileToS3FromMulter = async ({ file, bucketName, objectKey }) => {
     const s3 = new AWS.S3();
     const uploadAsync = promisify(s3.upload.bind(s3));
 
+    console.log(file);
+    let filename = file.originalname.split('.');
+    filename = `${uuidv4()}.${filename[filename.length - 1]}`;
+
     try {
         // Set up S3 upload parameters
         const params = {
             Bucket: bucketName, // S3 Bucket name
-            Key: `${objectKey}/${file.originalname}`, // File name you want to save as
+            Key: `${objectKey}/${filename}`, // File name you want to save as
             Body: fs.createReadStream(file.path),
             ContentType: file.mimetype,
         };
@@ -945,7 +949,7 @@ exports.uploadFileToS3FromMulter = async ({ file, bucketName, objectKey }) => {
 
         fs.unlinkSync(file.path);
 
-        return `s3://${bucketName}/${objectKey}/${file.originalname}`;
+        return `s3://${bucketName}/${objectKey}/${filename}`;
     } catch (error) {
         console.error('Error in uploading file:', error);
         return false;

@@ -69,6 +69,10 @@ const catalogueSchema = new dynamoose.Schema(
         },
         website_link: String,
         description: String,
+        wasImage_manuallyUpdated: {
+            type: Boolean,
+            default: false,
+        },
     },
     {
         // timestamps: true,

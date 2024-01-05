@@ -73,6 +73,7 @@ exports.handler = async (event) => {
                                 },
                                 {
                                     priceAdjusted: priceAdjusted,
+                                    currency: 'N$',
                                 }
                             );
                         })

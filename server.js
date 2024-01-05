@@ -807,78 +807,6 @@ function getDates(startDate, stopDate) {
     return dateArray;
 }
 
-/**
- * @func sendTargetedPushNotifications
- * Responsible for sending push notifications for new requests (rides, deliveries of shopping)
- * @param request_type: RIDE, DELIVERY or SHOPPING
- * @param fare: the fare of the request
- * @param resolve
- */
-function sendTargetedPushNotifications({ request_type, fare, resolve }) {
-    //1. Get all the drivers for this request type
-    dynamo_find_query({
-        table_name: 'drivers_shoppers_central',
-        IndexName: 'operation_clearances',
-        KeyConditionExpression: 'operation_clearances = :val1',
-        ExpressionAttributeValues: {
-            ':val1': request_type.toUpperCase().trim(),
-        },
-    })
-        .then((driversData) => {
-            if (
-                driversData !== undefined &&
-                driversData !== null &&
-                driversData.length > 0
-            ) {
-                //Found some drivers
-                //2. Isolate the drivers notifications token
-                let driversNotifTokens = driversData.map((data) => {
-                    return data.operational_state.pushnotif_token !== null &&
-                        data.operational_state.pushnotif_token !== undefined
-                        ? data.operational_state.pushnotif_token.userId
-                        : null;
-                });
-
-                logger.info(driversNotifTokens);
-
-                //? 3. Send
-                let message = {
-                    app_id: process.env.DRIVERS_APP_ID_ONESIGNAL,
-                    android_channel_id:
-                        process.env.DRIVERS_ONESIGNAL_CHANNEL_NEW_NOTIFICATION, //Ride or delivery channel
-                    priority: 10,
-                    contents: /RIDE/i.test(request_type)
-                        ? {
-                              en: 'You have a new ride request, click here for more details.',
-                          }
-                        : /DELIVERY/i.test(request_type)
-                        ? {
-                              en: 'You have a new delivery request, click here for more details.',
-                          }
-                        : {
-                              en: 'You have a new shopping request, click here for more details.',
-                          },
-                    headings: /RIDE/i.test(request_type)
-                        ? { en: 'New ride request, N$' + fare }
-                        : /DELIVERY/i.test(request_type)
-                        ? { en: 'New delivery request, N$' + fare }
-                        : { en: 'New shopping request, N$' + fare },
-                    content_available: true,
-                    include_player_ids: driversNotifTokens,
-                };
-                //Send
-                sendPushUPNotification(message);
-            } //No drivers yet
-            else {
-                resolve(false);
-            }
-        })
-        .catch((error) => {
-            logger.error(error);
-            resolve(false);
-        });
-}
-
 //? Check elasticsearch
 logger.info('[*] Elasticsearch connected');
 logger.info('[+] DulcetDash service active');
@@ -1234,6 +1162,7 @@ app.post('/uploadProductPicture', upload.single('image'), async (req, res) => {
         },
         {
             product_picture: [newProductImage],
+            wasImage_manuallyUpdated: true,
         }
     );
 
