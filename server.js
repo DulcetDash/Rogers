@@ -1214,7 +1214,7 @@ app.post('/getProducts', async (req, res) => {
                 store: selectedStore,
                 doubleCheckImage: true,
                 pageNumber,
-                customPageSize: 1500,
+                customPageSize: 30000,
             });
 
             productsResponse = products?.response;
